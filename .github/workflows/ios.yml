@@ -1,0 +1,55 @@
+name: iOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-ipa:
+    name: Unsigned device IPA
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build unsigned IPA
+        run: bash scripts/build-unsigned-ipa.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VCPChat-unsigned-ipa
+          path: dist-ios/*.ipa
+          if-no-files-found: error
+
+  simulator:
+    name: iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build simulator app
+        run: bash scripts/build-ios-simulator.sh

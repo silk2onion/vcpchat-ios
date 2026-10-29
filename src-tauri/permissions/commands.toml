@@ -1,0 +1,24 @@
+[[permission]]
+identifier = "allow-start-chat-stream"
+description = "Start a streaming chat request through the native HTTP client."
+commands.allow = ["start_chat_stream"]
+
+[[permission]]
+identifier = "allow-cancel-chat-stream"
+description = "Cancel a streaming chat request."
+commands.allow = ["cancel_chat_stream"]
+
+[[permission]]
+identifier = "allow-http-request"
+description = "Send a bounded HTTP request to the configured server."
+commands.allow = ["http_request"]
+
+[[permission]]
+identifier = "allow-socket-connect"
+description = "Open a VCP WebSocket channel."
+commands.allow = ["socket_connect"]
+
+[[permission]]
+identifier = "allow-socket-disconnect"
+description = "Close a VCP WebSocket channel."
+commands.allow = ["socket_disconnect"]

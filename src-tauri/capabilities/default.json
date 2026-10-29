@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "VCPChat iOS can call its own server bridge.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:43123", "http://localhost:43123", "http://127.0.0.1:43123/*", "http://localhost:43123/*"]
+  },
+  "permissions": [
+    "core:default",
+    "allow-start-chat-stream",
+    "allow-cancel-chat-stream",
+    "allow-http-request",
+    "allow-socket-connect",
+    "allow-socket-disconnect"
+  ]
+}
