@@ -4,7 +4,7 @@ import Security
 /// Credentials never enter UserDefaults, the chat database, source code or diagnostic logs.
 public actor CredentialVault {
     private let service: String
-    public init(service: String = "app.vcpchat.native") { self.service = service }
+    public init(service: String? = nil) { self.service = service ?? Bundle.main.bundleIdentifier ?? "app.vcpchat.native" }
     public func read(_ name: String) throws -> String {
         var value: CFTypeRef?
         let status = SecItemCopyMatching([kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne] as CFDictionary, &value)

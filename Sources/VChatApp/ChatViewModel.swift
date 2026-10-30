@@ -84,7 +84,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         do {
             let root: URL
             if let isolated = ProcessInfo.processInfo.environment["VCHAT_DATA_DIR"] { root = URL(fileURLWithPath: isolated) }
-            else { root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("VChatNative", isDirectory: true) }
+            else { root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent(Bundle.main.bundleIdentifier == "app.vcpchat.native" ? "VChatNative" : (Bundle.main.bundleIdentifier ?? "VChatNative"), isDirectory: true) }
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let database = try await ChatStore.open(path: root.appendingPathComponent("chat.sqlite").path); store = database
             try await database.recoverInterrupted()
