@@ -2,6 +2,24 @@ import { useRouter } from "vue-router";
 import type { OwnerType } from "../domain";
 import { useLibraryStore } from "../stores/library";
 
+export const primaryTabs = [
+  { to: "/", label: "会话", icon: "chat" },
+  { to: "/agents", label: "通讯录", icon: "agents" },
+  { to: "/me", label: "我", icon: "person" },
+];
+
+export function tabIsActive(tab: string, path: string): boolean {
+  if (tab === "/") return path === "/" || path.startsWith("/chat/") || path === "/chat";
+  if (tab === "/me") return path === "/me" || path === "/notes" || path === "/logs" || path === "/settings" || path.startsWith("/settings/");
+  return path === tab;
+}
+
+export function pageTransition(next: string, previous: string): string {
+  if ((next === "/" && tabIsActive("/", previous)) || (next === "/me" && previous !== "/me" && tabIsActive("/me", previous)) || (next === "/settings" && (previous.startsWith("/settings/") || previous === "/logs"))) return "page-back";
+  if (next.startsWith("/chat") || next === "/notes" || next === "/logs" || next.startsWith("/settings")) return "page-forward";
+  return "page-tab";
+}
+
 export function useChatNavigation() {
   const router = useRouter();
   const library = useLibraryStore();

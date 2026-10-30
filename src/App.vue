@@ -10,25 +10,15 @@ import AppWallpaper from "./components/AppWallpaper.vue";
 import ActivityPanel from "./components/ActivityPanel.vue";
 import SpeechPlayer from "./components/SpeechPlayer.vue";
 import { useSpeechStore } from "./stores/speech";
+import { pageTransition, primaryTabs, tabIsActive } from "./ui/navigation";
 
 const route = useRoute();
 const workspace = useWorkspaceStore();
 const speech = useSpeechStore();
 const transition = ref("page-tab");
 watch(() => route.path, (next, previous) => {
-  transition.value = next === "/" && previous.startsWith("/chat") || next === "/settings" && previous.startsWith("/settings/") ? "page-back" : next.startsWith("/chat") || next.startsWith("/settings/") ? "page-forward" : "page-tab";
+  transition.value = pageTransition(next, previous);
 });
-const tabs = [
-  { to: "/", label: "会话", icon: "chat" },
-  { to: "/agents", label: "Agent", icon: "agents" },
-  { to: "/notes", label: "笔记", icon: "notes" },
-  { to: "/settings", label: "设置", icon: "settings" },
-];
-const active = (to: string) =>
-  to === "/"
-    ? route.path === "/" || route.path.startsWith("/chat")
-    : route.path.startsWith(to) ||
-      (to === "/settings" && route.path === "/logs");
 </script>
 
 <template>
@@ -44,10 +34,11 @@ const active = (to: string) =>
     </main>
     <nav class="tabbar" aria-label="主导航">
       <RouterLink
-        v-for="tab in tabs"
+        v-for="tab in primaryTabs"
         :key="tab.to"
         :to="tab.to"
-        :class="{ active: active(tab.to) }"
+        :class="{ active: tabIsActive(tab.to, route.path) }"
+        :aria-current="tabIsActive(tab.to, route.path) ? 'page' : undefined"
       ><AppIcon :name="tab.icon" :size="22" /><span>{{
         tab.label
       }}</span></RouterLink>

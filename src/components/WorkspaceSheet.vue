@@ -10,9 +10,12 @@ import AppIcon from "./AppIcon.vue";
 import AppSheet from "./AppSheet.vue";
 import AvatarEditor from "./AvatarEditor.vue";
 import RegexEditor from "./RegexEditor.vue";
+import ModelField from "./ModelField.vue";
+import { useSettingsStore } from "../stores/settings";
 import { useSpeechStore } from "../stores/speech";
 
 const library = useLibraryStore();
+const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
 const router = useRouter();
 const route = useRoute();
@@ -294,11 +297,7 @@ async function remove() {
         maxlength="100"
         placeholder="它擅长什么"
       /></label>
-      <label class="field">模型<input
-        v-model="model"
-        type="text"
-        placeholder="留空使用设置里的默认模型"
-      /></label>
+      <ModelField v-model="model" label="模型" placeholder="留空使用设置里的默认模型" inherit :inherited-model="settings.settings.defaultModel" />
       <label class="field">系统提示<textarea
         v-model="prompt"
         rows="5"

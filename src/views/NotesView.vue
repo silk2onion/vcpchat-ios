@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useNotesStore } from "../stores/notes";
+import AppIcon from "../components/AppIcon.vue";
 
 const notes = useNotesStore();
 const mode = ref<"local" | "server">("local");
@@ -26,10 +27,9 @@ async function save() {
 
 <template>
   <section class="screen">
-    <header class="spread">
-      <div>
-        <h1>笔记</h1>
-      </div>
+    <header class="spread notes-header">
+      <RouterLink to="/me" class="icon-button" aria-label="返回我"><AppIcon name="back" /></RouterLink>
+      <h1>笔记</h1>
       <div class="segmented" role="tablist">
         <button type="button" :aria-pressed="mode === 'local'" @click="mode = 'local'">本机</button>
         <button type="button" :aria-pressed="mode === 'server'" @click="mode = 'server'">服务器日记</button>
@@ -84,3 +84,6 @@ async function save() {
     </div>
   </section>
 </template>
+<style scoped>
+.notes-header{gap:10px;flex-wrap:wrap}.notes-header h1{flex:1}.notes-header .segmented{margin-left:auto}
+</style>

@@ -7,15 +7,21 @@ export const useSettingsStore = defineStore("settings", () => {
   const settings = ref<Settings>(defaultSettings());
   const ready = ref(false);
   const status = ref("");
+  let connection = { serverUrl: "", apiKey: "" };
 
   async function load() {
     settings.value = await getRepository().getSettings();
+    connection = { serverUrl: settings.value.serverUrl, apiKey: settings.value.apiKey };
     applyTheme(settings.value.theme);
     ready.value = true;
   }
 
   async function patch(partial: Partial<Settings>) {
-    settings.value = { ...settings.value, ...partial };
+    const next = { ...settings.value, ...partial };
+    // Form v-model may already have changed these values before its change event.
+    if ((next.serverUrl !== connection.serverUrl || next.apiKey !== connection.apiKey) && partial.modelCatalog === undefined) next.modelCatalog = null;
+    connection = { serverUrl: next.serverUrl, apiKey: next.apiKey };
+    settings.value = next;
     applyTheme(settings.value.theme);
     await getRepository().saveSettings(settings.value);
     status.value = "已保存在这台设备上";

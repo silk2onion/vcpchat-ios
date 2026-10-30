@@ -9,6 +9,17 @@ describe("indexedDB repository", () => {
     indexedDB.deleteDatabase("vcpchat-ios");
   });
 
+  test("model catalogs survive reopening while old settings gain an empty cache", async () => {
+    const repository = createIndexedDbRepository();
+    const legacy: Record<string, unknown> = { ...defaultSettings(), defaultModel: "manual/ID" };
+    delete legacy.modelCatalog;
+    await repository.saveSettings(legacy as never);
+    expect((await repository.getSettings()).modelCatalog).toBeNull();
+    const modelCatalog = { endpoint: "http://localhost:43128/v1/models", ids: ["provider/Case:free", "other/model"], recent: ["other/model"], updatedAt: 123 };
+    await repository.saveSettings({ ...await repository.getSettings(), modelCatalog });
+    expect(await createIndexedDbRepository().getSettings()).toMatchObject({ defaultModel: "manual/ID", modelCatalog });
+  });
+
   test("persists Vue reactive settings and messages", async () => {
     const repository = createIndexedDbRepository();
     const settings = reactive({ ...defaultSettings(), apiKey: "fixture-key", serverUrl: "http://127.0.0.1:9" });

@@ -4,8 +4,8 @@ import { useRoute } from "vue-router";
 import type { Settings } from "../domain";
 import { secretsOf } from "../domain";
 import AppIcon from "../components/AppIcon.vue";
-import { createAppHttp } from "../protocol/http";
-import { listModels } from "../protocol/models";
+import ModelField from "../components/ModelField.vue";
+import { useModelStore } from "../stores/models";
 import { redactSecrets } from "../protocol/redact";
 import { useLibraryStore } from "../stores/library";
 import { useLogStore } from "../stores/logs";
@@ -35,10 +35,11 @@ const section = computed(() =>
     ? route.params.section
     : "",
 );
+const backTo = computed(() => !section.value || section.value === "profile" && route.query.from === "me" ? "/me" : "/settings");
 const showKey = ref(false);
 const modelStatus = ref("");
 const checking = ref(false);
-const models = ref<string[]>([]);
+const models = useModelStore();
 const globalRules = computed({ get: () => settings.settings.regexRules, set: (regexRules) => { void settings.patch({ regexRules }); } });
 const renderSwitches = [
   { key: "renderCode", label: "代码高亮", description: "代码块的语法着色" },
@@ -72,11 +73,10 @@ async function refreshModels() {
   checking.value = true;
   modelStatus.value = "正在连接…";
   try {
-    const http = await createAppHttp();
-    models.value = await listModels(settings.settings, http);
+    const ids = await models.ensure(true);
     if (!settings.settings.defaultModel)
-      await settings.patch({ defaultModel: models.value[0] });
-    modelStatus.value = `连接成功 · ${models.value.length} 个模型`;
+      await settings.patch({ defaultModel: ids[0] });
+    modelStatus.value = `连接成功 · ${ids.length} 个模型`;
   } catch (error) {
     modelStatus.value = redactSecrets(
       error instanceof Error ? error.message : String(error),
@@ -102,13 +102,11 @@ async function clearKeys() {
   <section class="page settings-page">
     <header class="page-header" :class="{ 'detail-header': section }">
       <RouterLink
-        v-if="section"
-        to="/settings"
+        :to="backTo"
         class="icon-button"
-        aria-label="返回设置"
+        :aria-label="backTo === '/me' ? '返回我' : '返回设置'"
       ><AppIcon name="back" /></RouterLink>
       <div>
-        <p v-if="!section" class="eyebrow">让一切顺手</p>
         <h1>{{ section ? titles[section] : "设置" }}</h1>
       </div>
       <span v-if="section && section !== 'about'" class="header-note">本机保存</span>
@@ -192,21 +190,7 @@ async function clearKeys() {
           >
             <option value="standard">OpenAI 兼容</option>
             <option value="vcp-tools">VCP 工具模式</option>
-          </select></label><label class="field">默认模型<input
-            v-model="settings.settings.defaultModel"
-            type="text"
-            list="model-options"
-            placeholder="刷新模型后选择，或手动填写"
-            @change="
-              settings.patch({ defaultModel: settings.settings.defaultModel })
-            "
-          /></label><datalist id="model-options">
-            <option
-              v-for="model in models"
-              :key="model"
-              :value="model"
-            />
-          </datalist><label class="switch-row"><span><strong>发送 Temperature</strong><small>部分模型不接受此参数</small></span><input
+          </select></label><ModelField v-model="settings.settings.defaultModel" label="默认模型" @commit="(defaultModel) => settings.patch({ defaultModel })" /><label class="switch-row"><span><strong>发送 Temperature</strong><small>部分模型不接受此参数</small></span><input
             :checked="settings.settings.sendTemperature"
             type="checkbox"
             role="switch"

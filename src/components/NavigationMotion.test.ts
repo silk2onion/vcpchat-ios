@@ -16,7 +16,7 @@ test("route motion has a real element even when the home view has mobile and des
   const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
   const home = { render: () => [h("section", "手机入口"), h("section", "桌面入口")] };
   const detail = { render: () => h("section", "会话详情") };
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: home }, { path: "/chat/:id", component: detail }, ...["agents", "notes", "settings"].map((path) => ({ path: `/${path}`, component: detail }))] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: home }, { path: "/chat/:id", component: detail }, ...["agents", "notes", "settings", "me"].map((path) => ({ path: `/${path}`, component: detail }))] });
   await router.push("/"); await router.isReady();
   const host = document.createElement("div"); document.body.append(host);
   const app = createApp(App); app.use(pinia); app.use(router); app.mount(host); await nextTick();

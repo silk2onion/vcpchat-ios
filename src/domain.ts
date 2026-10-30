@@ -44,6 +44,7 @@ export interface Settings {
   renderMedia: boolean;
   mainAgentId: string;
   enterSends: boolean;
+  modelCatalog: { endpoint: string; ids: string[]; updatedAt: number; recent: string[] } | null;
   wallpaper: "forest" | "leaves" | "none" | "custom";
   wallpaperCustom: string;
   wallpaperDim: number;
@@ -168,6 +169,7 @@ export function defaultSettings(): Settings {
     renderMedia: true,
     mainAgentId: "",
     enterSends: false,
+    modelCatalog: null,
     wallpaper: "forest",
     wallpaperCustom: "",
     wallpaperDim: 58,

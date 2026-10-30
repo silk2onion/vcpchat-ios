@@ -26,7 +26,7 @@ const agents = computed(() =>
     <header class="page-header">
       <div>
         <p class="eyebrow">你的 AI 伙伴</p>
-        <h1>Agent</h1>
+        <h1>通讯录</h1>
       </div>
       <button
         class="icon-button accent-button"

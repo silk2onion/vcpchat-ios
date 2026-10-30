@@ -16,7 +16,7 @@ export async function listModels(settings: Settings, http: HttpClient): Promise<
     throw new Error(formatHttpError(response.status, response.body, [settings.apiKey, settings.logKey, settings.adminPassword]));
   }
   const json = JSON.parse(response.body) as { data?: { id?: string }[] };
-  const ids = (json.data ?? []).map((item) => item.id).filter((id): id is string => Boolean(id));
+  const ids = [...new Set((json.data ?? []).map((item) => item.id).filter((id): id is string => typeof id === "string" && Boolean(id.trim())))];
   if (!ids.length) throw new Error("服务器没有返回模型");
   return ids;
 }
