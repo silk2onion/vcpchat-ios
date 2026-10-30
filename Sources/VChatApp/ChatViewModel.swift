@@ -29,6 +29,7 @@ import VChatRendering
     var connection = ""
     var frames = 0
     var pendingCount = 0
+    var error: String?
     @ObservationIgnored let session = SessionActor()
     @ObservationIgnored var generation: Task<Void, Never>?
     @ObservationIgnored var draftSave: Task<Void, Never>?
@@ -286,7 +287,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending")
         let config = configuration, key = apiKey, profile = profile
-        room.busy = true; room.cancelled = false; error = nil
+        room.busy = true; room.cancelled = false; room.error = nil
         room.generation = Task {
             var currentReply: MessageViewModel?
             do {
@@ -303,26 +304,16 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
                     let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record))
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
-                    var lastSaved = ContinuousClock.now
-                    for try await update in try await room.session.stream(request) {
-                        assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
-                        room.frames += 1
-                        let nextStatus: String = switch update.state {
-                        case .connecting: "正在连接"; case .streaming: "\(agent.name) 正在回复"; case .complete: "回复完成"
-                        case .stopped: "已停止"; case .interrupted: "已中断"; case .failed: "连接失败"
-                        }
-                        if room.connection != nextStatus { room.connection = nextStatus }
-                        if (update.state == .streaming || update.state == .complete) && !accepted { try await store.markSent(user.id); accepted = true; room.messages.first(where: { $0.id == user.id })?.status = "complete" }
-                        if lastSaved.duration(to: .now) >= .milliseconds(500) || update.state != .streaming { try await store.save(assistant.record); lastSaved = .now }
-                    }
+                    try await receive(request, into: assistant, room: room, store: store, acceptedUser: accepted ? nil : user.id)
+                    if room.messages.first(where: { $0.id == user.id })?.status == "complete" { accepted = true }
                     if assistant.status != "complete" { break }
                 }
             } catch {
+                room.error = error.localizedDescription
                 if let assistant = currentReply {
                     assistant.status = "interrupted"
-                    do { try await store.save(assistant.record) } catch { self.error = "本机保存失败：\(error.localizedDescription)" }
+                    do { try await store.save(assistant.record) } catch { room.error = "\(room.error ?? "")；本机保存失败：\(error.localizedDescription)" }
                 }
-                self.error = error.localizedDescription
             }
             room.busy = false; room.generation = nil
             room.pendingCount = room.messages.filter { $0.status == "pending" }.count
@@ -332,6 +323,64 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
                 catch { self.error = error.localizedDescription }
             }
         }
+    }
+    func receive(_ request: ChatRequest, into assistant: MessageViewModel, room: ChatRoom, store: ChatStore, prefix: String = "", reasoningPrefix: String = "", acceptedUser: String? = nil) async throws {
+        var lastSaved = ContinuousClock.now, accepted = false
+        for try await update in try await room.session.stream(request, prefix: prefix, reasoningPrefix: reasoningPrefix) {
+            assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
+            room.frames += 1
+            let next: String = switch update.state {
+            case .connecting: "正在连接"; case .streaming: "\(assistant.authorName) 正在回复"; case .complete: "回复完成"
+            case .stopped: "已停止"; case .interrupted: "已中断"; case .failed: "连接失败"
+            }
+            if room.connection != next { room.connection = next }
+            if let id = acceptedUser, !accepted, [.streaming, .complete].contains(update.state) { try await store.markSent(id); accepted = true; room.messages.first { $0.id == id }?.status = "complete" }
+            if lastSaved.duration(to: .now) >= .milliseconds(500) || update.state != .streaming { try await store.save(assistant.record); lastSaved = .now }
+        }
+    }
+    func regenerate(_ message: MessageViewModel, continuing: Bool) {
+        guard let room = rooms[message.topicID], let topic = topics.first(where: { $0.id == room.id }), !room.busy, room.messages.last?.id == message.id, message.role == "assistant", let store else { return }
+        guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
+        guard let agent = agents.first(where: { $0.id == message.agentID }) ?? agents.first(where: { $0.id == topic.ownerId }) else { room.error = "找不到写这条回复的 Agent"; return }
+        let group = groups.first { $0.id == topic.ownerId && topic.ownerType == "group" }
+        let config = configuration, key = apiKey, profile = profile
+        let prefix = continuing ? message.text : "", reasoning = continuing ? message.reasoning : ""
+        let history = (continuing ? room.messages : Array(room.messages.dropLast())).map(\.record)
+        room.busy = true; room.cancelled = false; room.error = nil
+        room.generation = Task {
+            defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
+            do {
+                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history)
+                let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
+                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing ? [prompt] : []), temperature: built.temperature)
+                var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"
+                try await store.reviseMessage(record)
+                message.text = prefix; message.reasoning = reasoning; message.status = "connecting"
+                let pending = room.messages.last { $0.role == "user" && $0.status == "pending" }?.id
+                try await receive(request, into: message, room: room, store: store, prefix: prefix, reasoningPrefix: reasoning, acceptedUser: pending)
+            } catch {
+                message.status = "interrupted"; room.error = error.localizedDescription
+                do { try await store.save(message.record) } catch { room.error = "本机保存失败：\(error.localizedDescription)" }
+            }
+        }
+    }
+    func editMessage(_ message: MessageViewModel, text: String) async -> Bool {
+        guard let room = rooms[message.topicID], !room.busy, let store else { return false }
+        do { var record = message.record; record.content = text; try await store.reviseMessage(record); message.text = text; return true }
+        catch { room.error = error.localizedDescription; return false }
+    }
+    func trashMessage(_ message: MessageViewModel) async {
+        guard let room = rooms[message.topicID], !room.busy, let store else { return }
+        do { try await store.trashMessage(message.id); room.messages.removeAll { $0.id == message.id }; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
+        catch { room.error = error.localizedDescription }
+    }
+    func restoreMessage(_ backup: MessageBackup) async -> Bool {
+        guard let store, rooms[backup.message.topicID]?.busy != true else { return false }
+        do {
+            try await store.restoreMessage(backup)
+            if let room = rooms[backup.message.topicID] { room.messages.append(MessageViewModel(backup.message)); room.messages.sort { $0.createdAt < $1.createdAt }; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     func stop(background: Bool = false) async { room?.cancelled = true; await room?.session.stop(interrupted: background) }
     func suspend() async {

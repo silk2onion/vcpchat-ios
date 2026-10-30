@@ -22,12 +22,13 @@ public actor SessionActor {
         configuration.timeoutIntervalForRequest = 30; configuration.timeoutIntervalForResource = 600
         network = URLSession(configuration: configuration)
     }
-    public func stream(_ request: ChatRequest) throws -> AsyncThrowingStream<SessionUpdate, Error> {
+    public func stream(_ request: ChatRequest, prefix: String = "", reasoningPrefix: String = "") throws -> AsyncThrowingStream<SessionUpdate, Error> {
         guard !request.apiKey.isEmpty else { throw ClientError.missingKey }
         guard !request.configuration.model.isEmpty else { throw ClientError.missingModel }
         let url = try request.configuration.chatEndpoint()
+        guard prefix.utf8.count + reasoningPrefix.utf8.count <= 8_000_000 else { throw ClientError.tooLarge }
         stop()
-        let id = UUID(); chatID = id; text = ""; reasoning = ""; sequence = 0; rawEvents = 0; emittedEvents = 0; allParsingOffMain = true
+        let id = UUID(); chatID = id; text = prefix; reasoning = reasoningPrefix; sequence = 0; rawEvents = 0; emittedEvents = 0; allParsingOffMain = true
         let (stream, continuation) = AsyncThrowingStream<SessionUpdate, Error>.makeStream(bufferingPolicy: .bufferingNewest(1))
         chatContinuation = continuation
         continuation.onTermination = { [weak self] _ in Task { await self?.terminate(id) } }

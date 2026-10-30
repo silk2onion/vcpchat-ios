@@ -1,6 +1,7 @@
 import SwiftUI
 import VChatCore
 import VChatRendering
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     @Bindable var model: ChatViewModel
@@ -10,6 +11,9 @@ struct ChatView: View {
     @State private var showSettings = false
     @State private var showSearch = false
     @State private var showLog = false
+    @State private var showDeleted = false
+    @State private var exporting = false
+    @State private var exportDocument = TextExportDocument()
     @State private var newlineRequest = 0
     var body: some View {
         Group {
@@ -20,8 +24,8 @@ struct ChatView: View {
                     Spacer()
                     Text(model.configuration.model.isEmpty ? "未选择模型" : model.configuration.model).font(.caption).lineLimit(1).foregroundStyle(.secondary)
                 }.padding(.horizontal, 20).padding(.vertical, 9)
-                if let error = model.error {
-                    HStack { Text(error).font(.callout); Spacer(); Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.padding(14).background(.red.opacity(0.09)).foregroundStyle(.red)
+                if let error = model.room?.error ?? model.error {
+                    HStack { Text(error).font(.callout); Spacer(); Button { model.room?.error = nil; model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.padding(14).background(.red.opacity(0.09)).foregroundStyle(.red)
                 }
                 ChatTimeline(model: model)
                 if model.pendingCount > 0 { Text("\(model.pendingCount) 条本机待确认消息；不会自动重复发送").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
@@ -46,9 +50,15 @@ struct ChatView: View {
                     Button { showTopics = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("历史话题")
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索本机消息")
                     Button { showLog = true } label: { Image(systemName: "waveform.path") }.accessibilityLabel("VCPLog")
-                    Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("连接设置")
+                    Menu {
+                        Button("连接设置", systemImage: "slider.horizontal.3") { showSettings = true }
+                        Button("导出这段对话", systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话", messages: model.messages.map(\.record))); exporting = true }
+                        Button("已删除消息", systemImage: "trash") { showDeleted = true }
+                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("对话菜单")
                 }
             }
+            .sheet(isPresented: $showDeleted) { DeletedMessagesView(model: model, topicID: model.activeTopicID) }
+            .fileExporter(isPresented: $exporting, document: exportDocument, contentType: .plainText, defaultFilename: (model.activeTopic?.title ?? "对话") + ".md") { result in if case .failure(let error) = result, (error as? CocoaError)?.code != .userCancelled { model.error = error.localizedDescription } }
             .sheet(isPresented: $showTopics) { TopicsView(model: model) }
             .sheet(isPresented: $showGroup) { if let group = model.activeGroup { GroupEditor(model: model, group: group) } }
             .sheet(isPresented: $showAgent) { if let agent = model.activeAgent { AgentEditor(model: model, agent: agent) } }
@@ -108,6 +118,7 @@ private struct NativeMessageRow: View {
             if message.role == "assistant" { HStack(spacing: 8) { ContactAvatar(name: message.authorName, image: model.agents.first(where: { $0.id == message.agentID })?.avatarUrl ?? "", size: 25); Text(message.authorName) }.font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
             RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text, options: model.renderOptions, streaming: ["connecting", "streaming"].contains(message.status)).font(.body)
+            if !["streaming", "connecting"].contains(message.status) { MessageActions(message: message, model: model) }
             if ["interrupted", "stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.caption).foregroundStyle(.secondary) }
         }.padding(message.role == "user" ? 15 : 0).background(message.role == "user" ? Color.secondary.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 18))
     }
