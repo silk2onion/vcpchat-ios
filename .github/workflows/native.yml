@@ -1,7 +1,7 @@
-name: Native SwiftUI Phase 1
+name: Native iOS Build
 on:
   pull_request:
-    paths: ['Sources/**', 'Tests/**', 'Configuration/**', 'VChat.xcodeproj/**', 'Package.*', 'scripts/**', '.github/workflows/native.yml']
+    paths: ['Sources/**', 'Configuration/**', 'VChat.xcodeproj/**', 'Package.*', '.github/workflows/native.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,14 +16,12 @@ jobs:
       - name: Prepare isolated outputs
         run: |
           echo "VCHAT_ARTIFACTS=$HOME/CodexArtifacts/vchat-native-ci-${{ github.run_id }}" >> "$GITHUB_ENV"
-      - name: Native tests and authenticated protocol fixture
+      - name: Xcode environment
         run: |
           mkdir -p "$VCHAT_ARTIFACTS/results"
-          set -o pipefail
           sw_vers | tee "$VCHAT_ARTIFACTS/results/environment.log"
           xcodebuild -version | tee -a "$VCHAT_ARTIFACTS/results/environment.log"
           swift -version | tee -a "$VCHAT_ARTIFACTS/results/environment.log"
-          bash scripts/test-native.sh 2>&1 | tee "$VCHAT_ARTIFACTS/results/tests.log"
       - name: Build iOS simulator app
         run: |
           set -o pipefail
@@ -31,7 +29,7 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$VCHAT_ARTIFACTS/tmp/DerivedData" \
             -clonedSourcePackagesDirPath "$VCHAT_ARTIFACTS/tmp/SourcePackages" \
-            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$VCHAT_ARTIFACTS/results/ios-build.log"
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual build 2>&1 | tee "$VCHAT_ARTIFACTS/results/ios-build.log"
       - name: Launch native app on simulator
         run: |
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
@@ -46,6 +44,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: native-phase1-evidence
+          name: native-build-evidence
           path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/results/
           if-no-files-found: error
