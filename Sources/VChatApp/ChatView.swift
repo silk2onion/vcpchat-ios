@@ -18,11 +18,14 @@ struct ChatView: View {
     var body: some View {
         Group {
             VStack(spacing: 0) {
+                #if os(macOS)
+                HStack(spacing: 4) { titleButton; Spacer(minLength: 0); headerActions }.buttonStyle(.plain).padding(.horizontal,12).padding(.vertical,5).background(.regularMaterial)
+                #endif
                 HStack(spacing: 7) {
                     Circle().fill(model.busy ? Color.mint : Color.secondary.opacity(0.4)).frame(width: 6, height: 6)
                     Text(model.connection).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Text(model.configuration.model.isEmpty ? "未选择模型" : model.configuration.model).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+                    Text(model.modelTitle).font(.caption).lineLimit(1).foregroundStyle(.secondary)
                 }.padding(.horizontal, 20).padding(.vertical, 9)
                 if let error = model.room?.error ?? model.error {
                     HStack { Text(error).font(.callout); Spacer(); Button { model.room?.error = nil; model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.padding(14).background(.red.opacity(0.09)).foregroundStyle(.red)
@@ -44,21 +47,10 @@ struct ChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Button { if model.activeGroup != nil { showGroup = true } else { showAgent = true } } label: {
-                        VStack(spacing: 2) { Text(model.ownerName).font(.headline); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                    }.buttonStyle(.plain)
-                }
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button { showTopics = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("历史话题")
-                    Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索本机消息")
-                    Button { showLog = true } label: { Image(systemName: model.activity.unread > 0 ? "bell.badge" : "bell") }.accessibilityLabel("通知与监视")
-                    Menu {
-                        Button("连接设置", systemImage: "slider.horizontal.3") { showSettings = true }
-                        Button("导出这段对话", systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话", messages: model.messages.map(\.record))); exporting = true }
-                        Button("已删除消息", systemImage: "trash") { showDeleted = true }
-                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("对话菜单")
-                }
+                #if os(iOS)
+                ToolbarItem(placement: .principal) { titleButton }
+                ToolbarItemGroup(placement: .primaryAction) { headerActions }
+                #endif
             }
             .sheet(isPresented: $showDeleted) { DeletedMessagesView(model: model, topicID: model.activeTopicID) }
             .fileExporter(isPresented: $exporting, document: exportDocument, contentType: .plainText, defaultFilename: (model.activeTopic?.title ?? "对话") + ".md") { result in if case .failure(let error) = result, (error as? CocoaError)?.code != .userCancelled { model.error = error.localizedDescription } }
@@ -72,6 +64,27 @@ struct ChatView: View {
             .sheet(isPresented: $showLog) { NavigationStack { ActivityView(model: model).toolbar { Button("完成") { showLog = false } } }.frame(minWidth: 360,minHeight: 530) }
         }
     }
+    private var titleButton: some View {
+        Button { if model.activeGroup != nil { showGroup = true } else { showAgent = true } } label: {
+            HStack(spacing: 8) {
+                ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",symbol: model.activeAgent?.avatar ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 28)
+                VStack(alignment: .leading,spacing: 2) { Text(model.ownerName).font(.headline).lineLimit(1); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }.frame(maxWidth: 150,alignment: .leading)
+            }
+        }.buttonStyle(.plain).accessibilityLabel("编辑 " + model.ownerName)
+    }
+    private var headerActions: some View {
+        Group {
+            Button { showTopics = true } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 36,height: 44) }.accessibilityLabel("历史话题")
+            Button { showLog = true } label: { Image(systemName: model.activity.unread > 0 ? "bell.badge" : "bell").frame(width: 36,height: 44) }.accessibilityLabel("通知与监视")
+            Menu {
+                Button("搜索本机消息",systemImage: "magnifyingglass") { showSearch = true }
+                Button("连接设置",systemImage: "slider.horizontal.3") { showSettings = true }
+                Button("导出这段对话",systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话",messages: model.messages.map(\.record))); exporting = true }
+                Button("已删除消息",systemImage: "trash") { showDeleted = true }
+            } label: { Image(systemName: "ellipsis").frame(width: 36,height: 44) }.accessibilityLabel("对话菜单")
+        }
+    }
+
 }
 
 /// The high-frequency scroll trigger is isolated from navigation and the composer.
@@ -116,7 +129,10 @@ private struct NativeMessageRow: View {
     let model: ChatViewModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if message.role == "assistant" { HStack(spacing: 8) { ContactAvatar(name: message.authorName, image: model.agents.first(where: { $0.id == message.agentID })?.avatarUrl ?? "", size: 25); Text(message.authorName) }.font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+            if message.role == "assistant" {
+                let author = model.authorAgent(for: message),name = message.authorName.isEmpty ? author?.name ?? "助手" : message.authorName
+                HStack(spacing: 8) { ContactAvatar(name: name, image: author?.avatarUrl ?? "", symbol: author?.avatar ?? "", size: 25); Text(name) }.font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            }
             if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
             if let notice = message.syncNotice { Label(notice, systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary) }
             if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }

@@ -12,7 +12,7 @@ struct GroupEditor: View {
         NavigationStack {
             Form {
                 Section("群聊资料") {
-                    Button { avatar = true } label: { HStack { ContactAvatar(name: group.name, image: group.avatarUrl, size: 62); Spacer(); Label("编辑头像", systemImage: "camera") } }.buttonStyle(.plain)
+                    Button { avatar = true } label: { HStack { ContactAvatar(name: group.name, image: group.avatarUrl, kind: .group, size: 62); Spacer(); Label("编辑头像", systemImage: "camera") } }.buttonStyle(.plain)
                     TextField("群聊名称", text: $group.name)
                     Picker("发言方式", selection: $group.mode) { ForEach(GroupMode.allCases, id: \.self) { Text($0.title).tag($0) } }
                     TextField("统一模型（留空使用各成员的模型）", text: $group.unifiedModel)

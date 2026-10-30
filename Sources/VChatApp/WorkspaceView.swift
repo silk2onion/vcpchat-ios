@@ -26,7 +26,7 @@ struct WorkspaceView: View {
                         Section {
                             Button { openAgent(main) } label: {
                                 HStack(spacing: 14) {
-                                    ContactAvatar(name: main.name, image: main.avatarUrl, size: 50)
+                                    ContactAvatar(name: main.name, image: main.avatarUrl, symbol: main.avatar, size: 50)
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(main.name).font(.headline)
                                         Label("主 Agent", systemImage: "star.fill").font(.caption).foregroundStyle(.secondary)
@@ -41,7 +41,8 @@ struct WorkspaceView: View {
                             Button { openTopic(topic) } label: {
                                 HStack(spacing: 12) {
                                     let agent = model.agents.first { $0.id == topic.ownerId }
-                                    ContactAvatar(name: agent?.name ?? "会话", image: agent?.avatarUrl ?? "", size: 44)
+                                    let group = model.groups.first { $0.id == topic.ownerId }
+                                    ContactAvatar(name: agent?.name ?? group?.name ?? "会话", image: agent?.avatarUrl ?? group?.avatarUrl ?? "", symbol: agent?.avatar ?? "", kind: topic.ownerType == "group" ? .group : .agent, size: 44)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(topic.title).foregroundStyle(.primary).lineLimit(1)
                                         Text(agent?.name ?? model.groups.first(where: { $0.id == topic.ownerId })?.name ?? "已删除的联系人").font(.caption).foregroundStyle(.secondary)
@@ -63,7 +64,7 @@ struct WorkspaceView: View {
                         HStack(spacing: 12) {
                             Button { openAgent(agent) } label: {
                                 HStack(spacing: 12) {
-                                    ContactAvatar(name: agent.name, image: agent.avatarUrl, size: 46)
+                                    ContactAvatar(name: agent.name, image: agent.avatarUrl, symbol: agent.avatar, size: 46)
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack { Text(agent.name).font(.headline); if agent.id == model.profile.mainAgentID { Image(systemName: "star.fill").font(.caption).foregroundStyle(.orange) } }
                                         Text(agent.description.isEmpty ? (agent.model.isEmpty ? "使用默认模型" : agent.model) : agent.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -79,7 +80,7 @@ struct WorkspaceView: View {
                             HStack(spacing: 12) {
                                 Button { Task { await model.openGroup(group); tab = .chats; chatPath = [model.activeTopicID] } } label: {
                                     HStack(spacing: 12) {
-                                        ContactAvatar(name: group.name, image: group.avatarUrl, size: 46)
+                                        ContactAvatar(name: group.name, image: group.avatarUrl, kind: .group, size: 46)
                                         VStack(alignment: .leading, spacing: 4) { Text(group.name).font(.headline); Text("\(group.memberIds.count) 位 Agent · \(group.mode.title)").font(.caption).foregroundStyle(.secondary) }
                                         Spacer()
                                     }.contentShape(Rectangle())
@@ -99,7 +100,7 @@ struct WorkspaceView: View {
                 List {
                     Section {
                         NavigationLink(value: MeScreen.profile) { HStack(spacing: 16) {
-                            ContactAvatar(name: model.profile.name.isEmpty ? "我" : model.profile.name, image: model.profile.avatar, size: 64)
+                            ContactAvatar(name: model.profile.name.isEmpty ? "我" : model.profile.name, image: model.profile.avatar, kind: .personal, size: 64)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(model.profile.name.isEmpty ? "我" : model.profile.name).font(.title2.bold())
                                 Text("你的 VCP 随身工作台").font(.callout).foregroundStyle(.secondary)
@@ -144,8 +145,11 @@ struct WorkspaceView: View {
     func openTopic(_ topic: ChatTopic) { Task { await model.openTopic(topic); chatPath = [topic.id] } }
 }
 struct ContactAvatar: View {
+    enum Kind { case agent,group,personal }
     let name: String
     var image = ""
+    var symbol = ""
+    var kind = Kind.agent
     var size: CGFloat = 44
     @State private var decodedAvatar: CGImage?
     var body: some View {
@@ -158,10 +162,18 @@ struct ContactAvatar: View {
             } else if let url = URL(string: image), ["http", "https"].contains(url.scheme) {
                 AsyncImage(url: url) { phase in if let image = phase.image { image.resizable().scaledToFill() } else { initials } }
             } else { initials }
-        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.27)).accessibilityLabel(name)
+        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.27)).accessibilityHidden(true)
         .task(id: image) { let value = await AvatarImageCache.shared.image(image); if !Task.isCancelled { decodedAvatar = value } }
     }
-    var initials: some View { Text(String(name.prefix(1))).font(.system(size: size * 0.4, weight: .semibold)).frame(width: size, height: size).background(.mint.opacity(0.17)).foregroundStyle(.primary) }
+    var initials: some View {
+        let colors: [Color] = [.mint,.blue,.purple,.orange,.pink,.teal]
+        let color = colors[name.unicodeScalars.reduce(0) { $0 + Int($1.value) } % colors.count]
+        return Group {
+            if kind == .personal { Image(systemName: "person.fill") }
+            else if kind == .group { Image(systemName: "person.2.fill") }
+            else { Text(symbol.isEmpty ? String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)) : symbol).lineLimit(1).minimumScaleFactor(0.4) }
+        }.font(.system(size: size * 0.4,weight: .semibold)).frame(width: size,height: size).background(color.opacity(0.17)).foregroundStyle(color)
+    }
 }
 struct AgentEditor: View {
     @Bindable var model: ChatViewModel
@@ -176,9 +188,10 @@ struct AgentEditor: View {
         NavigationStack {
             Form {
                 Section("Agent 资料") {
-                    Button { avatar = true } label: { HStack { ContactAvatar(name: agent.name, image: agent.avatarUrl, size: 62); Spacer(); Label("编辑头像", systemImage: "camera") } }.buttonStyle(.plain)
+                    Button { avatar = true } label: { HStack { ContactAvatar(name: agent.name, image: agent.avatarUrl, symbol: agent.avatar, size: 62); Spacer(); Label("编辑头像", systemImage: "camera") } }.buttonStyle(.plain)
                     TextField("名字", text: $agent.name)
                     TextField("简介", text: $agent.description, axis: .vertical).lineLimit(2...4)
+                    TextField("头像符号（无图片时显示）",text: $agent.avatar)
                 }
                 Section("系统提示词") { TextEditor(text: $agent.systemPrompt).frame(minHeight: 140) }
                 Section("模型") {

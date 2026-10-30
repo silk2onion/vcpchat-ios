@@ -169,10 +169,10 @@ struct TopicDraft: Codable, Sendable {
         catch { self.error = error.localizedDescription }
     }
     func displayRules(for message: MessageViewModel) -> [RegexRule] {
-        let topic = topics.first { $0.id == message.topicID }
-        let agent = agents.first { $0.id == message.agentID } ?? (topic?.ownerType == "agent" ? agents.first { $0.id == topic?.ownerId } : agents.first { $0.name == message.authorName })
-        return regexRules + (agent?.regexRules ?? [])
+        regexRules + (authorAgent(for: message)?.regexRules ?? [])
     }
+    func authorAgent(for message: MessageViewModel) -> VCPAgent? { AgentIdentity.author(agentID: message.agentID,name: message.authorName,topicID: message.topicID,topics: topics,agents: agents,groups: groups) }
+    var modelTitle: String { ModelResolution.summary(global: configuration.model,agent: activeAgent,group: activeGroup,agents: agents) }
     func displayedText(_ message: MessageViewModel) async throws -> String { try await RegexEngine.shared.apply(message.text, rules: displayRules(for: message), scope: "frontend", role: message.role, depth: rooms[message.topicID]?.depths[message.id] ?? 0) }
     func saveInputPreferences() async {
         do { try await store?.put(inputPreferences, kind: "input-options", id: "keyboard") }
@@ -403,7 +403,7 @@ struct TopicDraft: Codable, Sendable {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         guard let room = rooms[message.topicID], let topic = topics.first(where: { $0.id == room.id }), !room.busy, room.messages.last?.id == message.id, message.role == "assistant", let store else { return }
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
-        guard let agent = agents.first(where: { $0.id == message.agentID }) ?? agents.first(where: { $0.id == topic.ownerId }) else { room.error = "找不到写这条回复的 Agent"; return }
+        guard let agent = authorAgent(for: message) else { room.error = "找不到写这条回复的 Agent"; return }
         let group = groups.first { $0.id == topic.ownerId && topic.ownerType == "group" }
         let config = configuration, key = apiKey, profile = profile, rules = regexRules
         let prefix = continuing ? message.text : "", reasoning = continuing ? message.reasoning : ""

@@ -21,7 +21,7 @@ struct MessageActions: View {
         HStack(spacing: 18) {
             Button { copy() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }.accessibilityLabel("复制消息")
             if message.role == "assistant" && last && idle && ["interrupted", "stopped", "failed"].contains(message.status) { Button { model.regenerate(message, continuing: true) } label: { Label("继续写", systemImage: "arrow.forward.circle") } }
-            if message.role == "assistant" { Button { Task { do { let text = try await model.displayedText(message); model.speech.read(id: message.id,content: text,settings: model.services.speech,key: model.serviceSecrets[.speechKey] ?? "",agent: model.agents.first { $0.id == message.agentID }) } catch { model.rooms[message.topicID]?.error = error.localizedDescription } } } label: { Image(systemName: "speaker.wave.2") }.accessibilityLabel("朗读消息") }
+            if message.role == "assistant" { Button { Task { do { let text = try await model.displayedText(message); model.speech.read(id: message.id,content: text,settings: model.services.speech,key: model.serviceSecrets[.speechKey] ?? "",agent: model.authorAgent(for: message)) } catch { model.rooms[message.topicID]?.error = error.localizedDescription } } } label: { Image(systemName: "speaker.wave.2") }.accessibilityLabel("朗读消息") }
             Spacer(minLength: 4)
             Menu {
                 ShareLink(item: displayed ?? "") { Label("分享消息", systemImage: "square.and.arrow.up") }.disabled(displayed == nil)

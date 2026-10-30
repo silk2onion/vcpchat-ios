@@ -73,7 +73,7 @@ struct ProfileEditor: View {
     var body: some View {
         Form {
             Section {
-                Button { avatar = true } label: { HStack(spacing: 15) { ContactAvatar(name: profile.name.isEmpty ? "我" : profile.name, image: profile.avatar, size: 64); Text("编辑头像"); Spacer(); Image(systemName: "chevron.right") } }.buttonStyle(.plain)
+                Button { avatar = true } label: { HStack(spacing: 15) { ContactAvatar(name: profile.name.isEmpty ? "我" : profile.name, image: profile.avatar, kind: .personal, size: 64); Text("编辑头像"); Spacer(); Image(systemName: "chevron.right") } }.buttonStyle(.plain)
                 TextField("你的名字", text: $profile.name)
             }
             Section { Button("保存") { Task { if await model.saveProfile(profile) { dismiss() } } } }

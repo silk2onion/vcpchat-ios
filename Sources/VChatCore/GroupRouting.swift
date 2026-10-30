@@ -45,8 +45,7 @@ public actor ConversationBuilder {
     public init() {}
     public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = []) async throws -> ChatRequest {
         var config = configuration
-        let resolved = group?.unifiedModel.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !resolved.isEmpty { config.model = resolved } else if !agent.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { config.model = agent.model }
+        config.model = ModelResolution.resolve(global: configuration.model,agent: agent,group: group)
         guard !config.model.isEmpty else { throw ClientError.server("「\(agent.name)」还没有模型，请先设置默认模型") }
         var system: [String] = []
         if !profile.name.isEmpty { system.append("用户名叫「\(profile.name)」。") }
