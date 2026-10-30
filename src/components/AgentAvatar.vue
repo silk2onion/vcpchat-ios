@@ -8,8 +8,9 @@ const props = withDefaults(
     image?: string;
     size?: number;
     group?: boolean;
+    personal?: boolean;
   }>(),
-  { size: 44, symbol: "", image: "", group: false },
+  { size: 44, symbol: "", image: "", group: false, personal: false },
 );
 const tone = computed(
   () =>
@@ -30,7 +31,7 @@ const initial = computed(
       fontSize: `${size * 0.42}px`,
     }"
     aria-hidden="true"
-  ><img v-if="image" :src="image" alt="" /><AppIcon v-else-if="group" name="agents" :size="size * 0.52" /><template
+  ><img v-if="image" :src="image" alt="" /><AppIcon v-else-if="group" name="agents" :size="size * 0.52" /><AppIcon v-else-if="personal" name="person" :size="size * 0.52" /><template
     v-else
   >{{ initial }}</template></span>
 </template>

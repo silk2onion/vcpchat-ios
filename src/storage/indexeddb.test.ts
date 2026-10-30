@@ -9,6 +9,16 @@ describe("indexedDB repository", () => {
     indexedDB.deleteDatabase("vcpchat-ios");
   });
 
+  test("personal avatar defaults empty for existing profiles and survives reopening without changing their other data", async () => {
+    const repository = createIndexedDbRepository();
+    const legacy: Record<string, unknown> = { ...defaultSettings(), userName: "丝巾", apiKey: "kept-fixture" };
+    delete legacy.userAvatarUrl;
+    await repository.saveSettings(legacy as never);
+    expect((await repository.getSettings()).userAvatarUrl).toBe("");
+    await repository.saveSettings({ ...await repository.getSettings(), userAvatarUrl: "data:image/webp;base64,personal" });
+    expect(await createIndexedDbRepository().getSettings()).toMatchObject({ userAvatarUrl: "data:image/webp;base64,personal", userName: "丝巾", apiKey: "kept-fixture" });
+  });
+
   test("model catalogs survive reopening while old settings gain an empty cache", async () => {
     const repository = createIndexedDbRepository();
     const legacy: Record<string, unknown> = { ...defaultSettings(), defaultModel: "manual/ID" };

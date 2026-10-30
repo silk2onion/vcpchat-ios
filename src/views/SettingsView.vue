@@ -14,6 +14,7 @@ import { useWorkspaceStore } from "../stores/workspace";
 import AppearanceSettings from "../components/AppearanceSettings.vue";
 import SpeechSettings from "../components/SpeechSettings.vue";
 import RegexEditor from "../components/RegexEditor.vue";
+import ProfileAvatar from "../components/ProfileAvatar.vue";
 const settings = useSettingsStore();
 const library = useLibraryStore();
 const logs = useLogStore();
@@ -257,6 +258,7 @@ async function clearKeys() {
         @submit.prevent
       >
         <div class="card">
+          <ProfileAvatar />
           <label class="field">你的名字<input
             v-model="settings.settings.userName"
             type="text"

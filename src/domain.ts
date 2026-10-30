@@ -30,6 +30,7 @@ export interface Settings {
   adminUsername: string;
   adminPassword: string;
   userName: string;
+  userAvatarUrl: string;
   theme: ThemeId;
   endpointMode: EndpointMode;
   defaultModel: string;
@@ -174,6 +175,7 @@ export function defaultSettings(): Settings {
     adminUsername: "",
     adminPassword: "",
     userName: "",
+    userAvatarUrl: "",
     theme: "ink",
     endpointMode: "standard",
     defaultModel: "",
