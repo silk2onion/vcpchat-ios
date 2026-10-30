@@ -49,6 +49,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var logKey = ""
     var models: [String] = []
     var catalog: ModelCatalog?
+    var savingConnection = false
     var loading = true
     var pushStatus = "未连接"
     var error: String?
@@ -212,10 +213,15 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         } catch { self.error = "导入失败，请选择桌面 VCPChat 的连接设置文件" }
     }
     func saveConnection() async -> Bool {
+        guard !savingConnection else { return false }
+        let config = configuration, chat = apiKey, log = logKey
+        savingConnection = true; error = nil
+        defer { savingConnection = false }
         do {
-            _ = try configuration.baseURL()
-            try await vault.save(apiKey, name: "chat-api-key"); try await vault.save(logKey, name: "vcp-log-key")
-            UserDefaults.standard.set(try JSONEncoder().encode(configuration), forKey: "native.connection")
+            _ = try config.baseURL()
+            let data = try JSONEncoder().encode(config)
+            try await vault.save(chat, name: "chat-api-key"); try await vault.save(log, name: "vcp-log-key")
+            UserDefaults.standard.set(data, forKey: "native.connection")
             return true
         } catch { self.error = error.localizedDescription; return false }
     }

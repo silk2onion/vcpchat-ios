@@ -11,6 +11,8 @@ struct ConnectionView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let error = model.error { Section { Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red) } }
+                if model.savingConnection { Section { ProgressView("正在保存到系统钥匙串…") } }
                 Section {
                     Button("导入桌面 VCPChat 连接…", systemImage: "square.and.arrow.down") { importing = true }
                     Text("只读取服务器和连接密钥，保存到本机钥匙串。不会改动旧配置和会话。").font(.caption).foregroundStyle(.secondary)
@@ -34,7 +36,6 @@ struct ConnectionView: View {
                     Picker("流式刷新率", selection: $model.configuration.framesPerSecond) { Text("标准 · 60 Hz").tag(60); Text("高刷新率 · 120 Hz").tag(120) }
 
                 }
-                if let error = model.error { Section { Text(error).foregroundStyle(.red) } }
             }
             .sheet(isPresented: $choosingModel) { ModelPicker(model: model, selection: $model.configuration.model) }
             .onChange(of: model.configuration.server) { _, _ in Task { await model.loadCatalog() } }
@@ -46,7 +47,7 @@ struct ConnectionView: View {
             }
             .formStyle(.grouped)
             .navigationTitle("连接设置")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { if await model.saveConnection() { dismiss() } } } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button(model.savingConnection ? "保存中…" : "保存") { Task { if await model.saveConnection() { dismiss() } } }.disabled(model.savingConnection) } }
         }.frame(minWidth: 350, minHeight: 560)
     }
 }

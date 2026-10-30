@@ -14,12 +14,13 @@ public actor CredentialVault {
     }
     public func save(_ value: String, name: String) throws {
         let query = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name] as CFDictionary
-        if value.isEmpty { let status = SecItemDelete(query); guard [errSecSuccess, errSecItemNotFound].contains(status) else { throw ClientError.server("无法清除钥匙串密钥") }; return }
+        if value.isEmpty { let status = SecItemDelete(query); guard [errSecSuccess, errSecItemNotFound].contains(status) else { throw ClientError.server("无法清除钥匙串密钥（\(status)）") }; return }
         let attributes = [kSecValueData: Data(value.utf8)] as CFDictionary
         let status = SecItemUpdate(query, attributes)
         if status == errSecItemNotFound {
             var item = query as! [CFString: Any]; item[kSecValueData] = Data(value.utf8); item[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw ClientError.server("无法保存钥匙串密钥") }
-        } else if status != errSecSuccess { throw ClientError.server("无法更新钥匙串密钥") }
+            let added = SecItemAdd(item as CFDictionary, nil)
+            guard added == errSecSuccess else { throw ClientError.server("无法保存钥匙串密钥（\(added)）") }
+        } else if status != errSecSuccess { throw ClientError.server("无法更新钥匙串密钥（\(status)）") }
     }
 }
