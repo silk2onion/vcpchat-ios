@@ -2,6 +2,11 @@ name: iOS
 
 on:
   workflow_dispatch:
+    inputs:
+      run_checks:
+        description: Run frontend and host Rust tests; disable only to reuse passed checks for unchanged app source
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -63,10 +68,12 @@ jobs:
           cd "$SOURCE_ROOT"
           pnpm install 2>&1 | tee "$ARCHIVE/results/1-pnpm-install.log"
       - name: "2. pnpm check"
+        if: inputs.run_checks
         run: |
           cd "$SOURCE_ROOT"
           pnpm check 2>&1 | tee "$ARCHIVE/results/2-pnpm-check.log"
       - name: "3. Rust library tests (locked)"
+        if: inputs.run_checks
         run: |
           cd "$SOURCE_ROOT"
           cargo test --lib --manifest-path src-tauri/Cargo.toml --locked 2>&1 | tee "$ARCHIVE/results/3-cargo-test.log"
@@ -74,8 +81,8 @@ jobs:
         run: |
           cd "$SOURCE_ROOT"
           bash scripts/build-ios-simulator.sh 2>&1 | tee "$ARCHIVE/results/4-ios-simulator.log"
-          app="$(find src-tauri/gen/apple -path '*iphonesimulator*' -name '*.app' -type d | head -n 1)"
-          test -n "$app"
+          app="src-tauri/gen/apple/build/arm64-sim/VCPChat.app"
+          test -f "$app/Info.plist"
           ditto -c -k --sequesterRsrc --keepParent "$app" "$ARCHIVE/products/VCPChat-simulator.app.zip"
       - name: "5. Build unsigned device IPA"
         run: |
