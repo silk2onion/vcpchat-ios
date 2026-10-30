@@ -24,7 +24,7 @@ struct FileLibraryView: View {
             }
             ForEach(files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { file in
                 Button { selected = file } label: {
-                    HStack(spacing: 12) { Image(systemName: file.mime.hasPrefix("image/") ? "photo" : "doc").font(.title3); VStack(alignment: .leading, spacing: 5) { Text(file.name).foregroundStyle(.primary); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file) + " · " + file.source).font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) }.padding(.vertical, 5)
+                    HStack(spacing: 12) { Image(systemName: file.mime.hasPrefix("image/") ? "photo" : "doc").font(.title3); VStack(alignment: .leading, spacing: 5) { Text(file.name).foregroundStyle(.primary); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file) + " · " + file.source).font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) }.padding(.vertical, 5).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
             if files.isEmpty { ContentUnavailableView(removed ? "没有已移除文件" : "文件库为空", systemImage: "folder") }
