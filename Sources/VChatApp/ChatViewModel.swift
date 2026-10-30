@@ -13,18 +13,23 @@ import VChatRendering
     var text: String
     var reasoning: String
     var status: String
+    let attachments: [ChatAttachment]
+    let originalRole: String?
+    let syncNotice: String?
     init(_ message: StoredMessage) {
+        attachments = message.attachments; originalRole = message.originalRole; syncNotice = message.syncNotice
         id = message.id; topicID = message.topicID; agentID = message.agentID; authorName = message.authorName
         role = message.role; text = message.content; reasoning = message.reasoning
         status = message.status; createdAt = message.createdAt
     }
-    var record: StoredMessage { StoredMessage(id: id, topicID: topicID, agentID: agentID, authorName: authorName, role: role, content: text, reasoning: reasoning, status: status, createdAt: createdAt) }
+    var record: StoredMessage { StoredMessage(id: id, topicID: topicID, agentID: agentID, authorName: authorName, role: role, content: text, reasoning: reasoning, status: status, createdAt: createdAt, attachments: attachments, originalRole: originalRole, syncNotice: syncNotice) }
 }
 @MainActor @Observable final class ChatRoom: Identifiable {
     let id: String
     var messages: [MessageViewModel] { didSet { depths = TurnDepths.calculate(messages.map(\.record)) } }
     var depths: [String: Int] = [:]
     var draft = ""
+    var attachments: [ChatAttachment] = []
     var busy = false
     var cancelled = false
     var connection = ""
@@ -36,7 +41,12 @@ import VChatRendering
     @ObservationIgnored var draftSave: Task<Void, Never>?
     init(id: String, messages: [StoredMessage]) { self.id = id; self.messages = messages.map(MessageViewModel.init); depths = TurnDepths.calculate(messages) }
 }
-struct TopicDraft: Codable, Sendable { var id: String; var text: String }
+struct TopicDraft: Codable, Sendable {
+    var id: String; var text: String; var attachments: [ChatAttachment] = []
+    enum CodingKeys: String, CodingKey { case id, text, attachments }
+    init(id: String, text: String, attachments: [ChatAttachment] = []) { self.id = id; self.text = text; self.attachments = attachments }
+    init(from decoder: any Decoder) throws { let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(String.self, forKey: .id); text = try c.decode(String.self, forKey: .text); attachments = try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? [] }
+}
 
 @MainActor @Observable final class ChatViewModel {
     var agents: [VCPAgent] = []
@@ -86,7 +96,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             guard let room else { return }
             room.draft = newValue; room.draftSave?.cancel()
             room.draftSave = Task { [weak self] in
-                do { try await Task.sleep(for: .milliseconds(250)); try await self?.store?.put(TopicDraft(id: room.id, text: newValue), kind: "draft", id: room.id) }
+                do { try await Task.sleep(for: .milliseconds(250)); try await self?.store?.put(TopicDraft(id: room.id, text: newValue, attachments: room.attachments), kind: "draft", id: room.id) }
                 catch is CancellationError {} catch { self?.error = error.localizedDescription }
             }
         }
@@ -212,7 +222,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             if rooms[topic.id] == nil {
                 let messages = try await store?.messages(topicID: topic.id) ?? []
                 let saved = try await store?.records(TopicDraft.self, kind: "draft").first { $0.id == topic.id }
-                let room = ChatRoom(id: topic.id, messages: messages); room.draft = saved?.text ?? ""; rooms[topic.id] = room
+                let room = ChatRoom(id: topic.id, messages: messages); room.draft = saved?.text ?? ""; room.attachments = saved?.attachments ?? []; rooms[topic.id] = room
             }
             guard openingID == opening else { return }
             activeTopicID = topic.id; UserDefaults.standard.set(topic.id, forKey: "native.active-topic")
@@ -220,7 +230,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     }
     func flushDraft() async {
         guard let room else { return }; room.draftSave?.cancel()
-        do { try await store?.put(TopicDraft(id: room.id, text: room.draft), kind: "draft", id: room.id) }
+        do { try await store?.put(TopicDraft(id: room.id, text: room.draft, attachments: room.attachments), kind: "draft", id: room.id) }
         catch { self.error = error.localizedDescription }
     }
     func renameTopic(_ topic: ChatTopic, title: String) async {
@@ -301,13 +311,21 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             } catch { if !Task.isCancelled { pushStatus = error.localizedDescription } }
         }
     }
+    func attach(_ items: [ChatAttachment], to topicID: String) async {
+        guard let room = rooms[topicID] else { return }
+        do { try AttachmentImporter.assertCount(room.attachments.count, adding: items.count); room.attachments += items; room.draftSave?.cancel(); try await store?.put(TopicDraft(id: room.id, text: room.draft, attachments: room.attachments), kind: "draft", id: room.id) }
+        catch { room.error = error.localizedDescription }
+    }
+    func detach(_ id: String) async {
+        room?.attachments.removeAll { $0.id == id }; await flushDraft()
+    }
     func send() {
-        guard let room, let topic = activeTopic, !room.busy, !room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let store else { return }
+        guard let room, let topic = activeTopic, !room.busy, (!room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !room.attachments.isEmpty), let store else { return }
         let content = room.draft
         let group = activeGroup
         let speakers = group.map { GroupRouting.speakers(group: $0, agents: agents, text: content, turn: topic.turnIndex) } ?? activeAgent.map { [$0] } ?? []
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
-        let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending")
+        let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending", attachments: room.attachments)
         let config = configuration, key = apiKey, profile = profile, rules = regexRules
         room.busy = true; room.cancelled = false; room.error = nil
         room.generation = Task {
@@ -316,7 +334,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
                 room.draftSave?.cancel()
                 if speakers.isEmpty { var local = user; local.status = "complete"; try await store.save(local); room.messages.append(MessageViewModel(local)) }
                 else { try await store.enqueue(user); room.messages.append(MessageViewModel(user)) }
-                room.draft = ""; try await store.put(TopicDraft(id: room.id, text: ""), kind: "draft", id: room.id)
+                room.draft = ""; room.attachments = []; try await store.put(TopicDraft(id: room.id, text: ""), kind: "draft", id: room.id)
                 if topic.title == "新对话" { await renameTopic(topic, title: String(content.prefix(24))) }
                 if speakers.isEmpty { throw ClientError.server(group?.mode == .inviteOnly ? "用 @名字 邀请群成员发言" : "这个会话没有可发言的 Agent，请在通讯录检查成员") }
                 var accepted = false

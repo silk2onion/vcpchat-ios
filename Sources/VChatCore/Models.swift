@@ -43,7 +43,23 @@ public struct ConnectionConfiguration: Codable, Sendable, Equatable {
 public struct ChatTurn: Codable, Sendable, Equatable {
     public var role: String
     public var content: String
-    public init(role: String, content: String) { self.role = role; self.content = content }
+    public var parts: [APIContentPart]?
+    public init(role: String, content: String, attachments: [ChatAttachment] = []) {
+        self.role = role; self.content = content
+        let value = AttachmentContext.parts(text: content, attachments: attachments)
+        if value.contains(where: { $0.type == "image_url" }) { parts = value }
+        else { parts = nil; if !attachments.isEmpty { self.content = value.first?.text ?? content } }
+    }
+    enum CodingKeys: String, CodingKey { case role, content }
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self); try c.encode(role, forKey: .role)
+        if let parts { try c.encode(parts, forKey: .content) } else { try c.encode(content, forKey: .content) }
+    }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self); role = try c.decode(String.self, forKey: .role)
+        if let value = try? c.decode(String.self, forKey: .content) { content = value; parts = nil }
+        else { let value = try c.decode([APIContentPart].self, forKey: .content); parts = value; content = value.compactMap(\.text).joined(separator: "\n\n") }
+    }
 }
 public struct ChatRequest: Sendable {
     public let configuration: ConnectionConfiguration

@@ -12,10 +12,20 @@ public struct StoredMessage: Codable, Sendable, Equatable, FetchableRecord, Pers
     public var reasoning: String
     public var status: String
     public var createdAt: Double
-    public init(id: String = UUID().uuidString, topicID: String = "legacy", agentID: String = "", authorName: String = "助手", role: String, content: String, reasoning: String = "", status: String = "complete", createdAt: Double = Date().timeIntervalSince1970) {
+    public var attachments: [ChatAttachment]
+    public var originalRole: String?
+    public var syncNotice: String?
+    public init(id: String = UUID().uuidString, topicID: String = "legacy", agentID: String = "", authorName: String = "助手", role: String, content: String, reasoning: String = "", status: String = "complete", createdAt: Double = Date().timeIntervalSince1970, attachments: [ChatAttachment] = [], originalRole: String? = nil, syncNotice: String? = nil) {
+        self.attachments = attachments; self.originalRole = originalRole; self.syncNotice = syncNotice
         self.topicID = topicID; self.agentID = agentID; self.authorName = authorName
         self.id = id; self.role = role; self.content = content; self.reasoning = reasoning; self.status = status; self.createdAt = createdAt
     }
+    enum CodingKeys: String, CodingKey { case id, topicID, agentID, authorName, role, content, reasoning, status, createdAt, attachments, originalRole, syncNotice }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(String.self, forKey: .id), topicID: try c.decodeIfPresent(String.self, forKey: .topicID) ?? "legacy", agentID: try c.decodeIfPresent(String.self, forKey: .agentID) ?? "", authorName: try c.decodeIfPresent(String.self, forKey: .authorName) ?? "助手", role: try c.decode(String.self, forKey: .role), content: try c.decode(String.self, forKey: .content), reasoning: try c.decodeIfPresent(String.self, forKey: .reasoning) ?? "", status: try c.decodeIfPresent(String.self, forKey: .status) ?? "complete", createdAt: try c.decode(Double.self, forKey: .createdAt), attachments: try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? [], originalRole: try c.decodeIfPresent(String.self, forKey: .originalRole), syncNotice: try c.decodeIfPresent(String.self, forKey: .syncNotice))
+    }
+
 }
 /// DatabasePool uses SQLite WAL. No database work executes on MainActor.
 public actor ChatStore {
@@ -44,6 +54,12 @@ public actor ChatStore {
                 t.column("kind", .text).notNull(); t.column("id", .text).notNull()
                 t.column("payload", .blob).notNull(); t.column("updatedAt", .double).notNull()
                 t.primaryKey(["kind", "id"])
+            }
+        }
+        migrations.registerMigration("native-v3-attachments") { db in
+            try db.alter(table: "messages") { t in
+                t.add(column: "attachments", .text).notNull().defaults(to: "[]")
+                t.add(column: "originalRole", .text); t.add(column: "syncNotice", .text)
             }
         }
         try migrations.migrate(pool)

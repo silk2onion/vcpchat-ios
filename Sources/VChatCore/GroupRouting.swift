@@ -57,11 +57,14 @@ public actor ConversationBuilder {
         if !agent.systemPrompt.isEmpty { system.append(agent.systemPrompt) }
         var turns: [ChatTurn] = []
         if !system.isEmpty { turns.append(ChatTurn(role: "system", content: system.joined(separator: "\n\n"))) }
-        let depths = TurnDepths.calculate(messages), allRules = rules + agent.regexRules
-        for message in messages.suffix(32) where ["user", "assistant"].contains(message.role) && !message.content.isEmpty {
+        let window = Array(messages.suffix(32)), depths = TurnDepths.calculate(Array(messages.suffix(32))), allRules = rules + agent.regexRules
+        let lastUser = window.last(where: { $0.role == "user" })?.id
+        for message in window where ["user", "assistant"].contains(message.role) {
+            if let original = message.originalRole, !["user", "assistant"].contains(original) { continue }
+            if message.role == "assistant" && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
             let transformed = try await RegexEngine.shared.apply(message.content, rules: allRules, scope: "context", role: message.role, depth: depths[message.id] ?? 0)
             let content = group != nil && message.role == "assistant" && !message.authorName.isEmpty ? "【\(message.authorName)】\n\(transformed)" : transformed
-            turns.append(ChatTurn(role: message.role, content: content))
+            turns.append(ChatTurn(role: message.role, content: content, attachments: message.role == "user" && message.id == lastUser ? message.attachments : []))
         }
         return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil)
     }

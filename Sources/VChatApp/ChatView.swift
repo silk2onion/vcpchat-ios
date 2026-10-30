@@ -29,11 +29,13 @@ struct ChatView: View {
                 }
                 ChatTimeline(model: model)
                 if model.pendingCount > 0 { Text("\(model.pendingCount) 条本机待确认消息；不会自动重复发送").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
-                HStack(alignment: .bottom, spacing: 12) {
+                if let room = model.room, !room.attachments.isEmpty { AttachmentStrip(attachments: room.attachments) { id in Task { await model.detach(id) } }.padding(.horizontal, 16).padding(.bottom, 6) }
+                HStack(alignment: .bottom, spacing: 8) {
+                    AttachmentComposer(model: model)
                     NativeComposer(text: $model.draft, enterSends: model.inputPreferences.enterSends, insertNewline: newlineRequest) { if !model.busy { model.send() } }
                     if model.inputPreferences.enterSends { Button { newlineRequest += 1 } label: { Image(systemName: "return").frame(width: 32, height: 40) }.accessibilityLabel("换行") }
                     if model.busy { Button { Task { await model.stop() } } label: { Image(systemName: "stop.fill").frame(width: 40, height: 40) }.accessibilityLabel("停止生成") }
-                    else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(model.appearance.theme.tint, in: Circle()).foregroundStyle(model.appearance.theme == .paper ? .white : .black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
+                    else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(model.appearance.theme.tint, in: Circle()).foregroundStyle(model.appearance.theme == .paper ? .white : .black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (model.room?.attachments.isEmpty ?? true) || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(.plain).padding(.horizontal, 15).padding(.vertical, 5).background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 25)).overlay(RoundedRectangle(cornerRadius: 25).stroke(.secondary.opacity(0.15))).padding(.horizontal, 16).padding(.bottom, 12)
             }
             .background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
@@ -117,6 +119,8 @@ private struct NativeMessageRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if message.role == "assistant" { HStack(spacing: 8) { ContactAvatar(name: message.authorName, image: model.agents.first(where: { $0.id == message.agentID })?.avatarUrl ?? "", size: 25); Text(message.authorName) }.font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+            if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
+            if let notice = message.syncNotice { Label(notice, systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary) }
             if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
             RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text, options: model.renderOptions, streaming: ["connecting", "streaming"].contains(message.status), rules: model.displayRules(for: message), role: message.role, depth: model.rooms[message.topicID]?.depths[message.id] ?? 0).font(.body)
             if !["streaming", "connecting"].contains(message.status) { MessageActions(message: message, model: model) }
