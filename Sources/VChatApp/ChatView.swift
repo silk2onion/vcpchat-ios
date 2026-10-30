@@ -67,6 +67,7 @@ private struct ChatTimeline: View {
     let model: ChatViewModel
     @State private var followLatest = true
     @State private var openSettings = false
+    @State private var viewport = CGRect.zero
     var body: some View {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -83,6 +84,9 @@ private struct ChatTimeline: View {
                             Color.clear.frame(height: 1).id("latest")
                         }.padding(.horizontal, 20).padding(.vertical, 22)
                     }
+                    .environment(\.messageViewport, viewport)
+                    .background(GeometryReader { geometry in Color.clear.preference(key: ChatViewport.self, value: geometry.frame(in: .global)) })
+                    .onPreferenceChange(ChatViewport.self) { value in Task { @MainActor in viewport = value } }
                     .defaultScrollAnchor(model.messages.isEmpty ? .top : .bottom)
                     .onChange(of: model.frames) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
                     .onChange(of: model.messages.count) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
@@ -102,8 +106,10 @@ private struct NativeMessageRow: View {
         VStack(alignment: .leading, spacing: 8) {
             if message.role == "assistant" { HStack(spacing: 8) { ContactAvatar(name: message.authorName, image: model.agents.first(where: { $0.id == message.agentID })?.avatarUrl ?? "", size: 25); Text(message.authorName) }.font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
-            RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text, options: model.renderOptions).font(.body)
+            RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text, options: model.renderOptions, streaming: ["connecting", "streaming"].contains(message.status)).font(.body)
             if ["interrupted", "stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.caption).foregroundStyle(.secondary) }
         }.padding(message.role == "user" ? 15 : 0).background(message.role == "user" ? Color.secondary.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 18))
     }
 }
+
+private struct ChatViewport: PreferenceKey { static let defaultValue = CGRect.zero; static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() } }

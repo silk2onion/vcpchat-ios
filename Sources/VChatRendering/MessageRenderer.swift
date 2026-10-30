@@ -15,9 +15,10 @@ public actor MessageRenderer {
     public init() {}
     private struct MathToken { var token: String; var latex: String; var original: String; var block: Bool }
     private var mathTokens: [MathToken] = []
-    public func render(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
+    public func render(_ source: String, options: RenderOptions, dark: Bool, streaming: Bool = false) throws -> [RenderBlock] {
         try Task.checkCancellation()
         guard options.enabled else { return [.literal(source)] }
+        if HTMLIslandPolicy.accepts(source) { return options.html ? (streaming ? [.literal("视觉气泡生成中…")] : [.html(source)]) : [.literal(source)] }
         var output: [RenderBlock] = []
         for segment in VCPMarkup.parse(source) {
             switch segment {

@@ -18,6 +18,7 @@ public struct CodeSpan: Sendable, Equatable {
 }
 public enum InlineRun: Sendable, Equatable { case text(AttributedString); case math(String) }
 public enum RenderBlock: Sendable, Equatable {
+    case html(String)
     case vcp(VCPMarkup.Segment)
     case literal(String)
     case paragraph([InlineRun])

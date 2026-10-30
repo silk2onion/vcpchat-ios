@@ -11,7 +11,7 @@ import AppKit
     @ObservationIgnored private var pending: Input?
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
-    struct Input: Equatable { var source: String; var options: RenderOptions; var dark: Bool }
+    struct Input: Equatable { var source: String; var options: RenderOptions; var dark: Bool; var streaming: Bool }
     func update(_ input: Input) {
         pending = input
         guard worker == nil else { return }
@@ -20,7 +20,7 @@ import AppKit
             while generation == id, let input = pending, !Task.isCancelled {
                 pending = nil
                 do {
-                    let rendered = try await MessageRenderer.shared.render(input.source, options: input.options, dark: input.dark)
+                    let rendered = try await MessageRenderer.shared.render(input.source, options: input.options, dark: input.dark, streaming: input.streaming)
                     if !Task.isCancelled && generation == id { blocks = rendered }
                     try await Task.sleep(for: .milliseconds(70))
                 } catch is CancellationError { break }
@@ -34,10 +34,11 @@ import AppKit
 public struct RichMessageBody: View {
     public var source: String
     public var options: RenderOptions
+    public var streaming: Bool
     @State private var rendering = RenderState()
     @State private var visible = false
     @Environment(\.colorScheme) private var scheme
-    public init(_ source: String, options: RenderOptions = RenderOptions()) { self.source = source; self.options = options }
+    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false) { self.source = source; self.options = options; self.streaming = streaming }
     private var plain: Bool { !options.enabled || (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })) }
     public var body: some View {
         Group {
@@ -46,10 +47,10 @@ public struct RichMessageBody: View {
             else { NativeBlocks(blocks: rendering.blocks, options: options).equatable() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark), initial: true) { _, input in
+        .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark, streaming: streaming), initial: true) { _, input in
             if visible && !plain { rendering.update(input) } else { rendering.cancel() }
         }
-        .onAppear { visible = true; if !plain { rendering.update(.init(source: source, options: options, dark: scheme == .dark)) } }
+        .onAppear { visible = true; if !plain { rendering.update(.init(source: source, options: options, dark: scheme == .dark, streaming: streaming)) } }
         .onDisappear { visible = false; rendering.cancel() }
         .environment(\.openURL, OpenURLAction { url in ["http", "https", "mailto"].contains(url.scheme) ? .systemAction : .discarded })
     }
@@ -64,6 +65,7 @@ private struct NativeBlocks: View, Equatable {
     }
     @ViewBuilder func blockView(_ block: RenderBlock) -> some View {
         switch block {
+        case .html(let source): HTMLIsland(source: source, options: options)
         case .vcp(let segment): VCPCardView(segment: segment, options: options)
         case .literal(let text): Text(verbatim: text).textSelection(.enabled)
         case .paragraph(let runs): InlineBody(runs: runs)
