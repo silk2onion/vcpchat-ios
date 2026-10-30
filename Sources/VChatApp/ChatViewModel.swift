@@ -31,7 +31,8 @@ import VChatRendering
     var draft = ""
     var attachments: [ChatAttachment] = []
     var busy = false
-    var cancelled = false
+    var cancellation: SessionState?
+    var cancelled: Bool { cancellation != nil }
     var connection = ""
     var frames = 0
     var pendingCount = 0
@@ -267,6 +268,7 @@ struct TopicDraft: Codable, Sendable {
     func removeTopic(_ topic: ChatTopic) async {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         do {
+            rooms[topic.id]?.cancellation = .stopped
             await rooms[topic.id]?.session.stop(); await rooms[topic.id]?.generation?.value; rooms[topic.id]?.draftSave?.cancel()
             try await store?.removeTopic(topic.id); rooms.removeValue(forKey: topic.id); topics.removeAll { $0.id == topic.id }
             if activeTopicID == topic.id {
@@ -347,7 +349,7 @@ struct TopicDraft: Codable, Sendable {
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending", attachments: room.attachments)
         let config = configuration, key = apiKey, profile = profile, rules = regexRules
-        room.busy = true; room.cancelled = false; room.error = nil
+        room.busy = true; room.cancellation = nil; room.error = nil
         room.generation = Task {
             var currentReply: MessageViewModel?
             do {
@@ -372,7 +374,7 @@ struct TopicDraft: Codable, Sendable {
             } catch {
                 room.error = error.localizedDescription
                 if let assistant = currentReply {
-                    assistant.status = "interrupted"
+                    assistant.status = room.cancellation?.rawValue ?? "interrupted"
                     do { try await store.save(assistant.record) } catch { room.error = "\(room.error ?? "")；本机保存失败：\(error.localizedDescription)" }
                 }
             }
@@ -386,6 +388,10 @@ struct TopicDraft: Codable, Sendable {
         }
     }
     func receive(_ request: ChatRequest, into assistant: MessageViewModel, room: ChatRoom, store: ChatStore, prefix: String = "", reasoningPrefix: String = "", acceptedUser: String? = nil) async throws {
+        if let cancellation = room.cancellation {
+            assistant.status = cancellation.rawValue; room.connection = cancellation == .stopped ? "已停止" : "已中断"
+            try await store.save(assistant.record); return
+        }
         var lastSaved = ContinuousClock.now, accepted = false
         for try await update in try await room.session.stream(request, prefix: prefix, reasoningPrefix: reasoningPrefix) {
             assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
@@ -408,20 +414,21 @@ struct TopicDraft: Codable, Sendable {
         let config = configuration, key = apiKey, profile = profile, rules = regexRules
         let prefix = continuing ? message.text : "", reasoning = continuing ? message.reasoning : ""
         let history = (continuing ? room.messages : Array(room.messages.dropLast())).map(\.record)
-        room.busy = true; room.cancelled = false; room.error = nil
+        room.busy = true; room.cancellation = nil; room.error = nil
         room.generation = Task {
             defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
             do {
                 let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules)
+                guard !room.cancelled else { return }
                 let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
-                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing ? [prompt] : []), temperature: built.temperature)
+                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature)
                 var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"
                 try await store.reviseMessage(record)
                 message.text = prefix; message.reasoning = reasoning; message.status = "connecting"
                 let pending = room.messages.last { $0.role == "user" && $0.status == "pending" }?.id
                 try await receive(request, into: message, room: room, store: store, prefix: prefix, reasoningPrefix: reasoning, acceptedUser: pending)
             } catch {
-                message.status = "interrupted"; room.error = error.localizedDescription
+                message.status = room.cancellation?.rawValue ?? "interrupted"; room.error = error.localizedDescription
                 do { try await store.save(message.record) } catch { room.error = "本机保存失败：\(error.localizedDescription)" }
             }
         }
@@ -447,7 +454,7 @@ struct TopicDraft: Codable, Sendable {
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
-    func stop(background: Bool = false) async { room?.cancelled = true; await room?.session.stop(interrupted: background) }
+    func stop(background: Bool = false) async { room?.cancellation = background ? .interrupted : .stopped; await room?.session.stop(interrupted: background) }
     func enterBackground() async {
         backgrounded = true
         await flushDraft(); guard !Task.isCancelled else { return }
@@ -456,7 +463,7 @@ struct TopicDraft: Codable, Sendable {
     }
     func interruptForBackground() async {
         let targets = Array(rooms.values).filter { $0.busy }
-        for room in targets { room.cancelled = true; await room.session.stop(interrupted: true) }
+        for room in targets { room.cancellation = .interrupted; await room.session.stop(interrupted: true) }
         for room in targets {
             await room.generation?.value
             for message in room.messages where ["connecting","streaming"].contains(message.status) {
