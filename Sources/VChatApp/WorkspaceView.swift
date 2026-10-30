@@ -1,5 +1,10 @@
 import SwiftUI
 import VChatCore
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 struct WorkspaceView: View {
     enum Tab { case chats, contacts, me }
@@ -138,6 +143,7 @@ struct ContactAvatar: View {
 struct AgentEditor: View {
     @Bindable var model: ChatViewModel
     @State var agent: VCPAgent
+    @State private var choosingModel = false
     @State private var avatar = false
     @State private var deleting = false
     @Environment(\.dismiss) private var dismiss
@@ -153,6 +159,7 @@ struct AgentEditor: View {
                 Section("系统提示词") { TextEditor(text: $agent.systemPrompt).frame(minHeight: 140) }
                 Section("模型") {
                     TextField("留空使用全局模型", text: $agent.model)
+                    Button("从模型列表选择") { choosingModel = true }
                     Toggle("独立 Temperature", isOn: Binding(get: { agent.temperature != nil }, set: { agent.temperature = $0 ? model.configuration.temperature : nil }))
                     if let temperature = agent.temperature { LabeledContent("Temperature", value: temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: Binding(get: { agent.temperature ?? 0.8 }, set: { agent.temperature = $0 }), in: 0...2) }
                     Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.caption).foregroundStyle(.secondary)
@@ -168,6 +175,7 @@ struct AgentEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { if await model.saveAgent(agent) { dismiss() } } }.disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
+            .sheet(isPresented: $choosingModel) { ModelPicker(model: model, selection: $agent.model) }
             .sheet(isPresented: $avatar) { AvatarEditor(image: $agent.avatarUrl, name: agent.name) }
             .confirmationDialog("删除这个 Agent？聊天记录将保留。", isPresented: $deleting, titleVisibility: .visible) { Button("删除 Agent", role: .destructive) { Task { await model.removeAgent(agent.id); if model.error == nil { dismiss() } } } }
         }.frame(minWidth: 340, minHeight: 530)

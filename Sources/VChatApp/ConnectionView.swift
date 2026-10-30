@@ -5,6 +5,7 @@ struct ConnectionView: View {
     @Bindable var model: ChatViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var importing = false
+    @State private var choosingModel = false
     @State private var fetching = false
     @State private var query = ""
     var body: some View {
@@ -22,12 +23,7 @@ struct ConnectionView: View {
                     Toggle("发送 Temperature", isOn: $model.configuration.sendTemperature)
                     if model.configuration.sendTemperature { LabeledContent("Temperature", value: model.configuration.temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: $model.configuration.temperature, in: 0...2) }
                     Button(fetching ? "正在读取…" : "鉴权并读取模型") { fetching = true; Task { await model.refreshModels(); fetching = false } }.disabled(fetching)
-                    if !model.models.isEmpty {
-                        TextField("筛选模型", text: $query)
-                        ForEach(model.models.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }.prefix(30), id: \.self) { id in
-                            Button { model.configuration.model = id } label: { HStack { Text(id).lineLimit(2); Spacer(); if model.configuration.model == id { Image(systemName: "checkmark") } } }
-                        }
-                    }
+                    Button("选择模型 · \(model.models.count) 个", systemImage: "list.bullet") { choosingModel = true }
                 }
                 Section("实时推送") {
                     SecureField("VCPLog Key（与聊天 Key 分开）", text: $model.logKey)
@@ -40,6 +36,8 @@ struct ConnectionView: View {
                 }
                 if let error = model.error { Section { Text(error).foregroundStyle(.red) } }
             }
+            .sheet(isPresented: $choosingModel) { ModelPicker(model: model, selection: $model.configuration.model) }
+            .onChange(of: model.configuration.server) { _, _ in Task { await model.loadCatalog() } }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
                 switch result {
                 case .success(let url): Task { await model.importConnection(from: url) }

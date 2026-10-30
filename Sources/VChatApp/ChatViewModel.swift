@@ -46,6 +46,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var apiKey = ""
     var logKey = ""
     var models: [String] = []
+    var catalog: ModelCatalog?
     var loading = true
     var pushStatus = "未连接"
     var error: String?
@@ -106,6 +107,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             }
             let previous = UserDefaults.standard.string(forKey: "native.active-topic") ?? "legacy"
             await openTopic(topics.first { $0.id == previous } ?? topics[0])
+            await loadCatalog()
             loading = false
             // Local-first: a system Keychain confirmation must not hide local messages or drafts.
             apiKey = try await vault.read("chat-api-key"); logKey = try await vault.read("vcp-log-key")
@@ -214,9 +216,32 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
+    func loadCatalog() async {
+        guard let endpoint = try? configuration.endpoint("v1/models").absoluteString else { catalog = nil; models = []; return }
+        do {
+            let cached = try await store?.records(ModelCatalog.self, kind: "modelCatalog").first { $0.endpoint == endpoint }
+            guard (try? configuration.endpoint("v1/models").absoluteString) == endpoint else { return }
+            catalog = cached; models = cached?.ids ?? []
+        } catch { self.error = error.localizedDescription }
+    }
+    func rememberModel(_ id: String) async {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do {
+            let endpoint = try configuration.endpoint("v1/models").absoluteString
+            var updated = catalog?.endpoint == endpoint ? catalog! : ModelCatalog(endpoint: endpoint, ids: models)
+            updated.select(id); try await store?.put(updated, kind: "modelCatalog", id: endpoint); catalog = updated
+        } catch { self.error = error.localizedDescription }
+    }
     func refreshModels() async {
-        do { models = try await network.models(configuration: configuration, apiKey: apiKey); if configuration.model.isEmpty { configuration.model = models.first ?? "" } }
-        catch { self.error = error.localizedDescription }
+        let config = configuration
+        do {
+            let endpoint = try config.endpoint("v1/models").absoluteString
+            let fetched = try await network.models(configuration: config, apiKey: apiKey)
+            let old = try await store?.records(ModelCatalog.self, kind: "modelCatalog").first { $0.endpoint == endpoint }
+            let updated = ModelCatalog(endpoint: endpoint, ids: fetched, recent: old?.recent ?? [])
+            try await store?.put(updated, kind: "modelCatalog", id: endpoint)
+            if (try? configuration.endpoint("v1/models").absoluteString) == endpoint { catalog = updated; models = updated.ids; if configuration.model.isEmpty { configuration.model = updated.ids.first ?? "" } }
+        } catch { self.error = error.localizedDescription }
     }
     func connectPush() {
         push?.cancel(); pushStatus = "正在鉴权"

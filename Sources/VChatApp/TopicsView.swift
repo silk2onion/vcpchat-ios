@@ -26,7 +26,7 @@ struct TopicsView: View {
                         Menu {
                             Button("重命名", systemImage: "pencil") { title = topic.title; rename = topic }
                             Button("删除对话", systemImage: "trash", role: .destructive) { deleting = topic }
-                        } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }.menuStyle(.borderlessButton)
+                        } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }
                     }
                 }
             }.navigationTitle("历史话题")
