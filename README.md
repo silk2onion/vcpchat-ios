@@ -1,287 +1,76 @@
-<a id="top"></a>
+# VChat Native · Phase 1
 
-<p align="center">
-  <picture>
-    <source media="(max-width: 600px)" srcset="docs/assets/readme-hero-mobile.svg" />
-    <img src="docs/assets/readme-hero.svg" alt="VCPChat iOS — 把你的 VCP 工作台带到 iPhone" width="100%" />
-  </picture>
-</p>
+连接自有 VCP 后端的 **SwiftUI + Swift 6 原生客户端**，最低 iOS 17。
+App 入口是 `VChatApp`；聊天列表、消息和输入框均为原生控件。Tauri、Vue 和 Rust 已从当前应用构建中移除。
 
-<p align="center">
-  <img src="https://img.shields.io/badge/iOS-16%2B-10191e?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="iOS 16+" />
-  <img src="https://img.shields.io/badge/Tauri-2-10191e?style=flat-square&amp;logo=tauri&amp;logoColor=88d6b0" alt="Tauri 2" />
-  <img src="https://img.shields.io/badge/Vue-3-10191e?style=flat-square&amp;logo=vuedotjs&amp;logoColor=88d6b0" alt="Vue 3" />
-  <img src="https://img.shields.io/badge/Rust-10191e?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Rust" />
-</p>
+## 开始聊天
 
-<p align="center">
-  连接自有 VCPToolBox 服务的多 Agent 聊天客户端。<br />
-  独立对话、群聊协作、桌面同步，让 Agent 与工作随你同行。
-</p>
+1. 打开右上角“连接设置”，填写服务器、聊天 API Key 和模型 ID。
+2. 点“鉴权并读取模型”，可搜索模型，或直接填写模型 ID。
+3. 如需 VCPLog，另填 WebSocket Key，再点“连接 WebSocket”。
+4. 保存后发送消息，回复流式显示。停止或断流后，已收到的内容保留在本机。
 
-<p align="center">
-  <a href="#features">产品功能</a> ·
-  <a href="#guide"><strong>使用指南</strong></a> ·
-  <a href="#build">构建与安装</a> ·
-  <a href="#development">开发</a>
-</p>
+Mac 上也可点“导入桌面 VCPChat 连接…”，在系统文件选择器里选择原版 `AppData/settings.json`。
+仅导入 `vcpServerUrl`、`vcpApiKey`、`vcpLogKey`；不改动原文件、旧会话或旧 App 数据。
+密钥存入本机钥匙串，不写入源码、UserDefaults 或聊天数据库。连接服务器应使用 HTTPS。
 
----
+**现有后端协议**：聊天使用 `POST /v1/chat/completions` 的 Bearer 鉴权与 SSE；推送使用 `/VCPlog/VCP_Key=…` 的 WebSocket，收到 `connection_ack` 后才显示“已连接”。两条通道独立。
 
-<a id="features"></a>
-## 随身的多 Agent 工作台
+## 在 Xcode 运行 iOS App
 
-<table>
-  <tr>
-    <td width="50%" valign="top"><h3>💬 多 Agent</h3>为每位 Agent 设置头像、人设、模型与声音。按话题组织对话，随时切换主 Agent。</td>
-    <td width="50%" valign="top"><h3>👥 群聊协作</h3>组合不同 Agent，通过点名、轮流、随机或依次回复开展讨论。</td>
-  </tr>
-  <tr>
-    <td valign="top"><h3>✨ 富消息呈现</h3>Markdown、代码、公式、Mermaid、HTML 交互气泡与图片视频，清晰呈现思考、工具调用和执行结果。</td>
-    <td valign="top"><h3>🎧 语音与正则</h3>接入 SoVITS 或 MiMo 朗读回复，使用全局或 Agent 正则整理显示与上下文。</td>
-  </tr>
-  <tr>
-    <td valign="top"><h3>🔔 通知与审批</h3>集中查看 VCPLog、工具审批和 RAG 信息流，追踪检索来源、知识片段与 Agent 活动。</td>
-    <td valign="top"><h3>🔄 桌面同步</h3>同步桌面 Agent、群组、会话、消息和头像，支持增量写回与本机恢复点。</td>
-  </tr>
-  <tr>
-    <td valign="top"><h3>📂 文件与笔记</h3>管理本机附件和服务器文件，记录本机笔记，读写服务器日记。</td>
-    <td valign="top"><h3>🎨 个性化界面</h3>选择主题、壁纸和头像，调整渲染与输入习惯。</td>
-  </tr>
-</table>
+使用完整版 Xcode 16 或更新版本，安装 iOS 平台与模拟器。打开 **`VChat.xcodeproj`**，选择 **VChat** scheme 和 iPhone 模拟器后运行。
+真机运行时，在 Signing & Capabilities 中选择自己的开发团队；本阶段不提供签名 IPA。
 
-<a id="guide"></a>
-## 使用指南
+项目和 Swift Package 都启用 **Swift 6 + Complete Concurrency Checking**，GRDB 固定为 7.0.0。
 
-[首次连接](#quick-start) · [Agent 与会话](#agents) · [通知与信息流](#activity) · [桌面同步](#sync) · [文件与笔记](#files) · [声音与外观](#personalize)
+```bash
+xcodebuild -project VChat.xcodeproj -scheme VChat \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$HOME/CodexArtifacts/vchat-native/DerivedData" \
+  CODE_SIGNING_ALLOWED=NO build
+```
 
-<a id="quick-start"></a>
-## 🚀 开始使用
+修改 App 源文件清单后运行 `python3 scripts/generate-xcode-project.py`，更新已签入的工程；普通 Swift 文件内容修改无需重生成。
 
-打开 **我 → 设置 → 服务器与模型**，填写连接信息：
+## 在 Mac 验证同一套原生代码
 
-| 配置 | 示例或说明 |
-| --- | --- |
-| VCP 服务器 URL | 手机可访问的地址，如 `http://192.168.1.8:6005` |
-| API Key | 聊天服务的 API Key |
-| 接口 | OpenAI 兼容，或 VCP 工具模式 |
-| 默认模型 | 刷新模型列表后选择，也可直接填写模型 ID |
+```bash
+export VCHAT_ARTIFACTS="$HOME/CodexArtifacts/vchat-native-local"
+bash scripts/run-mac.sh
+open "$VCHAT_ARTIFACTS/products/VChat Native.app"
+```
 
-点 **测试连接并刷新模型**，选择模型后回到“会话”，打开助手即可开始聊天。
+Mac 需要 macOS 14+、Swift 6。Mac 验证共享 UI、Actor、网络和数据库；iOS 的编译、键盘和生命周期仍由 iOS 目标单独验收。
 
-**OpenAI 兼容**使用 `/v1/chat/completions`；**VCP 工具模式**使用 `/v1/chatvcp/completions`，由 VCP 后端处理工具调用。服务器 URL 支持基础地址和完整聊天路径。
+## 测试
 
-<a id="agents"></a>
-## 💬 Agent 与会话
+```bash
+export VCHAT_ARTIFACTS="$HOME/CodexArtifacts/vchat-native-tests"
+bash scripts/test-native.sh
+```
 
-### 创建你的 Agent
+Swift Testing 覆盖 UTF-8/SSE 边界、16/8 ms 缓冲、鉴权、真实 URLSession 流、停止/断流保留、慢消费者、WebSocket ACK、WAL/FTS5 与恢复。协议夹具只监听本机，使用固定假密钥；Node 仅用于测试，不进入 App。
+直接 `swift test` 可运行解析测试；完整网络与存储测试使用上述脚本分配隔离输出目录。
 
-进入 **通讯录 → ＋**，设置名字、头像、简介、系统提示和模型，保存后开始对话。已有 Agent 可从右侧菜单编辑，也可在聊天顶部点头像打开资料。
+GitHub Actions `Native SwiftUI Phase 1` 执行原生测试、iOS 模拟器构建与启动，保存日志和截图，不上传真实连接配置，也不打 IPA。
 
-系统提示决定角色与工作方式；模型留空时继承全局设置。每位 Agent 还可以配置专属音色、朗读提示词和正则规则。
+## 数据与实现边界
 
-在 Agent 资料中选择 **设为主 Agent**，即可将它固定在会话页顶部。
+- `SessionActor` 持有网络状态机、解码和文字组装，向主线程交付聚合后的完整快照。16/8 ms 定时预算不是屏幕 VSync 测量；尚未给出真机 120 Hz 帧耗时结论。
+- `@Observable` 的消息对象保持稳定身份；当前消息行读取自己的文字。列表使用 `ScrollView + LazyVStack`，不会每个 Token 重建整份消息数组。
+- GRDB `DatabasePool` 使用 SQLite WAL。消息先本地落盘，回复定期保存；重启把未完成回复标记为中断。FTS5 trigram 搜索至少输入 3 个字。
+- 原生数据库位于 `Application Support/VChatNative/chat.sqlite`，与旧客户端分离。待确认消息保存在 Outbox；后端尚无聊天幂等确认协议，因此不会盲目自动重发。
+- **本阶段交付 Level 1 原生文本流式 Demo**。多会话/Agent、Level 2 代码与公式、Level 3 微型 WebView 池、增量同步、文件管理、TTS、APNs 和后台续流尚未移植。旧实现可从 Git 历史恢复；旧功能不应被当作本阶段已完成。
 
-### 按话题组织对话
-
-点会话页的＋新建话题，使用聊天顶部的历史按钮切换话题。每个话题分别保留草稿和待发送附件，生成中的回复会在切换话题后继续接收。
-
-聊天支持图片和文本附件。回复中的思考、工具调用与结果分别呈现；可复制消息、朗读正文，也可停止生成或继续中断的回复。
-
-### 让多个 Agent 参与讨论
-
-在通讯录的群聊区域创建群聊，选择成员和发言方式：
-
-- **@点名，否则轮流**：指定成员回复，或按顺序轮流发言。
-- **轮流一位**：每轮由一位成员回复。
-- **随机发言**：每轮随机选择一位成员。
-- **仅点名发言**：用 `@名字` 邀请成员参与。
-- **每位依次回复**：所有成员依次加入讨论。
-
-<a id="activity"></a>
-## 🔔 通知与信息流
-
-打开 **我 → 设置 → 日志通道**，填写 VCP WebSocket 地址和 WebSocket Key，点“连接日志通道”。例如：
+## 结构
 
 ```text
-VCP WebSocket URL: ws://192.168.1.8:6005
-VCP WebSocket Key: 服务器配置的日志密钥
+VChat.xcodeproj/           iOS 原生入口和共享 scheme
+Sources/VChatApp/          SwiftUI 界面、@Observable 状态
+Sources/VChatCore/         SessionActor、SSE、GRDB、钥匙串
+Tests/VChatCoreTests/      解析、协议和数据库测试
+Configuration/            iOS plist、图标
+scripts/                  Mac 验证、测试夹具、工程生成
 ```
 
-聊天右上角的铃铛和 **我 → 通知中心** 都可打开信息面板：
-
-- **通知**：查看待审批请求、参数和变更预览，允许或拒绝工具调用，并查看处理回执。
-- **VCPLog**：查看工具执行和服务运行日志。
-- **RAG 监视器**：阅读检索问题、知识片段、来源与分数，以及元思考、Agent、记忆和梦境事件。
-
-<a id="sync"></a>
-## 🔄 桌面同步
-
-### 连接桌面 VCPChat
-
-1. 在桌面端启用 [VCPMobileSync](https://github.com/lioensky/VCPChat/tree/1fadcf1531151cd7c5070fc1737d944133918dba/VCPDistributedServer/Plugin/VCPMobileSync)，设置 `MobileSyncToken`，启动 VCP 分布式服务器。
-2. 在手机打开 **我 → 桌面同步**，填写连接信息：
-
-   | 配置 | 示例 |
-   | --- | --- |
-   | 桌面 HTTP 地址 | `http://192.168.1.8:5974` |
-   | 同步 WebSocket 地址 | `ws://192.168.1.8:5975/` |
-   | Mobile Sync Token | 桌面端配置的 `MobileSyncToken` |
-
-3. 选择 **从桌面拉取**，点“开始同步”。
-
-5974 为桌面分布式服务的默认 HTTP 端口，5975 为同步 WebSocket 默认端口；自定义端口时填写对应值。手机与桌面使用可互通的网络。
-
-### 在手机与桌面之间继续工作
-
-首次拉取会建立独立的桌面来源，现有本机会话继续保留。在同步会话中新增消息、创建话题或修改 Agent 资料后，选择 **双向同步** 写回桌面。
-
-每次完成同步会保存本机恢复点。需要还原手机上的同步资料时，选择 **恢复到上次同步前**。
-
-同步消息中的附件可在文件页导入原件，或从服务器下载；文件库会按内容关联到对应消息。
-
-<a id="files"></a>
-## 📂 文件与笔记
-
-### 本机附件
-
-进入 **我 → 文件 → 本机附件**，导入文件或收集聊天附件，查看图片和文本，并将原文件导出到系统中。重复内容自动归入同一份文件；同名导出另存副本，保留原件。
-
-Mac 上点“查看导出位置”打开 Finder；iPhone 上可在“文件 → 我的 iPhone → VCPChat → VCPChat Exports”找到导出内容。
-
-### 服务器文件
-
-进入 **文件 → 服务器文件 → 连接与目录设置**：
-
-1. 使用“服务器与模型”中已配置的 ToolBox 地址与 API Key。
-2. 文件工具名称填写 `ServerFileOperator`，或你的自定义工具名。
-3. 读取服务端允许目录，选择浏览起点；也可填写服务器绝对路径。
-
-随后即可浏览目录、上传文件、新建文本或文件夹、读取文档、重命名、复制、移动和移入回收站。文件夹右侧菜单提供目录管理操作。
-
-**下载原文件**使用 `ImageFileServer`：在连接设置中填写 `File_Key` 和服务端 `file/` 目录映射，再将分发目录中的文件下载到本机附件库。
-
-### 笔记与日记
-
-**我 → 笔记 → 本机** 用于新建、编辑和保存个人笔记。
-
-使用服务器日记时，在 **设置 → 身份与日记** 填写管理员用户名和密码，再进入 **笔记 → 服务器日记**，选择文件夹，即可搜索、阅读、编辑和保存日记。
-
-<a id="personalize"></a>
-## 🎛️ 声音、外观与文本
-
-### 语音朗读
-
-在 **我 → 设置 → 语音与朗读** 选择语音服务，填写地址和 Key，选择音色后试听。
-
-| 服务 | 连接方式 |
-| --- | --- |
-| SoVITS · VChat 兼容 | 使用 v2ProPlus 服务的基础地址，如 `http://192.168.1.8:8000`，刷新音色后选择 |
-| MiMo · 网络语音 | 填写服务地址、API Key、语音模型和音色；可用导演提示词调整语气与节奏 |
-
-点回复下方的扬声器开始朗读，播放器提供进度、暂停、继续和停止。Agent 资料中的声音设置可覆盖全局音色。
-
-### 正则规则
-
-在 **设置 → 全局正则** 管理共用规则，在 Agent 资料中设置专属规则。支持 VChat / SillyTavern JSON 导入、编辑、排序、启停、试替换与导出。
-
-规则可分别用于消息显示和发送上下文，保存的原文保持不变。
-
-### 外观与输入
-
-在 **设置 → 外观** 选择墨色、纸色或极光主题，搭配内置或自选壁纸。**高级渲染**可调整代码、公式、图表、HTML 和媒体的显示效果。
-
-**Enter 发送消息**可在设置中切换；⌘/Ctrl+Enter 用于发送，Shift+Enter 用于换行。
-
----
-
-<a id="development"></a>
-## 🛠️ 开发
-
-技术栈：**Tauri 2 · Vue 3 · TypeScript · Rust**。
-
-环境：Node.js 22、pnpm 10。原生开发使用 rustup，仓库通过 `rust-toolchain.toml` 固定 Rust 1.99.1。平台依赖见 [Tauri 开发环境](https://v2.tauri.app/start/prerequisites/)。
-
-在项目目录执行：
-
-```bash
-corepack enable
-pnpm install
-pnpm dev
-```
-
-浏览器访问 [http://127.0.0.1:43123](http://127.0.0.1:43123)。
-
-运行 Mac 原生应用：
-
-```bash
-pnpm tauri dev
-```
-
-### 本地演示
-
-另开终端运行演示服务：
-
-```bash
-pnpm mock-server
-```
-
-在“服务器与模型”填写 `http://127.0.0.1:43124`，API Key 填 `local-demo`，模型选 `vcp-demo`，即可体验流式回复、思考与工具卡片。日志演示地址为 `ws://127.0.0.1:43124`，Key 同样填 `local-demo`。
-
-### 检查与构建网页
-
-```bash
-pnpm check
-cargo test --lib --manifest-path src-tauri/Cargo.toml --locked
-```
-
-`pnpm check` 包含类型检查、lint、测试和网页构建；`pnpm build` 的网页产物位于 `dist/`。
-
-<a id="build"></a>
-## 📦 构建与安装
-
-### 构建 iOS 应用
-
-需要 macOS、完整版 Xcode 16 或更新，以及 Xcode 中的 iOS 平台与模拟器组件。应用最低系统版本为 iOS 16.0。
-
-选择 Xcode 开发目录：
-
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-xcodebuild -version
-```
-
-在项目目录安装依赖并构建：
-
-```bash
-pnpm install
-bash scripts/build-ios-simulator.sh
-bash scripts/build-unsigned-ipa.sh
-```
-
-脚本自动完成 Apple 工程初始化、目标安装与 plist 配置。
-
-| 产物 | 路径 |
-| --- | --- |
-| 模拟器 App（Apple Silicon） | `src-tauri/gen/apple/build/arm64-sim/VCPChat.app` |
-| 未签名设备 IPA | `dist-ios/VCPChat-unsigned.ipa` |
-
-### 安装到 iPhone
-
-将 IPA 导入 [AltStore Classic](https://faq.altstore.io/) 或 [Sideloadly](https://sideloadly.io/)，完成签名与安装。也可在 Xcode 中打开生成的 `src-tauri/gen/apple/*.xcodeproj`，选择自己的开发 Team 和设备后运行。
-
-更新已有安装时，沿用相同的签名身份与 Bundle ID：`app.vcpchat.ios`。
-
-### GitHub Actions
-
-在仓库的 **Actions → iOS → Run workflow** 选择分支启动构建。完成后，从 `VCPChat-iOS-products` 下载模拟器 App 和未签名 IPA；构建日志保存在 `VCPChat-iOS-logs`。
-
----
-
-## 致谢与许可
-
-本项目参考并适配了 [VCPChat](https://github.com/lioensky/VCPChat)、[VCPMobile](https://github.com/MRiecy/VCPMobile) 与 [VCPToolBox](https://github.com/lioensky/VCPToolBox) 的相关协议与实现。上游版本及素材说明见 [NOTICE.md](NOTICE.md)。
-
-采用 [CC BY-NC-SA 4.0](LICENSE) 许可。第三方依赖遵循各自许可。
-
-<p align="center"><a href="#top">返回顶部 ↑</a></p>
+协议参考和后续迁移记录见 `docs/NATIVE_PHASE1.md`。旧同步协议调查保存在 `docs/UPSTREAM_SYNC_AND_FILES.md`，其中的旧 UI 路径不适用于本阶段原生 Demo。

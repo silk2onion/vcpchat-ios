@@ -1,2 +1,0 @@
-app_identifier("app.vcpchat.ios")
-# team_id is intentionally empty. Signing happens on your Mac, not in this repo.
