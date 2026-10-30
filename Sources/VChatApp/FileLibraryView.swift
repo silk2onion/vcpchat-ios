@@ -21,7 +21,7 @@ struct FileLibraryView: View {
             Section { NavigationLink { ConnectedFoldersView(model: model) } label: { Label("连接文件夹",systemImage: "folder.badge.plus") } }
             Section {
                 Button("导入文件", systemImage: "square.and.arrow.down") { importing = true }.disabled(busy)
-                Button("收集聊天附件副本", systemImage: "bubble.left.and.text.bubble.right") { work { let count = try await model.store?.collectAttachmentFiles() ?? 0; notice = "已收集 \(count) 个附件，重复内容只保存一份" } }.disabled(busy)
+                Button("收集聊天附件副本", systemImage: "bubble.left.and.text.bubble.right") { work { let count = try await model.store?.collectAttachmentFiles() ?? 0; await model.refreshAttachmentMetadata(); notice = "已收集 \(count) 个附件，重复内容只保存一份" } }.disabled(busy || model.synchronizing)
                 Toggle("查看已移除文件", isOn: $removed)
             }
             ForEach(files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { file in
@@ -33,7 +33,7 @@ struct FileLibraryView: View {
         }.navigationTitle("文件").searchable(text: $query, prompt: "搜索文件名")
         .task { await refresh() }.onChange(of: removed) { _, _ in Task { await refresh() } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { work { let reader = LocalFileImporter(); for url in urls { let (name,mime,data) = try await reader.read(url); try await model.store?.addFile(name: name,mime: mime,bytes: data) }; notice = "文件已保存在本机" } }
+            if case .success(let urls) = result { work { let reader = LocalFileImporter(); for url in urls { let (name,mime,data) = try await reader.read(url); try await model.store?.addFile(name: name,mime: mime,bytes: data) }; await model.refreshAttachmentMetadata(); notice = "文件已保存在本机" } }
         }
         .sheet(item: $selected, onDismiss: { Task { await refresh() } }) { LocalFileDetail(model: model, file: $0) }
     }

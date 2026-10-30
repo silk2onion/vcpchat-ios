@@ -13,7 +13,7 @@ import VChatRendering
     var text: String
     var reasoning: String
     var status: String
-    let attachments: [ChatAttachment]
+    var attachments: [ChatAttachment]
     let originalRole: String?
     let syncNotice: String?
     init(_ message: StoredMessage) {
@@ -71,6 +71,7 @@ struct TopicDraft: Codable, Sendable {
     var savingConnection = false
     var loading = true
     var backgrounded = false
+    var synchronizing = false
     var fileNode = FileNodeController()
     var speech = SpeechPlayback()
     var activity = ActivityCenter()
@@ -182,6 +183,7 @@ struct TopicDraft: Codable, Sendable {
         catch { self.error = error.localizedDescription }
     }
     func saveAgent(_ agent: VCPAgent) async -> Bool {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard !agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = "给 Agent 起一个名字"; return false }
         do {
             try await store?.put(agent, kind: "agent", id: agent.id)
@@ -200,6 +202,7 @@ struct TopicDraft: Codable, Sendable {
         catch { profile = old; self.error = error.localizedDescription }
     }
     func removeAgent(_ id: String) async {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         guard agents.count > 1 else { error = "至少保留一位 Agent"; return }
         do {
             // Keep the topics and messages; deleting a contact must not erase conversation history.
@@ -212,6 +215,7 @@ struct TopicDraft: Codable, Sendable {
         else { await createTopic(ownerID: agent.id) }
     }
     func saveGroup(_ group: VCPGroup) async -> Bool {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard let store else { error = "本机数据库尚未就绪"; return false }
         guard !group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !group.memberIds.isEmpty else { error = "请填写群名并选择成员"; return false }
         do {
@@ -225,10 +229,12 @@ struct TopicDraft: Codable, Sendable {
         else { await createTopic(ownerID: group.id, ownerType: "group") }
     }
     func removeGroup(_ id: String) async {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         do { try await store?.removeRecord(kind: "group", id: id); groups.removeAll { $0.id == id } }
         catch { self.error = error.localizedDescription }
     }
     func createTopic(ownerID: String, ownerType: String = "agent") async {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         let topic = ChatTopic(ownerType: ownerType, ownerId: ownerID)
         do { try await store?.put(topic, kind: "topic", id: topic.id); topics.insert(topic, at: 0); await openTopic(topic) }
         catch { self.error = error.localizedDescription }
@@ -252,12 +258,14 @@ struct TopicDraft: Codable, Sendable {
         catch { self.error = error.localizedDescription }
     }
     func renameTopic(_ topic: ChatTopic, title: String) async {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         var updated = topic; updated.title = title; updated.updatedAt = Date().timeIntervalSince1970
         do { try await store?.put(updated, kind: "topic", id: topic.id); if let index = topics.firstIndex(where: { $0.id == topic.id }) { topics[index] = updated } }
         catch { self.error = error.localizedDescription }
     }
     func removeTopic(_ topic: ChatTopic) async {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         do {
             await rooms[topic.id]?.session.stop(); await rooms[topic.id]?.generation?.value; rooms[topic.id]?.draftSave?.cancel()
             try await store?.removeTopic(topic.id); rooms.removeValue(forKey: topic.id); topics.removeAll { $0.id == topic.id }
@@ -331,6 +339,7 @@ struct TopicDraft: Codable, Sendable {
         room?.attachments.removeAll { $0.id == id }; await flushDraft()
     }
     func send() {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         guard let room, let topic = activeTopic, !room.busy, (!room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !room.attachments.isEmpty), let store else { return }
         let content = room.draft
         let group = activeGroup
@@ -391,6 +400,7 @@ struct TopicDraft: Codable, Sendable {
         }
     }
     func regenerate(_ message: MessageViewModel, continuing: Bool) {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         guard let room = rooms[message.topicID], let topic = topics.first(where: { $0.id == room.id }), !room.busy, room.messages.last?.id == message.id, message.role == "assistant", let store else { return }
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         guard let agent = agents.first(where: { $0.id == message.agentID }) ?? agents.first(where: { $0.id == topic.ownerId }) else { room.error = "找不到写这条回复的 Agent"; return }
@@ -417,16 +427,19 @@ struct TopicDraft: Codable, Sendable {
         }
     }
     func editMessage(_ message: MessageViewModel, text: String) async -> Bool {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard let room = rooms[message.topicID], !room.busy, let store else { return false }
         do { var record = message.record; record.content = text; try await store.reviseMessage(record); message.text = text; return true }
         catch { room.error = error.localizedDescription; return false }
     }
     func trashMessage(_ message: MessageViewModel) async {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         guard let room = rooms[message.topicID], !room.busy, let store else { return }
         do { try await store.trashMessage(message.id); room.messages.removeAll { $0.id == message.id }; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
         catch { room.error = error.localizedDescription }
     }
     func restoreMessage(_ backup: MessageBackup) async -> Bool {
+        guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard let store, rooms[backup.message.topicID]?.busy != true else { return false }
         do {
             try await store.restoreMessage(backup)

@@ -34,12 +34,12 @@ public actor AttachmentImporter {
         if mime.hasPrefix("image/") {
             guard data.count <= 1_500_000 else { throw ClientError.server("\(name) 超过 1.5 MB") }
             guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else { throw ClientError.server("无法读取图片") }
-            return ChatAttachment(name: name, mime: mime, kind: "image", dataUrl: "data:\(mime);base64," + data.base64EncodedString())
+            return ChatAttachment(name: name, mime: mime, kind: "image", dataUrl: "data:\(mime);base64," + data.base64EncodedString(), hash: SyncWire.sha(data))
         }
         guard mime.hasPrefix("text/") || ["application/json", "application/xml"].contains(mime) || ["txt", "md", "json", "csv", "log", "xml", "yaml", "yml"].contains(ext) else { throw ClientError.server("\(name) 不是图片或文本") }
         guard data.count <= 200_000 else { throw ClientError.server("\(name) 超过 200 KB") }
         guard let text = String(data: data, encoding: .utf8) else { throw ClientError.server("文本附件需要 UTF-8 编码") }
-        return ChatAttachment(name: name, mime: mime, kind: "text", text: text)
+        return ChatAttachment(name: name, mime: mime, kind: "text", text: text, hash: SyncWire.sha(data))
     }
     public static func assertCount(_ current: Int, adding: Int) throws { guard current + adding <= 4 else { throw ClientError.server("最多 4 个附件") } }
 }
@@ -53,7 +53,7 @@ public struct APIContentPart: Codable, Sendable, Equatable {
 }
 public enum AttachmentContext {
     public static func parts(text: String, attachments: [ChatAttachment]) -> [APIContentPart] {
-        let active = attachments.filter { $0.desktopOnly != true }
+        let active = attachments.filter { $0.desktopOnly != true && ($0.kind == "image" ? ($0.bytes?.count ?? Int.max) <= 1_500_000 : ($0.text?.utf8.count ?? Int.max) <= 200_000) }
         let blocks = [text.trimmingCharacters(in: .whitespacesAndNewlines)] + active.compactMap { a in a.kind == "text" ? a.text.map { "附件 \(a.name):\n\($0)" } : nil }
         let merged = blocks.filter { !$0.isEmpty }.joined(separator: "\n\n")
         return (merged.isEmpty ? [] : [.text(merged)]) + active.compactMap { $0.kind == "image" ? $0.dataUrl.map(APIContentPart.image) : nil }

@@ -68,6 +68,12 @@ public actor ChatStore {
                 t.column("addedAt", .double).notNull(); t.column("source", .text).notNull(); t.column("bytes", .blob).notNull(); t.column("removedAt", .double)
             }
         }
+        migrations.registerMigration("native-v5-sync-versions") { db in
+            try db.create(table: "messageVersions") { t in t.column("id",.text).primaryKey(); t.column("updatedAt",.double).notNull() }
+            for event in ["INSERT","UPDATE"] {
+                try db.execute(sql: "CREATE TRIGGER message_versions_\(event.lowercased()) AFTER \(event) ON messages BEGIN INSERT INTO messageVersions(id,updatedAt) VALUES(new.id,(julianday('now')-2440587.5)*86400000) ON CONFLICT(id) DO UPDATE SET updatedAt=excluded.updatedAt; END")
+            }
+        }
         try migrations.migrate(pool)
     }
     public static func open(path: String) async throws -> ChatStore { try ChatStore(path: path) }

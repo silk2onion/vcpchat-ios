@@ -56,6 +56,15 @@ extension ChatStore {
         for message in try await messages() { for a in message.attachments where a.desktopOnly != true {
             if let bytes = a.bytes { try await addFile(name: a.name,mime: a.mime,bytes: bytes,source: "聊天附件副本"); count += 1 }
         } }
+        try await pool.write { db in
+            for var message in try StoredMessage.fetchAll(db) {
+                var changed = false
+                for i in message.attachments.indices where message.attachments[i].hash == nil && message.attachments[i].desktopOnly != true {
+                    if let bytes = message.attachments[i].bytes { message.attachments[i].hash = SyncWire.sha(bytes); changed = true }
+                }
+                if changed { try message.save(db) }
+            }
+        }
         return count
     }
 }
