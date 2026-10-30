@@ -43,7 +43,7 @@ struct FileLibraryView: View {
 struct LocalFileDetail: View {
     let model: ChatViewModel; let file: LocalFile
     @State private var bytes: Data?
-    @State private var preview: ChatAttachment?
+    @State private var preview: FilePreviewContent?
     @State private var exporting = false
     @State private var error: String?
     @State private var attached = false
@@ -53,8 +53,11 @@ struct LocalFileDetail: View {
             VStack(spacing: 16) {
                 if let error { Text(error).foregroundStyle(.red).padding(.horizontal) }
                 if let preview {
-                    if let source = preview.dataUrl { NativeRaster(source, fill: false) }
-                    else if let text = preview.text { ScrollView { Text(text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(20) } }
+                    switch preview {
+                    case .image(let data): LocalImagePreview(data: data,title: file.name)
+                    case .text(let text): NativeFileText(text: text)
+                    case .unsupported: ContentUnavailableView("可导出查看原文件",systemImage: "doc")
+                    }
                 } else { ContentUnavailableView(bytes == nil ? "正在读取…" : "可导出查看原文件", systemImage: "doc") }
                 HStack {
                     Button("导出原文件", systemImage: "square.and.arrow.up") { exporting = true }.disabled(bytes == nil)
@@ -68,7 +71,7 @@ struct LocalFileDetail: View {
             }.navigationTitle(file.name).toolbar { Button("完成") { dismiss() } }
             .task {
                 do { let data = try await model.store?.fileBytes(file.id); bytes = data
-                    if let data { preview = try? await AttachmentImporter().prepare(data,name: file.name,mime: file.mime) }
+                    if let data { preview = try await FilePreviewReader().prepare(data,mime: file.mime) }
                 } catch { self.error = error.localizedDescription }
             }
         }.frame(minWidth: 360,minHeight: 480)

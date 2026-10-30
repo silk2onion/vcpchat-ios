@@ -51,12 +51,16 @@ public actor NativeMediaLoader {
         else { let reply = try await http.response(URL(string: source)!,limit: 20_000_000); guard (200..<300).contains(reply.status) else { throw ClientError.http(reply.status) }; data = reply.data }
         try Task.checkCancellation()
         if let value = cache[source] { return value }
+        let value = try localImage(data),image = value.image,cost = image.bytesPerRow*image.height + (value.animation?.count ?? 0)
+        while !recent.isEmpty && (recent.count >= 8 || bytes+cost > 32_000_000) { let old = recent.removeFirst(); if let v = cache.removeValue(forKey: old) { bytes -= v.image.bytesPerRow*v.image.height + (v.animation?.count ?? 0) } }
+        if cost <= 32_000_000 { cache[source] = value; recent.append(source); bytes += cost }; return value
+    }
+    public func localImage(_ data: Data) throws -> MediaRaster {
+        guard data.count <= 20_000_000 else { throw ClientError.server("图片预览上限 20 MB") }
         guard let input = CGImageSourceCreateWithData(data as CFData,nil),let props = CGImageSourceCopyPropertiesAtIndex(input,0,nil) as? [CFString:Any],let w = props[kCGImagePropertyPixelWidth] as? Double,let h = props[kCGImagePropertyPixelHeight] as? Double,w > 0,h > 0,w*h <= 60_000_000,
               let image = CGImageSourceCreateThumbnailAtIndex(input,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2560,kCGImageSourceShouldCacheImmediately:true] as CFDictionary) else { throw ClientError.server("无法读取图片，可打开原链接查看") }
         let animated = CGImageSourceGetCount(input) > 1 && [UTType.gif.identifier,UTType.png.identifier,UTType.webP.identifier].contains(CGImageSourceGetType(input) as String? ?? "")
-        let value = MediaRaster(image: image,animation: animated ? data : nil),cost = image.bytesPerRow*image.height + (animated ? data.count : 0)
-        while !recent.isEmpty && (recent.count >= 8 || bytes+cost > 32_000_000) { let old = recent.removeFirst(); if let v = cache.removeValue(forKey: old) { bytes -= v.image.bytesPerRow*v.image.height + (v.animation?.count ?? 0) } }
-        if cost <= 32_000_000 { cache[source] = value; recent.append(source); bytes += cost }; return value
+        return MediaRaster(image: image,animation: animated ? data : nil)
     }
     public func video(_ source: String) throws -> VideoResource {
         guard MessageMedia.isSafe(source) else { throw ClientError.server("视频地址无效") }
