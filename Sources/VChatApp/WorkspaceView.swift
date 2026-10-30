@@ -9,9 +9,11 @@ import AppKit
 
 struct WorkspaceView: View {
     enum Tab { case chats, contacts, me }
+    enum MeScreen: Hashable { case profile,activity,notes,sync,files }
     @Bindable var model: ChatViewModel
     @State private var tab = Tab.chats
     @State private var chatPath: [String] = []
+    @State private var mePath: [MeScreen] = []
     @State private var editingGroup: VCPGroup?
     @State private var editing: VCPAgent?
     @State private var search = ""
@@ -93,10 +95,10 @@ struct WorkspaceView: View {
                 .navigationTitle("通讯录")
                 .toolbar { Button { editing = VCPAgent() } label: { Image(systemName: "plus") }.accessibilityLabel("添加 Agent") }
             }.tabItem { Label("通讯录", systemImage: "person.2") }.tag(Tab.contacts)
-            NavigationStack {
+            NavigationStack(path: $mePath) {
                 List {
                     Section {
-                        NavigationLink { ProfileEditor(model: model, profile: model.profile) } label: { HStack(spacing: 16) {
+                        NavigationLink(value: MeScreen.profile) { HStack(spacing: 16) {
                             ContactAvatar(name: model.profile.name.isEmpty ? "我" : model.profile.name, image: model.profile.avatar, size: 64)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(model.profile.name.isEmpty ? "我" : model.profile.name).font(.title2.bold())
@@ -104,12 +106,15 @@ struct WorkspaceView: View {
                             }
                         }.padding(.vertical, 20) }
                     }
-                    Section { NavigationLink { ActivityView(model: model) } label: { HStack { Label("通知与监视", systemImage: model.activity.unread > 0 ? "bell.badge" : "bell"); Spacer(); if model.activity.unread > 0 { Text("\(model.activity.unread)").foregroundStyle(.secondary) } } } }
-                    Section { NavigationLink { NotesView(model: model) } label: { Label("笔记", systemImage: "note.text") } }
-                    Section { NavigationLink { SyncView(model: model) } label: { Label("会话同步", systemImage: "arrow.triangle.2.circlepath") } }
-                    Section { NavigationLink { FileLibraryView(model: model) } label: { Label("文件", systemImage: "folder") } }
+                    Section { NavigationLink(value: MeScreen.activity) { HStack { Label("通知与监视", systemImage: model.activity.unread > 0 ? "bell.badge" : "bell"); Spacer(); if model.activity.unread > 0 { Text("\(model.activity.unread)").foregroundStyle(.secondary) } } } }
+                    Section { NavigationLink(value: MeScreen.notes) { Label("笔记", systemImage: "note.text") } }
+                    Section { NavigationLink(value: MeScreen.sync) { Label("会话同步", systemImage: "arrow.triangle.2.circlepath") } }
+                    Section { NavigationLink(value: MeScreen.files) { Label("文件", systemImage: "folder") } }
                     Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
                 }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("我")
+                .navigationDestination(for: MeScreen.self) { screen in
+                    meScreen(screen)
+                }
             }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)
         }
         .safeAreaInset(edge: .bottom,spacing: 0) { MiniSpeechPlayer(player: model.speech) }
@@ -124,6 +129,15 @@ struct WorkspaceView: View {
         model.agents.filter { search.isEmpty || ($0.name + $0.description).localizedCaseInsensitiveContains(search) }.sorted {
             if ($0.id == model.profile.mainAgentID) != ($1.id == model.profile.mainAgentID) { return $0.id == model.profile.mainAgentID }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+    @ViewBuilder private func meScreen(_ screen: MeScreen) -> some View {
+        switch screen {
+        case .profile: ProfileEditor(model: model,profile: model.profile)
+        case .activity: ActivityView(model: model)
+        case .notes: NotesView(model: model)
+        case .sync: SyncView(model: model)
+        case .files: FileLibraryView(model: model)
         }
     }
     func openAgent(_ agent: VCPAgent) { Task { await model.openAgent(agent); tab = .chats; chatPath = [model.activeTopicID] } }
