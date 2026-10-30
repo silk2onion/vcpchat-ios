@@ -20,6 +20,8 @@ const workspace = useWorkspaceStore();
         <AppIcon name="chevron" :size="20" />
       </RouterLink>
       <div class="settings-group">
+        <RouterLink to="/sync" class="settings-row"><span class="setting-icon"><AppIcon name="sync" /></span><span><strong>桌面同步</strong><small>会话、Agent 与群组</small></span><AppIcon name="chevron" :size="18" /></RouterLink>
+        <RouterLink to="/files" class="settings-row"><span class="setting-icon blue"><AppIcon name="folder" /></span><span><strong>文件</strong><small>本机附件与服务器文件</small></span><AppIcon name="chevron" :size="18" /></RouterLink>
         <RouterLink to="/notes" class="settings-row"><span class="setting-icon blue"><AppIcon name="notes" /></span><span><strong>笔记</strong><small>本机笔记与服务器日记</small></span><span v-if="notes.notes.length" class="me-count">{{ notes.notes.length }}</span><AppIcon name="chevron" :size="18" /></RouterLink>
         <button type="button" class="settings-row" @click="workspace.openActivity()"><span class="setting-icon purple"><AppIcon name="bell" /></span><span><strong>通知中心</strong><small>待审批、VCPLog 与 RAG</small></span><span v-if="logs.unread" class="me-unread">{{ logs.unread > 99 ? '99+' : logs.unread }}</span><AppIcon name="chevron" :size="18" /></button>
       </div>

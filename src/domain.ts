@@ -1,6 +1,6 @@
 export type ThemeId = "ink" | "paper" | "aurora";
 export type EndpointMode = "standard" | "vcp-tools";
-export type GroupMode = "rotate" | "mention" | "all";
+export type GroupMode = "rotate" | "mention" | "all" | "random" | "invite_only";
 export type OwnerType = "agent" | "group";
 export type MessageStatus =
   | "complete"
@@ -44,6 +44,13 @@ export interface Settings {
   renderMedia: boolean;
   mainAgentId: string;
   enterSends: boolean;
+  syncHttpUrl: string;
+  syncWsUrl: string;
+  syncToken: string;
+  fileToolName: string;
+  fileRoot: string;
+  fileShareRoot: string;
+  fileKey: string;
   modelCatalog: { endpoint: string; ids: string[]; updatedAt: number; recent: string[] } | null;
   wallpaper: "forest" | "leaves" | "none" | "custom";
   wallpaperCustom: string;
@@ -81,6 +88,9 @@ export interface Group {
   memberIds: string[];
   mode: GroupMode;
   createdAt: number;
+  systemPrompt?: string;
+  unifiedModel?: string;
+  avatarUrl?: string;
 }
 
 export interface Topic {
@@ -100,6 +110,8 @@ export interface Attachment {
   kind: "image" | "text";
   dataUrl?: string;
   text?: string;
+  hash?: string;
+  desktopOnly?: boolean;
 }
 
 export interface ChatMessage {
@@ -114,6 +126,8 @@ export interface ChatMessage {
   createdAt: number;
   status: MessageStatus;
   error?: string;
+  syncNotice?: string;
+  originalRole?: string;
   /** Id of the native stream still producing this reply; lets a reloaded page re-attach. */
   streamId?: string;
   /** Length of content and reasoning before the current stream, i.e. where a continuation starts. */
@@ -169,6 +183,7 @@ export function defaultSettings(): Settings {
     renderMedia: true,
     mainAgentId: "",
     enterSends: false,
+    syncHttpUrl: "", syncWsUrl: "", syncToken: "", fileToolName: "ServerFileOperator", fileRoot: "", fileShareRoot: "", fileKey: "",
     modelCatalog: null,
     wallpaper: "forest",
     wallpaperCustom: "",
@@ -186,7 +201,7 @@ export function defaultSettings(): Settings {
 }
 
 export function secretsOf(settings: Settings): string[] {
-  return [settings.apiKey, settings.logKey, settings.adminPassword, settings.ttsKey].filter(
+  return [settings.apiKey, settings.logKey, settings.adminPassword, settings.ttsKey, settings.syncToken, settings.fileKey].filter(
     (value) => value.length >= 4,
   );
 }

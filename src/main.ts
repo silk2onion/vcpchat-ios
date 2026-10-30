@@ -7,6 +7,7 @@ import { installRepository } from "./storage";
 import { useLibraryStore } from "./stores/library";
 import { useLogStore } from "./stores/logs";
 import { useNotesStore } from "./stores/notes";
+import { useSyncStore } from "./stores/sync";
 import { useSettingsStore } from "./stores/settings";
 import "./styles.css";
 import "./polish.css";
@@ -29,7 +30,7 @@ async function boot() {
   await logs.load();
   void logs.sync();
   watchAppLifecycle({
-    hidden: () => void library.flushStreams(),
+    hidden: () => { useSyncStore().cancel(); void library.flushStreams(); },
     visible: (hiddenForMs) => void logs.resume(hiddenForMs),
   });
   void library.recoverStreams();

@@ -1,8 +1,10 @@
+import { emptyVault, type SyncVault, type SyncCommit, type LocalFile, type Snapshot } from "../sync/types";
+import { validateSyncCommit } from "./sync";
 import { defaultSettings, LIMITS, type Agent, type ChatMessage, type Group, type LocalNote, type LogEntry, type Settings, type Topic } from "../domain";
 import type { Repository } from "./repository";
 
 const DB_NAME = "vcpchat-ios";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -10,7 +12,7 @@ function openDatabase(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta");
-      for (const name of ["agents", "groups", "topics", "messages", "notes"]) {
+      for (const name of ["agents", "groups", "topics", "messages", "notes", "files"]) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" });
       }
     };
@@ -35,9 +37,10 @@ async function transaction<T>(storeNames: string[], mode: IDBTransactionMode, ru
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeNames, mode);
     const stores = storeNames.map((name) => tx.objectStore(name));
-    Promise.resolve(run(stores)).then(resolve, reject);
-    tx.oncomplete = () => db.close();
-    tx.onabort = () => db.close();
+    let result: T;
+    Promise.resolve().then(() => run(stores)).then((value) => { result = value; }, (error) => { try { tx.abort(); } catch { /* already closed */ } reject(error); });
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error("事务已取消，未保存")); };
     tx.onerror = () => reject(tx.error ?? new Error("本地数据库事务失败"));
   });
 }
@@ -49,6 +52,24 @@ export function createIndexedDbRepository(): Repository {
   }
 
   return {
+    async readSnapshot() { return transaction(["agents","groups","topics","messages"],"readonly",async(stores) => { const rows = await Promise.all(stores.map((store) => requestToPromise(store.getAll()))); return { agents: rows[0], groups: rows[1], topics: rows[2], messages: rows[3] }; }); },
+    async getSyncVault() { return transaction(["meta"], "readonly", async(stores) => { const [vault,localVersions]=await Promise.all([requestToPromise(stores[0].get("sync-vault") as IDBRequest<SyncVault|undefined>),requestToPromise(stores[0].get("local-write-times") as IDBRequest<Record<string,number>|undefined>)]);return {...(vault??emptyVault()),localVersions:localVersions??{}}; }); },
+    async commitSync(commit: SyncCommit) {
+      await transaction(["agents","groups","topics","messages","meta"], "readwrite", async (stores) => {
+        const names = ["agents","groups","topics","messages"] as const;
+        const current = Object.fromEntries(await Promise.all(names.map(async (name,i) => [name,await requestToPromise(stores[i].getAll())]))) as unknown as Snapshot;
+        validateSyncCommit(commit, current);
+        for (let i=0;i<names.length;i++) {
+          for (const old of commit.before[names[i]]) stores[i].delete(old.id);
+          for (const row of commit.after[names[i]]) stores[i].put(toPlain(row));
+        }
+        stores[4].put(toPlain(commit.vault), "sync-vault");
+      });
+    },
+    async listFiles() { return (await all<LocalFile>("files")).map(({bytes: _bytes,...meta}) => meta); },
+    async getFile(id: string) { return transaction(["files"],"readonly",(stores) => requestToPromise(stores[0].get(id) as IDBRequest<LocalFile | undefined>)); },
+    async saveFile(file: LocalFile) { await transaction(["files"],"readwrite",(stores) => requestToPromise(stores[0].put(file))); },
+    async deleteFile(id: string) { await remove("files",id); },
     async getSettings() {
       const stored = await transaction(["meta"], "readonly", (stores) => requestToPromise(stores[0].get("settings") as IDBRequest<Settings | undefined>));
       return { ...defaultSettings(), ...(stored ?? {}) };
@@ -93,7 +114,8 @@ export function createIndexedDbRepository(): Repository {
     },
     async deleteTopic(id) {
       const messages = (await all<ChatMessage>("messages")).filter((message) => message.topicId === id);
-      await transaction(["topics", "messages"], "readwrite", async (stores) => {
+      await transaction(["topics", "messages", "meta"], "readwrite", async (stores) => {
+        const versions=await requestToPromise(stores[2].get("local-write-times"))??{};versions[`topics\0${id}`]=Date.now();stores[2].put(versions,"local-write-times");
         await requestToPromise(stores[0].delete(id));
         await Promise.all(messages.map((message) => requestToPromise(stores[1].delete(message.id))));
       });
@@ -137,9 +159,15 @@ function all<T>(storeName: string): Promise<T[]> {
 
 function put(storeName: string, value: unknown): Promise<IDBValidKey> {
   const plain = toPlain(value);
-  return transaction([storeName], "readwrite", (stores) => requestToPromise(stores[0].put(plain)));
+  return transaction([storeName,"meta"], "readwrite", async (stores) => {
+    const versions=await requestToPromise(stores[1].get("local-write-times"))??{};
+    const id=(plain as {id:string}).id;versions[`${storeName}\0${id}`]=Date.now();stores[1].put(versions,"local-write-times");
+    return requestToPromise(stores[0].put(plain));
+  });
 }
 
 function remove(storeName: string, id: string): Promise<undefined> {
-  return transaction([storeName], "readwrite", (stores) => requestToPromise(stores[0].delete(id)));
+  return transaction([storeName,"meta"], "readwrite", async(stores) => {
+    const versions=await requestToPromise(stores[1].get("local-write-times"))??{};versions[`${storeName}\0${id}`]=Date.now();stores[1].put(versions,"local-write-times");return requestToPromise(stores[0].delete(id));
+  });
 }

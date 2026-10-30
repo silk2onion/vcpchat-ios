@@ -7,6 +7,8 @@ export function selectSpeakers(group: Group, agents: Agent[], userText: string, 
   if (!members.length) return [];
   const mentioned = extractMentions(userText, members);
   if (mentioned.length) return mentioned;
+  if (group.mode === "invite_only") return [];
+  if (group.mode === "random") return [members[Math.floor(Math.random() * members.length)]];
   if (group.mode === "all") return members;
   const index = Math.abs(Math.trunc(turnIndex)) % members.length;
   return [members[index]];

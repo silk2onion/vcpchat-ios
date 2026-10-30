@@ -1,5 +1,6 @@
 mod background;
 mod net;
+mod files;
 #[cfg(target_os = "ios")]
 mod ios_webview;
 
@@ -86,6 +87,21 @@ fn socket_disconnect(state: State<'_, NetState>, channel: String) -> Result<(), 
     net::socket_disconnect(&state, &channel)
 }
 
+#[tauri::command]
+async fn sync_http_request(state: State<'_, NetState>,method:String,url:String,headers:HashMap<String,String>,body:Option<String>) -> Result<net::HttpResult,String> {
+    net::sync_http_request(&state, HttpCall{method,url,headers,body}).await
+}
+#[tauri::command]
+async fn binary_request(state: State<'_, NetState>,url:String,headers:HashMap<String,String>,body:Option<Vec<u8>>) -> Result<tauri::ipc::Response,String> {
+    Ok(tauri::ipc::Response::new(net::binary_request(&state,url,headers,body).await?))
+}
+#[tauri::command]
+async fn export_file(app:tauri::AppHandle,name:String,bytes:Vec<u8>) -> Result<String,String> {
+    tauri::async_runtime::spawn_blocking(move||files::export(&app,&name,&bytes)).await.map_err(|e|e.to_string())?
+}
+#[tauri::command]
+fn show_exports(app:tauri::AppHandle) -> Result<String,String>{files::show(&app)}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -104,7 +120,8 @@ pub fn run() {
             socket_connect,
             socket_send,
             audio_request,
-            socket_disconnect
+            socket_disconnect,
+            sync_http_request, binary_request, export_file, show_exports
         ])
         .run(tauri::generate_context!())
         .expect("VCPChat 启动失败");
