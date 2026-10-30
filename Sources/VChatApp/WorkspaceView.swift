@@ -104,6 +104,7 @@ struct WorkspaceView: View {
                             }
                         }.padding(.vertical, 20) }
                     }
+                    Section { NavigationLink { FileLibraryView(model: model) } label: { Label("文件", systemImage: "folder") } }
                     Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
                 }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("我")
             }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)

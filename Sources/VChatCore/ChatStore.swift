@@ -62,6 +62,12 @@ public actor ChatStore {
                 t.add(column: "originalRole", .text); t.add(column: "syncNotice", .text)
             }
         }
+        migrations.registerMigration("native-v4-files") { db in
+            try db.create(table: "files") { t in
+                t.column("id", .text).primaryKey(); t.column("name", .text).notNull(); t.column("mime", .text).notNull(); t.column("size", .integer).notNull()
+                t.column("addedAt", .double).notNull(); t.column("source", .text).notNull(); t.column("bytes", .blob).notNull(); t.column("removedAt", .double)
+            }
+        }
         try migrations.migrate(pool)
     }
     public static func open(path: String) async throws -> ChatStore { try ChatStore(path: path) }
