@@ -1,7 +1,10 @@
 <a id="top"></a>
 
 <p align="center">
-  <img src="docs/assets/readme-hero.svg" alt="VCPChat iOS — 把你的 VCP 工作台带到 iPhone" width="100%" />
+  <picture>
+    <source media="(max-width: 600px)" srcset="docs/assets/readme-hero-mobile.svg" />
+    <img src="docs/assets/readme-hero.svg" alt="VCPChat iOS — 把你的 VCP 工作台带到 iPhone" width="100%" />
+  </picture>
 </p>
 
 <p align="center">
@@ -30,12 +33,12 @@
 
 <table>
   <tr>
-    <td width="50%" valign="top"><h3>💬 多 Agent 会话</h3>为每位 Agent 设置头像、人设、模型与声音。按话题组织对话，随时切换主 Agent。</td>
+    <td width="50%" valign="top"><h3>💬 多 Agent</h3>为每位 Agent 设置头像、人设、模型与声音。按话题组织对话，随时切换主 Agent。</td>
     <td width="50%" valign="top"><h3>👥 群聊协作</h3>组合不同 Agent，通过点名、轮流、随机或依次回复开展讨论。</td>
   </tr>
   <tr>
     <td valign="top"><h3>✨ 富消息呈现</h3>Markdown、代码、公式、Mermaid、HTML 交互气泡与图片视频，清晰呈现思考、工具调用和执行结果。</td>
-    <td valign="top"><h3>🎧 语音与文本处理</h3>接入 SoVITS 或 MiMo 朗读回复，使用全局或 Agent 正则整理显示与上下文。</td>
+    <td valign="top"><h3>🎧 语音与正则</h3>接入 SoVITS 或 MiMo 朗读回复，使用全局或 Agent 正则整理显示与上下文。</td>
   </tr>
   <tr>
     <td valign="top"><h3>🔔 通知与审批</h3>集中查看 VCPLog、工具审批和 RAG 信息流，追踪检索来源、知识片段与 Agent 活动。</td>

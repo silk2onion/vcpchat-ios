@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300" role="img" aria-labelledby="title description">
+  <title id="title">VCPChat iOS</title>
+  <desc id="description">把你的 VCP 工作台带到 iPhone。</desc>
+  <defs><linearGradient id="background" x2="1" y2="1"><stop stop-color="#152a2c"/><stop offset="1" stop-color="#10191e"/></linearGradient></defs>
+  <rect width="600" height="300" rx="24" fill="url(#background)"/>
+  <g fill="none" stroke="#88d6b0" opacity=".12"><circle cx="550" cy="45" r="110"/><circle cx="550" cy="45" r="67"/></g>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+    <text x="36" y="62" fill="#9ccbbd" font-size="16" letter-spacing="3">YOUR VCP. EVERYWHERE.</text>
+    <text x="33" y="149" fill="#f0f7f4" font-size="64" font-weight="700" letter-spacing="-2">VCPChat <tspan fill="#9dddbc" font-weight="400">iOS</tspan></text>
+    <text x="36" y="207" fill="#b0c2c0" font-size="27" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif">把你的 VCP 工作台带到 iPhone</text>
+  </g>
+  <path d="M36 249h54" stroke="#88d6b0" stroke-width="3" stroke-linecap="round"/>
+</svg>
