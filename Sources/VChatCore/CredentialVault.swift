@@ -34,4 +34,9 @@ public actor CredentialVault {
             guard added == errSecSuccess else { throw ClientError.server("无法保存钥匙串密钥（\(added)）") }
         } else if status != errSecSuccess { throw ClientError.server("无法更新钥匙串密钥（\(status)）") }
     }
+    /// Explicit settings action only. Return failed accounts instead of claiming a partial
+    /// Keychain deletion succeeded; the caller also discards its in-memory values.
+    public func remove(_ names: [String]) -> [String] {
+        names.filter { name in do { try save("",name: name); return false } catch { return true } }
+    }
 }

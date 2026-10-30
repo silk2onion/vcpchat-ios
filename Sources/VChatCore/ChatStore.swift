@@ -74,6 +74,17 @@ public actor ChatStore {
                 try db.execute(sql: "CREATE TRIGGER message_versions_\(event.lowercased()) AFTER \(event) ON messages BEGIN INSERT INTO messageVersions(id,updatedAt) VALUES(new.id,(julianday('now')-2440587.5)*86400000) ON CONFLICT(id) DO UPDATE SET updatedAt=excluded.updatedAt; END")
             }
         }
+        migrations.registerMigration("native-v6-history-archives") { db in
+            try db.create(table: "historyArchives") { t in
+                t.column("id",.text).primaryKey(); t.column("createdAt",.double).notNull()
+                t.column("topicCount",.integer).notNull(); t.column("messageCount",.integer).notNull(); t.column("restoredAt",.double)
+            }
+            try db.create(table: "historyItems") { t in
+                t.column("archiveID",.text).notNull().references("historyArchives",onDelete: .cascade)
+                t.column("kind",.text).notNull(); t.column("id",.text).notNull(); t.column("payload",.blob).notNull()
+                t.primaryKey(["archiveID","kind","id"])
+            }
+        }
         try migrations.migrate(pool)
     }
     public static func open(path: String) async throws -> ChatStore { try ChatStore(path: path) }

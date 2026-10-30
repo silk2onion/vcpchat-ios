@@ -20,6 +20,9 @@ struct SettingsView: View {
                     Toggle("回车键发送消息", isOn: $model.inputPreferences.enterSends)
                     Text(model.inputPreferences.enterSends ? "回车发送，点“换行”插入新行" : "回车换行，点箭头发送").font(.caption).foregroundStyle(.secondary)
                 }
+                Section {
+                    NavigationLink { DataManagementView(model: model) } label: { Label("数据与连接",systemImage: "externaldrive") }
+                }
             }.formStyle(.grouped).navigationTitle("设置")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .onChange(of: model.inputPreferences) { _, _ in Task { await model.saveInputPreferences() } }
