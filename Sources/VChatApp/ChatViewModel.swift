@@ -4,45 +4,83 @@ import VChatCore
 
 @MainActor @Observable final class MessageViewModel: Identifiable {
     let id: String
+    let topicID: String
+    let agentID: String
+    let authorName: String
     let role: String
     let createdAt: Double
     var text: String
     var reasoning: String
     var status: String
-    init(_ message: StoredMessage) { id = message.id; role = message.role; text = message.content; reasoning = message.reasoning; status = message.status; createdAt = message.createdAt }
-    var record: StoredMessage { StoredMessage(id: id, role: role, content: text, reasoning: reasoning, status: status, createdAt: createdAt) }
+    init(_ message: StoredMessage) {
+        id = message.id; topicID = message.topicID; agentID = message.agentID; authorName = message.authorName
+        role = message.role; text = message.content; reasoning = message.reasoning
+        status = message.status; createdAt = message.createdAt
+    }
+    var record: StoredMessage { StoredMessage(id: id, topicID: topicID, agentID: agentID, authorName: authorName, role: role, content: text, reasoning: reasoning, status: status, createdAt: createdAt) }
 }
+@MainActor @Observable final class ChatRoom: Identifiable {
+    let id: String
+    var messages: [MessageViewModel]
+    var draft = ""
+    var busy = false
+    var connection = ""
+    var frames = 0
+    var pendingCount = 0
+    @ObservationIgnored let session = SessionActor()
+    @ObservationIgnored var generation: Task<Void, Never>?
+    @ObservationIgnored var draftSave: Task<Void, Never>?
+    init(id: String, messages: [StoredMessage]) { self.id = id; self.messages = messages.map(MessageViewModel.init) }
+}
+struct TopicDraft: Codable, Sendable { var id: String; var text: String }
 
 @MainActor @Observable final class ChatViewModel {
-    var messages: [MessageViewModel] = []
-    var draft = ""
+    var agents: [VCPAgent] = []
+    var topics: [ChatTopic] = []
+    var profile = UserProfile()
+    var activeTopicID = "legacy"
+    var rooms: [String: ChatRoom] = [:]
     var configuration: ConnectionConfiguration
     var apiKey = ""
     var logKey = ""
     var models: [String] = []
-    var busy = false
     var loading = true
-    var connection = "未连接"
     var pushStatus = "未连接"
     var error: String?
     var pushEvents: [String] = []
     var search = ""
     var results: [StoredMessage] = []
-    var frames = 0
-    var tokens = 0
-    var parsingOffMain = true
-    var pendingCount = 0
-    @ObservationIgnored private let session = SessionActor()
-    @ObservationIgnored private let vault = CredentialVault()
-    @ObservationIgnored private var store: ChatStore?
-    @ObservationIgnored private var generation: Task<Void, Never>?
+    @ObservationIgnored let network = SessionActor()
+    @ObservationIgnored let vault = CredentialVault()
+    @ObservationIgnored var store: ChatStore?
     @ObservationIgnored private var push: Task<Void, Never>?
-    @ObservationIgnored private var activeID: String?
+    @ObservationIgnored private var openingID: UUID?
+    var room: ChatRoom? { rooms[activeTopicID] }
+    var activeTopic: ChatTopic? { topics.first { $0.id == activeTopicID } }
+    var activeAgent: VCPAgent? { agents.first { $0.id == activeTopic?.ownerId } }
+    var mainAgent: VCPAgent? { agents.first { $0.id == profile.mainAgentID } ?? agents.first }
+    var messages: [MessageViewModel] { room?.messages ?? [] }
+    var busy: Bool { room?.busy ?? false }
+    var frames: Int { room?.frames ?? 0 }
+    var connection: String { room?.connection ?? "" }
+    var pendingCount: Int { room?.pendingCount ?? 0 }
+    var draft: String {
+        get { room?.draft ?? "" }
+        set {
+            guard let room else { return }
+            room.draft = newValue; room.draftSave?.cancel()
+            room.draftSave = Task { [weak self] in
+                do { try await Task.sleep(for: .milliseconds(250)); try await self?.store?.put(TopicDraft(id: room.id, text: newValue), kind: "draft", id: room.id) }
+                catch is CancellationError {} catch { self?.error = error.localizedDescription }
+            }
+        }
+    }
     init() {
         if let data = UserDefaults.standard.data(forKey: "native.connection"), let saved = try? JSONDecoder().decode(ConnectionConfiguration.self, from: data) { configuration = saved }
         else { configuration = ConnectionConfiguration() }
     }
     func load() async {
+        guard store == nil else { return }
         do {
             let root: URL
             if let isolated = ProcessInfo.processInfo.environment["VCHAT_DATA_DIR"] { root = URL(fileURLWithPath: isolated) }
@@ -50,24 +88,95 @@ import VChatCore
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let database = try await ChatStore.open(path: root.appendingPathComponent("chat.sqlite").path); store = database
             try await database.recoverInterrupted()
-            messages = try await database.messages().map(MessageViewModel.init)
-            pendingCount = try await database.pending()
+            agents = try await database.records(VCPAgent.self, kind: "agent")
+            profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
+            if agents.isEmpty {
+                let assistant = VCPAgent(id: "assistant", name: "助手")
+                try await database.put(assistant, kind: "agent", id: assistant.id); agents = [assistant]
+            }
+            topics = try await database.records(ChatTopic.self, kind: "topic")
+            if topics.isEmpty {
+                let topic = ChatTopic(id: "legacy", ownerId: agents[0].id, title: "第一段对话")
+                try await database.put(topic, kind: "topic", id: topic.id); topics = [topic]
+            }
+            let previous = UserDefaults.standard.string(forKey: "native.active-topic") ?? "legacy"
+            await openTopic(topics.first { $0.id == previous } ?? topics[0])
+            loading = false
+            // Local-first: a system Keychain confirmation must not hide local messages or drafts.
             apiKey = try await vault.read("chat-api-key"); logKey = try await vault.read("vcp-log-key")
         } catch { self.error = error.localizedDescription }
         loading = false
     }
+    func saveAgent(_ agent: VCPAgent) async -> Bool {
+        guard !agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = "给 Agent 起一个名字"; return false }
+        do {
+            try await store?.put(agent, kind: "agent", id: agent.id)
+            if let index = agents.firstIndex(where: { $0.id == agent.id }) { agents[index] = agent } else { agents.append(agent) }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
+    func setMainAgent(_ id: String) async {
+        let old = profile
+        do { profile.mainAgentID = id; try await store?.put(profile, kind: "profile", id: "me") }
+        catch { profile = old; self.error = error.localizedDescription }
+    }
+    func removeAgent(_ id: String) async {
+        guard agents.count > 1 else { error = "至少保留一位 Agent"; return }
+        do {
+            // Keep the topics and messages; deleting a contact must not erase conversation history.
+            try await store?.removeRecord(kind: "agent", id: id); agents.removeAll { $0.id == id }
+            if profile.mainAgentID == id, let first = agents.first { await setMainAgent(first.id) }
+        } catch { self.error = error.localizedDescription }
+    }
+    func openAgent(_ agent: VCPAgent) async {
+        if let topic = topics.filter({ $0.ownerType == "agent" && $0.ownerId == agent.id }).max(by: { $0.updatedAt < $1.updatedAt }) { await openTopic(topic) }
+        else { await createTopic(ownerID: agent.id) }
+    }
+    func createTopic(ownerID: String, ownerType: String = "agent") async {
+        let topic = ChatTopic(ownerType: ownerType, ownerId: ownerID)
+        do { try await store?.put(topic, kind: "topic", id: topic.id); topics.insert(topic, at: 0); await openTopic(topic) }
+        catch { self.error = error.localizedDescription }
+    }
+    func openTopic(_ topic: ChatTopic) async {
+        let opening = UUID(); openingID = opening
+        await flushDraft()
+        do {
+            if rooms[topic.id] == nil {
+                let messages = try await store?.messages(topicID: topic.id) ?? []
+                let saved = try await store?.records(TopicDraft.self, kind: "draft").first { $0.id == topic.id }
+                let room = ChatRoom(id: topic.id, messages: messages); room.draft = saved?.text ?? ""; rooms[topic.id] = room
+            }
+            guard openingID == opening else { return }
+            activeTopicID = topic.id; UserDefaults.standard.set(topic.id, forKey: "native.active-topic")
+        } catch { self.error = error.localizedDescription }
+    }
+    func flushDraft() async {
+        guard let room else { return }; room.draftSave?.cancel()
+        do { try await store?.put(TopicDraft(id: room.id, text: room.draft), kind: "draft", id: room.id) }
+        catch { self.error = error.localizedDescription }
+    }
+    func renameTopic(_ topic: ChatTopic, title: String) async {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        var updated = topic; updated.title = title; updated.updatedAt = Date().timeIntervalSince1970
+        do { try await store?.put(updated, kind: "topic", id: topic.id); if let index = topics.firstIndex(where: { $0.id == topic.id }) { topics[index] = updated } }
+        catch { self.error = error.localizedDescription }
+    }
+    func removeTopic(_ topic: ChatTopic) async {
+        do {
+            await rooms[topic.id]?.session.stop(); await rooms[topic.id]?.generation?.value; rooms[topic.id]?.draftSave?.cancel()
+            try await store?.removeTopic(topic.id); rooms.removeValue(forKey: topic.id); topics.removeAll { $0.id == topic.id }
+            if activeTopicID == topic.id {
+                if let next = topics.first { await openTopic(next) }
+                else if let agent = mainAgent { await createTopic(ownerID: agent.id) }
+            }
+        } catch { self.error = error.localizedDescription }
+    }
     func importConnection(from url: URL) async {
         do {
             let imported = try await DesktopConnection.read(from: url)
-            let oldConfiguration = configuration
-            let oldAPI = apiKey
-            let oldLog = logKey
-            configuration = imported.configuration
-            configuration.model = oldConfiguration.model
-            apiKey = imported.apiKey
-            logKey = imported.logKey
-            if await saveConnection() { connection = "连接已导入"; error = nil }
-            else { configuration = oldConfiguration; apiKey = oldAPI; logKey = oldLog }
+            var config = imported.configuration; config.model = configuration.model
+            configuration = config; apiKey = imported.apiKey; logKey = imported.logKey
+            if await saveConnection() { error = nil }
         } catch { self.error = "导入失败，请选择桌面 VCPChat 的连接设置文件" }
     }
     func saveConnection() async -> Bool {
@@ -79,7 +188,7 @@ import VChatCore
         } catch { self.error = error.localizedDescription; return false }
     }
     func refreshModels() async {
-        do { models = try await session.models(configuration: configuration, apiKey: apiKey); if configuration.model.isEmpty { configuration.model = models.first ?? "" }; connection = "鉴权成功 · \(models.count) 个模型" }
+        do { models = try await network.models(configuration: configuration, apiKey: apiKey); if configuration.model.isEmpty { configuration.model = models.first ?? "" } }
         catch { self.error = error.localizedDescription }
     }
     func connectPush() {
@@ -87,61 +196,61 @@ import VChatCore
         let config = configuration, key = logKey
         push = Task {
             do {
-                for try await event in try await session.connectPush(configuration: config, key: key) {
-                    if Task.isCancelled { return }
-                    pushStatus = event.connected ? "已连接" : "未连接"
-                    if event.kind != "connection_ack" { pushEvents.insert(event.text, at: 0); if pushEvents.count > 100 { pushEvents.removeLast() } }
+                for try await event in try await network.connectPush(configuration: config, key: key) {
+                    if Task.isCancelled { return }; pushStatus = event.connected ? "已连接" : "未连接"
+                    if event.kind != "connection_ack" { pushEvents.insert(event.text, at: 0); if pushEvents.count > 200 { pushEvents.removeLast() } }
                 }
                 if !Task.isCancelled { pushStatus = "未连接" }
             } catch { if !Task.isCancelled { pushStatus = error.localizedDescription } }
         }
     }
     func send() {
-        guard !busy, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard store != nil else { error = "本机数据库尚未就绪"; return }
-        guard !apiKey.isEmpty, !configuration.model.isEmpty else { error = "请先设置服务器、API Key 和模型"; return }
-        let content = draft
-        let user = StoredMessage(role: "user", content: content, status: "pending")
-        let assistant = MessageViewModel(StoredMessage(role: "assistant", content: "", status: "connecting", createdAt: user.createdAt + 0.0001))
-        let context = messages.filter { $0.status == "complete" || $0.role == "user" }.map { ChatTurn(role: $0.role, content: $0.text) } + [ChatTurn(role: "user", content: content)]
-        let request = ChatRequest(configuration: configuration, apiKey: apiKey, messages: context)
-        busy = true; activeID = assistant.id; error = nil
-        generation = Task {
-            guard let store else { return }
+        guard let room, let topic = activeTopic, !room.busy, !room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let store else { return }
+        guard let agent = activeAgent else { error = "这个会话的 Agent 已删除，请先在通讯录恢复或创建 Agent"; return }
+        var config = configuration; if !agent.model.isEmpty { config.model = agent.model }
+        guard !apiKey.isEmpty, !config.model.isEmpty else { error = "请先设置服务器、API Key 和模型"; return }
+        let content = room.draft
+        let user = StoredMessage(topicID: room.id, role: "user", content: content, status: "pending")
+        let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting", createdAt: user.createdAt + 0.0001))
+        var context = room.messages.suffix(32).filter { !$0.text.isEmpty }.map { ChatTurn(role: $0.role, content: $0.text) }
+        let prompt = [profile.name.isEmpty ? "" : "用户名叫「\(profile.name)」。", agent.systemPrompt].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        if !prompt.isEmpty { context.insert(ChatTurn(role: "system", content: prompt), at: 0) }
+        context.append(ChatTurn(role: "user", content: content))
+        let request = ChatRequest(configuration: config, apiKey: apiKey, messages: context)
+        room.busy = true; error = nil
+        room.generation = Task {
             do {
-                try await store.enqueue(user)
-                messages.append(MessageViewModel(user)); messages.append(assistant); draft = ""
+                room.draftSave?.cancel()
+                try await store.enqueue(user); room.messages.append(MessageViewModel(user)); room.messages.append(assistant); room.draft = ""
+                try await store.put(TopicDraft(id: room.id, text: ""), kind: "draft", id: room.id)
                 try await store.save(assistant.record)
-                var lastSaved = ContinuousClock.now
-                var accepted = false
-                for try await update in try await session.stream(request) {
-                    guard activeID == assistant.id else { return }
+                var lastSaved = ContinuousClock.now; var accepted = false
+                for try await update in try await room.session.stream(request) {
                     assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
-                    frames = update.sequence; tokens = update.rawEvents; parsingOffMain = update.parserWasOffMainThread
+                    room.frames = update.sequence
                     let nextStatus: String = switch update.state {
-                    case .connecting: "正在连接"
-                    case .streaming: "正在回复"
-                    case .complete: "回复完成"
-                    case .stopped: "已停止"
-                    case .interrupted: "已中断"
-                    case .failed: "连接失败"
+                    case .connecting: "正在连接"; case .streaming: "正在回复"; case .complete: "回复完成"
+                    case .stopped: "已停止"; case .interrupted: "已中断"; case .failed: "连接失败"
                     }
-                    if connection != nextStatus { connection = nextStatus }
-                    if (update.state == .streaming || update.state == .complete) && !accepted { try await store.markSent(user.id); accepted = true; messages.first(where: { $0.id == user.id })?.status = "complete" }
-                    if lastSaved.duration(to: .now) >= .milliseconds(500) || update.state != .streaming {
-                        try await store.save(assistant.record); lastSaved = .now
-                    }
+                    if room.connection != nextStatus { room.connection = nextStatus }
+                    if (update.state == .streaming || update.state == .complete) && !accepted { try await store.markSent(user.id); accepted = true; room.messages.first(where: { $0.id == user.id })?.status = "complete" }
+                    if lastSaved.duration(to: .now) >= .milliseconds(500) || update.state != .streaming { try await store.save(assistant.record); lastSaved = .now }
                 }
             } catch {
                 assistant.status = "interrupted"; self.error = error.localizedDescription
-                do { try await store.save(assistant.record) } catch { self.error = "回复已保留在内存，但本机保存失败：\(error.localizedDescription)" }
+                do { if room.messages.contains(where: { $0.id == assistant.id }) { try await store.save(assistant.record) } } catch { self.error = "本机保存失败：\(error.localizedDescription)" }
             }
-            if activeID == assistant.id { busy = false; activeID = nil; generation = nil }
-            pendingCount = (try? await store.pending()) ?? pendingCount
+            room.busy = false; room.generation = nil
+            room.pendingCount = room.messages.filter { $0.status == "pending" }.count
+            if let current = topics.first(where: { $0.id == topic.id }) { await renameTopic(current, title: current.title == "新对话" ? String(content.prefix(24)) : current.title) }
         }
     }
-    func stop(background: Bool = false) async { await session.stop(interrupted: background) }
-    func suspend() async { await stop(background: true); await session.disconnectPush(); push?.cancel(); pushStatus = "后台暂停" }
+    func stop(background: Bool = false) async { await room?.session.stop(interrupted: background) }
+    func suspend() async {
+        await flushDraft()
+        for room in rooms.values { await room.session.stop(interrupted: true) }
+        await network.disconnectPush(); push?.cancel(); pushStatus = "后台暂停"
+    }
     func searchLocal() async {
         let query = search
         do { let found = try await store?.search(query) ?? []; if search == query { results = found } }

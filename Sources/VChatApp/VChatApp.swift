@@ -8,7 +8,7 @@ import AppKit
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            ChatView(model: model)
+            WorkspaceView(model: model)
                 .task { if model.loading { await model.load() } }
                 .onChange(of: phase) { _, next in
                     if next == .background { Task { await model.suspend() } }

@@ -4,18 +4,22 @@ import GRDB
 public struct StoredMessage: Codable, Sendable, Equatable, FetchableRecord, PersistableRecord, Identifiable {
     public static let databaseTableName = "messages"
     public var id: String
+    public var topicID: String
+    public var agentID: String
+    public var authorName: String
     public var role: String
     public var content: String
     public var reasoning: String
     public var status: String
     public var createdAt: Double
-    public init(id: String = UUID().uuidString, role: String, content: String, reasoning: String = "", status: String = "complete", createdAt: Double = Date().timeIntervalSince1970) {
+    public init(id: String = UUID().uuidString, topicID: String = "legacy", agentID: String = "", authorName: String = "助手", role: String, content: String, reasoning: String = "", status: String = "complete", createdAt: Double = Date().timeIntervalSince1970) {
+        self.topicID = topicID; self.agentID = agentID; self.authorName = authorName
         self.id = id; self.role = role; self.content = content; self.reasoning = reasoning; self.status = status; self.createdAt = createdAt
     }
 }
 /// DatabasePool uses SQLite WAL. No database work executes on MainActor.
 public actor ChatStore {
-    private let pool: DatabasePool
+    let pool: DatabasePool
     public init(path: String) throws {
         pool = try DatabasePool(path: path)
         var migrations = DatabaseMigrator()
@@ -29,11 +33,27 @@ public actor ChatStore {
             }
             try db.create(table: "outbox") { t in t.column("id", .text).primaryKey(); t.column("payload", .blob).notNull(); t.column("state", .text).notNull() }
         }
+        migrations.registerMigration("native-v2-library") { db in
+            try db.alter(table: "messages") { t in
+                t.add(column: "topicID", .text).notNull().defaults(to: "legacy")
+                t.add(column: "agentID", .text).notNull().defaults(to: "")
+                t.add(column: "authorName", .text).notNull().defaults(to: "助手")
+            }
+            try db.create(index: "messages_topic", on: "messages", columns: ["topicID", "createdAt"])
+            try db.create(table: "library") { t in
+                t.column("kind", .text).notNull(); t.column("id", .text).notNull()
+                t.column("payload", .blob).notNull(); t.column("updatedAt", .double).notNull()
+                t.primaryKey(["kind", "id"])
+            }
+        }
         try migrations.migrate(pool)
     }
     public static func open(path: String) async throws -> ChatStore { try ChatStore(path: path) }
-    public func messages() async throws -> [StoredMessage] {
-        try await pool.read { try StoredMessage.fetchAll($0, sql: "SELECT * FROM messages ORDER BY createdAt, rowid") }
+    public func messages(topicID: String? = nil) async throws -> [StoredMessage] {
+        try await pool.read { db in
+            if let topicID { return try StoredMessage.fetchAll(db, sql: "SELECT * FROM messages WHERE topicID=? ORDER BY createdAt, rowid", arguments: [topicID]) }
+            return try StoredMessage.fetchAll(db, sql: "SELECT * FROM messages ORDER BY createdAt, rowid")
+        }
     }
     public func save(_ message: StoredMessage) async throws { try await pool.write { try message.save($0) } }
     public func enqueue(_ message: StoredMessage) async throws {

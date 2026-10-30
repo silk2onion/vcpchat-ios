@@ -8,7 +8,7 @@ struct ChatView: View {
     @State private var showLog = false
     @FocusState private var writing: Bool
     var body: some View {
-        NavigationStack {
+        Group {
             VStack(spacing: 0) {
                 HStack(spacing: 7) {
                     Circle().fill(model.busy ? Color.mint : Color.secondary.opacity(0.4)).frame(width: 6, height: 6)
@@ -27,7 +27,7 @@ struct ChatView: View {
                     else { Button { model.send(); writing = true } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(.mint, in: Circle()).foregroundStyle(.black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(.plain).padding(.horizontal, 15).padding(.vertical, 5).background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 25)).overlay(RoundedRectangle(cornerRadius: 25).stroke(.secondary.opacity(0.15))).padding(.horizontal, 16).padding(.bottom, 12)
             }
-            .navigationTitle("VChat")
+            .navigationTitle(model.activeAgent?.name ?? "会话")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -43,7 +43,7 @@ struct ChatView: View {
                 NavigationStack { List { TextField("搜索本机消息（至少 3 个字）", text: $model.search).onChange(of: model.search) { _, _ in Task { await model.searchLocal() } }; ForEach(model.results) { Text($0.content).lineLimit(5) } }.navigationTitle("本机搜索").toolbar { Button("完成") { showSearch = false } } }.frame(minWidth: 340, minHeight: 420)
             }
             .sheet(isPresented: $showLog) {
-                NavigationStack { List { LabeledContent("WebSocket", value: model.pushStatus); ForEach(Array(model.pushEvents.enumerated()), id: \.offset) { _, item in Text(item).font(.caption.monospaced()).textSelection(.enabled) }; Section("流式诊断") { LabeledContent("原始事件", value: "\(model.tokens)"); LabeledContent("界面批次", value: "\(model.frames)"); LabeledContent("解析与组装", value: model.parsingOffMain ? "独立 Actor" : "隔离失败") } }.navigationTitle("VCPLog").toolbar { Button("完成") { showLog = false } } }.frame(minWidth: 340, minHeight: 420)
+                NavigationStack { List { LabeledContent("WebSocket", value: model.pushStatus); ForEach(Array(model.pushEvents.enumerated()), id: \.offset) { _, item in Text(item).font(.caption.monospaced()).textSelection(.enabled) } }.navigationTitle("VCPLog").toolbar { Button("完成") { showLog = false } } }.frame(minWidth: 340, minHeight: 420)
             }
         }
     }
@@ -86,7 +86,7 @@ private struct NativeMessageRow: View {
     let message: MessageViewModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if message.role == "assistant" { Label("助手", systemImage: "sparkle").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+            if message.role == "assistant" { Label(message.authorName, systemImage: "sparkle").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
             Text(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text).font(.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             if ["interrupted", "stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.caption).foregroundStyle(.secondary) }
