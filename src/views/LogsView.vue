@@ -1,40 +1,79 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
+import AppIcon from "../components/AppIcon.vue";
 import { useLogStore } from "../stores/logs";
-
 const logs = useLogStore();
 onMounted(() => {
   void logs.sync();
 });
+async function clear() {
+  if (confirm("清空本机保存的日志？")) await logs.clear();
+}
 </script>
-
 <template>
-  <section class="screen">
-    <header class="spread">
-      <div>
-        <p class="eyebrow">通道</p>
-        <h1>VCP 日志</h1>
-      </div>
-      <button class="ghost" type="button" @click="logs.clear()">清空</button>
+  <section class="page logs-page">
+    <header class="page-header detail-header">
+      <RouterLink to="/settings" class="icon-button" aria-label="返回设置"><AppIcon name="back" /></RouterLink>
+      <div><h1>实时日志</h1></div>
+      <button
+        class="icon-button subtle"
+        type="button"
+        aria-label="重新连接"
+        @click="logs.reconnect()"
+      >
+        <AppIcon name="history" />
+      </button>
     </header>
-    <div class="row">
-      <span class="chip">VCPLog · {{ logs.status.log }}</span>
-      <span class="chip">VCPInfo · {{ logs.status.info }}</span>
-      <button class="primary" type="button" @click="logs.reconnect()">重新连接</button>
-    </div>
-    <p class="hint">地址形如 ws://主机:6005。应用会连到 /VCPlog/VCP_Key=… 和 /vcpinfo/VCP_Key=…，和桌面端同一条通道。密钥不会显示在这里。</p>
-    <div v-if="!logs.entries.length" class="empty">
-      <h2>还没有日志</h2>
-      <p class="hint">填好 WebSocket 地址和密钥后，服务器推来的工具调用和状态会落在这张列表里。</p>
-    </div>
-    <div v-else class="log-list">
-      <article v-for="entry in [...logs.entries].reverse()" :key="entry.id" class="log-item">
-        <div class="spread">
-          <strong>{{ entry.channel === "log" ? "Log" : "Info" }} · {{ entry.title }}</strong>
-          <span class="meta">{{ new Date(entry.createdAt).toLocaleTimeString() }}</span>
+    <div class="page-scroll">
+      <div class="log-channel-grid">
+        <div
+          v-for="channel in ['log', 'info'] as const"
+          :key="channel"
+          class="log-channel"
+        >
+          <strong>{{ channel === "log" ? "VCPLog" : "VCPInfo" }}</strong><span><i :class="{ connected: logs.status[channel] === '已连接' }" />{{
+            logs.status[channel]
+          }}</span>
         </div>
-        <pre>{{ entry.detail }}</pre>
-      </article>
+      </div>
+      <div class="list-heading">
+        <h2>最近事件 · {{ logs.entries.length }}</h2>
+        <button
+          v-if="logs.entries.length"
+          class="text-button"
+          type="button"
+          @click="clear"
+        >
+          清空日志
+        </button>
+      </div>
+      <div v-if="!logs.entries.length" class="empty">
+        <AppIcon name="logs" :size="35" />
+        <h2>等待服务器消息</h2>
+        <p>运行状态与工具日志会出现在这里。</p>
+        <RouterLink class="ghost" to="/settings/logs">配置日志连接</RouterLink>
+      </div>
+      <div v-else class="log-list">
+        <article
+          v-for="entry in [...logs.entries].reverse()"
+          :key="entry.id"
+          class="log-item"
+        >
+          <div class="spread">
+            <strong><span class="badge">{{
+                      entry.channel === "log" ? "Log" : "Info"
+                    }}</span>
+              {{ entry.title }}</strong><time class="meta">{{
+              new Date(entry.createdAt).toLocaleTimeString("zh-CN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })
+            }}</time>
+          </div>
+          <pre>{{ entry.detail }}</pre>
+        </article>
+      </div>
     </div>
   </section>
 </template>

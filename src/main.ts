@@ -9,6 +9,9 @@ import { useLogStore } from "./stores/logs";
 import { useNotesStore } from "./stores/notes";
 import { useSettingsStore } from "./stores/settings";
 import "./styles.css";
+import { installAppViewport } from "./viewport";
+
+installAppViewport();
 
 const app = createApp(App);
 const pinia = createPinia();

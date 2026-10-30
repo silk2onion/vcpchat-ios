@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import AgentDrawer from "../components/AgentDrawer.vue";
+import { useRoute, useRouter } from "vue-router";
+import AgentAvatar from "../components/AgentAvatar.vue";
+import AppIcon from "../components/AppIcon.vue";
 import MessageBody from "../components/MessageBody.vue";
 import { assertAttachmentCount, attachmentKind } from "../protocol/messages";
 import { createId } from "../protocol/ids";
@@ -9,84 +11,143 @@ import { openViewer } from "../render/media";
 import { optionsKey, renderOptionsFrom } from "../render/options";
 import { useLibraryStore } from "../stores/library";
 import { useSettingsStore } from "../stores/settings";
+import { useWorkspaceStore } from "../stores/workspace";
 
 const library = useLibraryStore();
 const settings = useSettingsStore();
-const draft = ref("");
-const attachments = ref<Attachment[]>([]);
-const attachError = ref("");
-const drawer = ref(false);
-const wide = ref(window.matchMedia("(min-width: 960px)").matches);
-const scroller = ref<HTMLElement | null>(null);
-const renaming = ref(false);
-const titleDraft = ref("");
-const fileInput = ref<HTMLInputElement | null>(null);
-
-const media = window.matchMedia("(min-width: 960px)");
-media.addEventListener("change", () => {
-  wide.value = media.matches;
+const workspace = useWorkspaceStore();
+const route = useRoute();
+const router = useRouter();
+const draft = computed({
+  get: () => workspace.draftFor(library.topicId).text,
+  set: (text) => workspace.saveDraft(library.topicId, { text }),
 });
-
-const showDrawer = computed(() => wide.value || drawer.value);
+const attachments = computed(
+  () => workspace.draftFor(library.topicId).attachments,
+);
+const attachError = ref("");
+const scroller = ref<HTMLElement | null>(null);
+const input = ref<HTMLTextAreaElement | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
+const following = ref(true);
+const recipient = computed(() =>
+  library.ownerType === "group" ? library.currentGroup : library.currentAgent,
+);
 const renderOptions = computed(() => renderOptionsFrom(settings.settings));
 const renderKey = computed(() => optionsKey(renderOptions.value));
 const statusLabels: Record<MessageStatus, string> = {
   complete: "",
-  streaming: "正在写",
-  error: "失败",
+  streaming: "正在回复",
+  error: "发送失败",
   stopped: "已停止",
   interrupted: "已中断",
 };
 
-function canContinue(message: ChatMessage, index: number): boolean {
-  if (library.streaming || message.role !== "assistant" || index !== library.messages.length - 1) return false;
-  return message.status === "interrupted" || (message.status === "stopped" && Boolean(message.content.trim()));
-}
-
 watch(
-  () => library.messages.map((message) => message.content + message.reasoning).join(""),
+  () => route.params.topicId,
+  async (id) => {
+    if (typeof id === "string" && !library.topics.some((t) => t.id === id)) {
+      await router.replace("/");
+      return;
+    }
+    if (typeof id === "string" && id !== library.topicId)
+      await library.selectTopic(id);
+  },
+  { immediate: true },
+);
+watch(
+  () => library.topicId,
   async () => {
+    attachError.value = "";
+    following.value = true;
     await nextTick();
-    const el = scroller.value;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
-    if (nearBottom || library.streaming) el.scrollTop = el.scrollHeight;
+    bottom();
   },
 );
-
+watch(
+  () =>
+    library.messages
+      .map((m) => m.id + m.content + m.reasoning + m.status)
+      .join(""),
+  async () => {
+    const follow = following.value;
+    await nextTick();
+    if (follow) bottom();
+  },
+);
+function bottom() {
+  const el = scroller.value;
+  if (el) el.scrollTop = el.scrollHeight;
+  following.value = true;
+}
+function onScroll() {
+  const el = scroller.value;
+  if (el)
+    following.value = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+}
+function grow() {
+  const el = input.value;
+  if (el) {
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 136)}px`;
+  }
+}
+function canContinue(message: ChatMessage, index: number): boolean {
+  return (
+    !library.streaming &&
+    message.role === "assistant" &&
+    index === library.messages.length - 1 &&
+    (message.status === "interrupted" ||
+      (message.status === "stopped" && Boolean(message.content.trim())))
+  );
+}
 async function submit() {
-  const files = attachments.value;
+  if (library.streaming || (!draft.value.trim() && !attachments.value.length))
+    return;
+  if (!library.configured) {
+    library.error = "先连接服务器，并选择一个模型。";
+    return;
+  }
   const text = draft.value;
-  draft.value = "";
-  attachments.value = [];
+  const files = attachments.value;
+  workspace.clearDraft(library.topicId);
+  following.value = true;
+  if (input.value) input.value.style.height = "auto";
   await library.send(text, files);
 }
-
 function onKey(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+  if (
+    !event.isComposing &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key === "Enter"
+  ) {
     event.preventDefault();
     void submit();
   }
 }
-
 async function onFiles(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const files = [...(input.files ?? [])];
-  input.value = "";
+  const element = event.target as HTMLInputElement;
+  const files = [...(element.files ?? [])];
+  element.value = "";
+  const topic = library.topicId;
   attachError.value = "";
   try {
-    assertAttachmentCount(attachments.value.length, files.length);
-    const next: Attachment[] = [];
-    for (const file of files) {
-      const kind = attachmentKind(file);
-      next.push(await readFile(file, kind));
-    }
-    attachments.value = [...attachments.value, ...next];
+    assertAttachmentCount(
+      workspace.draftFor(topic).attachments.length,
+      files.length,
+    );
+    const next = await Promise.all(
+      files.map((file) => readFile(file, attachmentKind(file))),
+    );
+    workspace.saveDraft(topic, {
+      attachments: [...workspace.draftFor(topic).attachments, ...next],
+    });
   } catch (error) {
-    attachError.value = error instanceof Error ? error.message : "附件没有读出来";
+    if (topic === library.topicId)
+      attachError.value =
+        error instanceof Error ? error.message : "附件没有读出来";
   }
 }
-
 function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -96,7 +157,9 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
       resolve({
         id: createId("file"),
         name: file.name,
-        mime: file.type || (kind === "text" ? "text/plain" : "application/octet-stream"),
+        mime:
+          file.type ||
+          (kind === "text" ? "text/plain" : "application/octet-stream"),
         kind,
         dataUrl: kind === "image" ? result : undefined,
         text: kind === "text" ? result : undefined,
@@ -106,82 +169,265 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
     else reader.readAsText(file);
   });
 }
-
-async function saveTitle() {
-  await library.renameTopic(titleDraft.value);
-  renaming.value = false;
-}
 </script>
-
 <template>
-  <div :class="{ 'chat-wide': showDrawer && wide }">
-    <div v-if="drawer && !wide" class="drawer-backdrop" @click="drawer = false" />
-    <AgentDrawer v-if="showDrawer" @close="drawer = false" />
-    <section class="chat-stage screen">
-      <header class="screen-head">
-        <button v-if="!wide" class="icon-button" type="button" aria-label="打开话题列表" @click="drawer = true">☰</button>
-        <div style="flex: 1">
-          <p class="eyebrow">{{ library.ownerType === "group" ? "群组" : "助手" }} · {{ library.currentAgent?.name || library.currentGroup?.name }}</p>
-          <button v-if="!renaming" class="ghost" type="button" @click="titleDraft = library.currentTopic?.title || ''; renaming = true">
-            {{ library.currentTopic?.title || "新的对话" }}
-          </button>
-          <form v-else class="row" @submit.prevent="saveTitle">
-            <input v-model="titleDraft" type="text" aria-label="话题标题" />
-            <button class="primary" type="submit">保存</button>
-          </form>
+  <section class="chat-stage" aria-label="对话">
+    <header class="chat-header">
+      <button
+        class="icon-button chat-back"
+        type="button"
+        aria-label="返回会话列表"
+        @click="router.push('/')"
+      >
+        <AppIcon name="back" />
+      </button>
+      <button
+        class="chat-identity"
+        type="button"
+        :aria-label="`查看 ${recipient?.name || 'Agent'} 资料`"
+        @click="
+          workspace.open(
+            library.ownerType === 'group'
+              ? { type: 'group', id: library.ownerId }
+              : { type: 'agent', id: library.ownerId },
+          )
+        "
+      >
+        <AgentAvatar
+          :name="recipient?.name || 'Agent'"
+          :symbol="
+            library.ownerType === 'agent'
+              ? library.currentAgent?.avatar
+              : undefined
+          "
+          :size="38"
+          :group="library.ownerType === 'group'"
+        /><span><strong>{{ recipient?.name }}</strong><small>{{ library.currentTopic?.title || "新的对话" }}</small></span>
+      </button>
+      <button
+        class="icon-button subtle"
+        type="button"
+        aria-label="切换会话"
+        @click="workspace.open({ type: 'topics' })"
+      >
+        <AppIcon name="history" :size="21" />
+      </button>
+      <button
+        class="icon-button subtle"
+        type="button"
+        aria-label="会话选项"
+        @click="workspace.open({ type: 'topic-options', id: library.topicId })"
+      >
+        <AppIcon name="more" />
+      </button>
+    </header>
+    <div v-if="!library.configured" class="connection-banner">
+      <AppIcon name="server" :size="19" /><span>连接你的 VCPToolBox，开始对话</span><RouterLink to="/settings/connection">去连接<AppIcon name="chevron" :size="16" /></RouterLink>
+    </div>
+    <div v-if="library.error" class="chat-error" role="alert">
+      <span>{{ library.error }}</span><button
+        class="icon-button subtle"
+        type="button"
+        aria-label="关闭提示"
+        @click="library.error = ''"
+      >
+        <AppIcon name="close" :size="16" />
+      </button>
+    </div>
+    <div class="message-stage">
+      <div
+        ref="scroller"
+        class="messages"
+        :class="{ motion: renderOptions.motion }"
+        @scroll.passive="onScroll"
+      >
+        <div v-if="!library.messages.length" class="empty-chat">
+          <AgentAvatar
+            :name="recipient?.name || 'Agent'"
+            :symbol="
+              library.ownerType === 'agent'
+                ? library.currentAgent?.avatar
+                : undefined
+            "
+            :group="library.ownerType === 'group'"
+            :size="70"
+          />
+          <h2>和{{ recipient?.name || "你的 Agent" }}聊聊</h2>
+          <p>
+            {{
+              library.ownerType === "agent" && library.currentAgent?.description
+                ? library.currentAgent.description
+                : "新的会话，新的想法。"
+            }}
+          </p>
         </div>
-        <button class="ghost" type="button" @click="library.currentTopic && library.removeTopic(library.currentTopic.id)">删除话题</button>
-      </header>
-      <p v-if="!settings.settings.serverUrl || !settings.settings.apiKey" class="banner">
-        服务器地址和 API Key 还空着。去设置里填上你自己的 VCPToolBox，密钥只留在这台设备。
-      </p>
-      <p v-if="library.error" class="error-line">{{ library.error }}</p>
-      <div ref="scroller" class="messages" :class="{ motion: renderOptions.motion }">
-        <div v-if="!library.messages.length" class="empty">
-          <p class="eyebrow">还没有消息</p>
-          <h2>把这句话发给你的服务器</h2>
-          <p class="hint">回复按流式到达。工具标记会收成卡片，思考过程可以展开。</p>
-        </div>
-        <article v-for="(message, index) in library.messages" :key="message.id" class="bubble" :class="[message.role, { streaming: message.status === 'streaming' }]">
-          <header>
-            <strong>{{ message.authorName || (message.role === "user" ? "我" : "助手") }}</strong>
-            <span class="meta">{{ statusLabels[message.status] }}</span>
+        <article
+          v-for="(message, index) in library.messages"
+          :key="message.id"
+          class="bubble"
+          :class="[message.role, { streaming: message.status === 'streaming' }]"
+          :data-message-id="message.id"
+        >
+          <header v-if="message.role === 'assistant'">
+            <AgentAvatar
+              :name="message.authorName || 'Agent'"
+              :symbol="
+                library.agents.find((a) => a.id === message.agentId)?.avatar
+              "
+              :size="24"
+            /><strong>{{ message.authorName || "Agent" }}</strong><span
+              v-if="statusLabels[message.status]"
+              class="message-status"
+              :class="message.status"
+            ><span v-if="message.status === 'streaming'" class="live-dot" />{{
+              statusLabels[message.status]
+            }}</span>
           </header>
           <div class="body">
-            <MessageBody :key="renderKey" :content="message.content" :reasoning="message.reasoning" :streaming="message.status === 'streaming'" :options="renderOptions" />
-            <div v-if="message.attachments.some((file) => file.kind === 'image' && file.dataUrl)" class="attachment-strip">
+            <MessageBody
+              :key="renderKey"
+              :content="message.content"
+              :reasoning="message.reasoning"
+              :streaming="message.status === 'streaming'"
+              :options="renderOptions"
+            />
+            <div
+              v-if="
+                message.attachments.some(
+                  (file) => file.kind === 'image' && file.dataUrl,
+                )
+              "
+              class="attachment-strip"
+            >
               <button
-                v-for="file in message.attachments.filter((item) => item.kind === 'image' && item.dataUrl)"
+                v-for="file in message.attachments.filter(
+                  (item) => item.kind === 'image' && item.dataUrl,
+                )"
                 :key="file.id"
                 class="attachment-thumb"
                 type="button"
                 :aria-label="`预览 ${file.name}`"
-                @click="openViewer({ kind: 'image', src: file.dataUrl ?? '', alt: file.name })"
+                @click="
+                  openViewer({
+                    kind: 'image',
+                    src: file.dataUrl ?? '',
+                    alt: file.name,
+                  })
+                "
               >
                 <img :src="file.dataUrl" :alt="file.name" loading="lazy" />
               </button>
             </div>
-            <p v-if="message.attachments.some((file) => file.kind !== 'image')" class="hint">
-              附件：{{ message.attachments.filter((file) => file.kind !== "image").map((file) => file.name).join("、") }}
+            <p
+              v-if="message.attachments.some((file) => file.kind !== 'image')"
+              class="hint"
+            >
+              附件：{{
+                message.attachments
+                  .filter((file) => file.kind !== "image")
+                  .map((file) => file.name)
+                  .join("、")
+              }}
             </p>
-            <p v-if="message.error && message.status !== 'streaming'" class="hint">{{ message.error }}</p>
-            <button v-if="canContinue(message, index)" class="ghost continue" type="button" @click="library.continueMessage(message.id)">继续写</button>
+            <p
+              v-if="message.error && message.status !== 'streaming'"
+              class="message-error"
+            >
+              {{ message.error }}
+            </p>
+            <button
+              v-if="canContinue(message, index)"
+              class="continue"
+              type="button"
+              @click="
+                following = true;
+                library.continueMessage(message.id);
+              "
+            >
+              <AppIcon name="send" :size="16" />继续写
+            </button>
           </div>
         </article>
       </div>
-      <p v-if="attachError" class="error-line">{{ attachError }}</p>
+      <button
+        v-if="!following && library.messages.length"
+        class="jump-latest"
+        type="button"
+        @click="bottom"
+      >
+        <AppIcon name="down" :size="18" />回到最新
+      </button>
+    </div>
+    <div class="composer-dock">
+      <p v-if="attachError" class="error-line" role="alert">
+        {{ attachError }}
+      </p>
       <div v-if="attachments.length" class="chips">
-        <button v-for="file in attachments" :key="file.id" class="chip" type="button" @click="attachments = attachments.filter((item) => item.id !== file.id)">
-          {{ file.name }} ×
+        <button
+          v-for="file in attachments"
+          :key="file.id"
+          class="chip"
+          type="button"
+          :aria-label="`移除附件 ${file.name}`"
+          @click="
+            workspace.saveDraft(library.topicId, {
+              attachments: attachments.filter((item) => item.id !== file.id),
+            })
+          "
+        >
+          {{ file.name }}<AppIcon name="close" :size="13" />
         </button>
       </div>
       <form class="composer" @submit.prevent="submit">
-        <button class="icon-button" type="button" aria-label="添加图片或文本附件" @click="fileInput?.click()">＋</button>
-        <input ref="fileInput" hidden type="file" accept="image/*,.txt,.md,.json,.csv,.log,.xml,.yaml,.yml,text/*" multiple @change="onFiles" />
-        <textarea v-model="draft" rows="2" placeholder="写给助手。Ctrl 或 ⌘ 加回车发送" aria-label="消息" @keydown="onKey" />
-        <button v-if="library.streaming" class="danger" type="button" @click="library.stop()">停止</button>
-        <button v-else class="primary" type="submit" :disabled="!draft.trim() && !attachments.length">发送</button>
+        <button
+          class="icon-button subtle"
+          type="button"
+          aria-label="添加图片或文本附件"
+          @click="fileInput?.click()"
+        >
+          <AppIcon name="plus" />
+        </button><input
+          ref="fileInput"
+          hidden
+          type="file"
+          accept="image/*,.txt,.md,.json,.csv,.log,.xml,.yaml,.yml,text/*"
+          multiple
+          @change="onFiles"
+        /><textarea
+          ref="input"
+          v-model="draft"
+          rows="1"
+          :placeholder="`发消息给 ${recipient?.name || 'Agent'}`"
+          aria-label="消息"
+          @keydown="onKey"
+          @input="grow"
+        /><button
+          v-if="library.streaming"
+          class="send-button stop-button"
+          type="button"
+          aria-label="停止生成"
+          @click="library.stop()"
+        >
+          <AppIcon name="stop" :size="19" />
+        </button><button
+          v-else
+          class="send-button"
+          type="submit"
+          aria-label="发送消息"
+          :disabled="!draft.trim() && !attachments.length"
+        >
+          <AppIcon name="send" :size="21" />
+        </button>
       </form>
-    </section>
-  </div>
+      <p class="composer-meta">
+        {{
+          library.ownerType === "agent"
+            ? library.currentAgent?.model ||
+              settings.settings.defaultModel ||
+              "未选择模型"
+            : `${library.currentGroup?.memberIds.length || 0} 位 Agent`
+        }}<span>对话保存在本机</span>
+      </p>
+    </div>
+  </section>
 </template>

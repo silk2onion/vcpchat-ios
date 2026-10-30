@@ -33,9 +33,11 @@ export function applyTheme(theme: ThemeId) {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.theme = theme;
   const colors: Record<ThemeId, string> = {
-    ink: "#16130f",
-    paper: "#f4efe4",
-    aurora: "#10181b",
+    ink: "#101214",
+    paper: "#f6f7f8",
+    aurora: "#101b21",
   };
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", colors[theme]);
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", colors[theme]);
 }

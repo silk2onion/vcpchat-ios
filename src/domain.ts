@@ -2,7 +2,12 @@ export type ThemeId = "ink" | "paper" | "aurora";
 export type EndpointMode = "standard" | "vcp-tools";
 export type GroupMode = "rotate" | "mention" | "all";
 export type OwnerType = "agent" | "group";
-export type MessageStatus = "complete" | "streaming" | "error" | "stopped" | "interrupted";
+export type MessageStatus =
+  | "complete"
+  | "streaming"
+  | "error"
+  | "stopped"
+  | "interrupted";
 
 export interface Settings {
   serverUrl: string;
@@ -24,6 +29,7 @@ export interface Settings {
   renderHtml: boolean;
   renderMotion: boolean;
   renderMedia: boolean;
+  mainAgentId: string;
 }
 
 export interface Agent {
@@ -33,6 +39,8 @@ export interface Agent {
   model: string;
   temperature: number | null;
   createdAt: number;
+  avatar?: string;
+  description?: string;
 }
 
 export interface Group {
@@ -124,9 +132,12 @@ export function defaultSettings(): Settings {
     renderHtml: true,
     renderMotion: true,
     renderMedia: true,
+    mainAgentId: "",
   };
 }
 
 export function secretsOf(settings: Settings): string[] {
-  return [settings.apiKey, settings.logKey, settings.adminPassword].filter((value) => value.length >= 4);
+  return [settings.apiKey, settings.logKey, settings.adminPassword].filter(
+    (value) => value.length >= 4,
+  );
 }

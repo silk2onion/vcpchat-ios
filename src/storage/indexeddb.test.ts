@@ -38,4 +38,19 @@ describe("indexedDB repository", () => {
     expect(loaded.apiKey).toBe("fixture-key");
     expect(loaded).toMatchObject({ richRender: true, renderMath: true, renderHtml: true, renderMotion: true });
   });
+
+  test("opening pre-workspace data adds only default main-agent preference", async () => {
+    const repository = createIndexedDbRepository();
+    const legacy: Record<string, unknown> = { ...defaultSettings(), apiKey: "keep-this-fixture-key" };
+    delete legacy.mainAgentId;
+    await repository.saveSettings(legacy as never);
+    await repository.saveAgent({ id: "original-agent", name: "原来的助手", systemPrompt: "保留提示", model: "old-model", temperature: null, createdAt: 1 });
+    await repository.saveTopic({ id: "original-topic", ownerType: "agent", ownerId: "original-agent", title: "以前的会话", turnIndex: 0, createdAt: 1, updatedAt: 2 });
+    await repository.saveMessage({ id: "original-message", topicId: "original-topic", role: "assistant", content: "已有内容", reasoning: "", attachments: [], createdAt: 2, status: "complete" });
+    const reopened = createIndexedDbRepository();
+    expect(await reopened.getSettings()).toMatchObject({ apiKey: "keep-this-fixture-key", mainAgentId: "" });
+    expect((await reopened.listAgents())[0]).toMatchObject({ id: "original-agent", systemPrompt: "保留提示" });
+    expect((await reopened.listTopics())[0].ownerId).toBe("original-agent");
+    expect((await reopened.listMessages("original-topic"))[0].content).toBe("已有内容");
+  });
 });

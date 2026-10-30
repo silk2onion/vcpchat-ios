@@ -28,7 +28,6 @@ async function save() {
   <section class="screen">
     <header class="spread">
       <div>
-        <p class="eyebrow">记忆</p>
         <h1>笔记</h1>
       </div>
       <div class="segmented" role="tablist">
@@ -60,7 +59,7 @@ async function save() {
       </div>
     </div>
     <div v-else class="stack">
-      <p class="hint">连接 VCPToolBox 的 <code>/admin_api/dailynotes</code>。需要在设置里填写管理员用户名和密码。</p>
+      <p class="hint">服务器日记需要在设置 → 身份与日记中填写管理员账号。</p>
       <div class="row">
         <button class="primary" type="button" :disabled="notes.loading" @click="notes.refreshFolders()">{{ notes.loading ? "读取中" : "刷新文件夹" }}</button>
         <select v-model="notes.remoteFolder" aria-label="日记文件夹" @change="notes.refreshRemote()">
