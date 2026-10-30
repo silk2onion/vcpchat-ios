@@ -70,6 +70,7 @@ struct TopicDraft: Codable, Sendable {
     var unlockingCredentials = false
     var savingConnection = false
     var loading = true
+    var fileNode = FileNodeController()
     var speech = SpeechPlayback()
     var activity = ActivityCenter()
     var pushStatus: String { activity.statuses[.log] ?? "未连接" }
@@ -435,7 +436,7 @@ struct TopicDraft: Codable, Sendable {
     func suspend() async {
         await flushDraft()
         for room in rooms.values { room.cancelled = true; await room.session.stop(interrupted: true) }
-        await activity.pause()
+        await activity.pause(); await fileNode.pause()
     }
     func searchLocal() async {
         let query = search
