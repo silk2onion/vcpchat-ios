@@ -89,6 +89,12 @@ jobs:
           cd "$SOURCE_ROOT"
           bash scripts/build-unsigned-ipa.sh 2>&1 | tee "$ARCHIVE/results/5-unsigned-ipa.log"
           cp dist-ios/VCPChat-unsigned.ipa "$ARCHIVE/products/"
+      - name: Install and launch simulator app
+        run: |
+          cd "$SOURCE_ROOT"
+          bash scripts/smoke-ios-simulator.sh \
+            src-tauri/gen/apple/build/arm64-sim/VCPChat.app \
+            "$ARCHIVE/results" 2>&1 | tee "$ARCHIVE/results/6-simulator-smoke.log"
       - name: Record source diff
         if: always()
         run: |
