@@ -115,6 +115,11 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
+    func saveProfile(_ profile: UserProfile) async -> Bool {
+        guard let store else { error = "本机数据库尚未就绪"; return false }
+        do { try await store.put(profile, kind: "profile", id: "me"); self.profile = profile; return true }
+        catch { self.error = error.localizedDescription; return false }
+    }
     func setMainAgent(_ id: String) async {
         let old = profile
         do { profile.mainAgentID = id; try await store?.put(profile, kind: "profile", id: "me") }

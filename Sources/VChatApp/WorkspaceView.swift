@@ -72,13 +72,13 @@ struct WorkspaceView: View {
             NavigationStack {
                 List {
                     Section {
-                        HStack(spacing: 16) {
+                        NavigationLink { ProfileEditor(model: model, profile: model.profile) } label: { HStack(spacing: 16) {
                             ContactAvatar(name: model.profile.name.isEmpty ? "我" : model.profile.name, image: model.profile.avatar, size: 64)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(model.profile.name.isEmpty ? "我" : model.profile.name).font(.title2.bold())
                                 Text("你的 VCP 随身工作台").font(.callout).foregroundStyle(.secondary)
                             }
-                        }.padding(.vertical, 20)
+                        }.padding(.vertical, 20) }
                     }
                     Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape") } }
                 }.navigationTitle("我")
@@ -121,6 +121,7 @@ struct ContactAvatar: View {
 struct AgentEditor: View {
     @Bindable var model: ChatViewModel
     @State var agent: VCPAgent
+    @State private var avatar = false
     @State private var deleting = false
     @Environment(\.dismiss) private var dismiss
     var existing: Bool { model.agents.contains { $0.id == agent.id } }
@@ -128,6 +129,7 @@ struct AgentEditor: View {
         NavigationStack {
             Form {
                 Section("Agent 资料") {
+                    Button { avatar = true } label: { HStack { ContactAvatar(name: agent.name, image: agent.avatarUrl, size: 62); Spacer(); Label("编辑头像", systemImage: "camera") } }.buttonStyle(.plain)
                     TextField("名字", text: $agent.name)
                     TextField("简介", text: $agent.description, axis: .vertical).lineLimit(2...4)
                 }
@@ -144,6 +146,7 @@ struct AgentEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { if await model.saveAgent(agent) { dismiss() } } }.disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
+            .sheet(isPresented: $avatar) { AvatarEditor(image: $agent.avatarUrl, name: agent.name) }
             .confirmationDialog("删除这个 Agent？聊天记录将保留。", isPresented: $deleting, titleVisibility: .visible) { Button("删除 Agent", role: .destructive) { Task { await model.removeAgent(agent.id); if model.error == nil { dismiss() } } } }
         }.frame(minWidth: 340, minHeight: 530)
     }
