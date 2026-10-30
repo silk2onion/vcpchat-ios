@@ -14,6 +14,7 @@ public actor MessageRenderer {
     private var dark = false
     private var streaming = false
     private var diagrams = DiagramCache()
+    private var links: NSDataDetector?
     public init() {}
     private struct MathToken { var token: String; var latex: String; var original: String; var block: Bool }
     private var mathTokens: [MathToken] = []
@@ -72,7 +73,10 @@ public actor MessageRenderer {
                 let rows = node.body.rows.map { row in row.cells.map { self.inline($0, options: options) } }
                 return .table([Array(head)] + rows.map(Array.init))
             case is ThematicBreak: return .rule
-            case let node as HTMLBlock: return .literal(restore(node.rawHTML))
+            case let node as HTMLBlock:
+                let raw = restore(node.rawHTML)
+                if options.media,let media = MessageMedia.html(raw) { return .paragraph([.media(media)]) }
+                return .literal(raw)
             default:
                 let content = node.children.map { $0.detachedFromParent.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
                 if let math = mathTokens.first(where: { $0.token == content && $0.block }) { return options.math ? .math(math.latex) : .literal(math.original) }
@@ -82,7 +86,27 @@ public actor MessageRenderer {
     }
     private func restore(_ text: String) -> String { mathTokens.reduce(text) { $0.replacingOccurrences(of: $1.token, with: $1.original) } }
     private func inline(_ node: any Markup, options: RenderOptions) -> [InlineRun] {
-        let source = (node.childCount == 0 ? node.detachedFromParent.format() : node.children.map { $0.detachedFromParent.format() }.joined()).trimmingCharacters(in: .newlines)
+        if node.childCount == 0 { return inlineSource(node.detachedFromParent.format(),options: options) }
+        var result: [InlineRun] = [],buffer = ""
+        func flush() { if !buffer.isEmpty { result += inlineSource(buffer,options: options); buffer = "" } }
+        for child in node.children {
+            if let image = child as? Markdown.Image {
+                flush(); let caption = image.children.map { $0.detachedFromParent.format() }.joined()
+                if options.media,let media = MessageMedia(source: image.source ?? "",caption: caption) { result.append(.media(media)) }
+                else { result.append(.text(AttributedString("图片：" + (caption.isEmpty ? image.source ?? "未命名" : caption)))) }
+            } else if let link = child as? Markdown.Link,options.media,let media = MessageMedia(source: link.destination ?? "",caption: link.children.map { $0.detachedFromParent.format() }.joined(),videoOnly: true) {
+                flush(); result.append(.media(media))
+            } else if let html = child as? InlineHTML,options.media,let media = MessageMedia.html(html.rawHTML) {
+                flush(); result.append(.media(media))
+            } else if containsMedia(child,videos: options.media) { flush(); result += inline(child,options: options) }
+            else { buffer += child.detachedFromParent.format() }
+        }
+        flush(); return result
+    }
+    private func containsMedia(_ node: any Markup,videos: Bool) -> Bool {
+        node is Markdown.Image || (videos && (node as? Markdown.Link).map { MessageMedia.isVideo($0.destination ?? "") } == true) || node.children.contains { containsMedia($0,videos: videos) }
+    }
+    private func inlineSource(_ source: String,options: RenderOptions) -> [InlineRun] {
         let attributed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
         let found = mathTokens.compactMap { token -> (Range<AttributedString.Index>, MathToken)? in attributed.range(of: token.token).map { ($0, token) } }.sorted { $0.0.lowerBound < $1.0.lowerBound }
         var result: [InlineRun] = []; var cursor = attributed.startIndex
@@ -92,7 +116,25 @@ public actor MessageRenderer {
             cursor = range.upperBound
         }
         if cursor < attributed.endIndex { result.append(.text(AttributedString(attributed[cursor...]))) }
-        return result
+        return result.flatMap { run in if case .text(let value) = run { return linkedText(value,options: options) }; return [run] }
+    }
+    private func linkedText(_ value: AttributedString,options: RenderOptions) -> [InlineRun] {
+        var attributed = value
+        let text = String(attributed.characters)
+        guard text.contains("://") || text.contains("@") else { return [.text(value)] }
+        if links == nil { links = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) }
+        let found = (links?.matches(in: text,range: NSRange(text.startIndex...,in: text)) ?? []).compactMap { match -> (Range<AttributedString.Index>,URL)? in
+            guard let url = match.url,["http","https","mailto"].contains(url.scheme),let range = Range(match.range,in: text),let lower = AttributedString.Index(range.lowerBound,within: attributed),let upper = AttributedString.Index(range.upperBound,within: attributed) else { return nil }
+            guard attributed[lower..<upper].inlinePresentationIntent?.contains(.code) != true else { return nil }
+            return (lower..<upper,url)
+        }
+        for (range,url) in found { if attributed[range].link == nil { attributed[range].link = url } }
+        var result: [InlineRun] = [],cursor = attributed.startIndex
+        for (range,url) in found where options.media && attributed[range].link == url && MessageMedia.isVideo(url.absoluteString) {
+            guard let media = MessageMedia(source: url.absoluteString,videoOnly: true) else { continue }
+            if cursor < range.lowerBound { result.append(.text(AttributedString(attributed[cursor..<range.lowerBound]))) }; result.append(.media(media)); cursor = range.upperBound
+        }
+        if cursor < attributed.endIndex { result.append(.text(AttributedString(attributed[cursor...]))) }; return result
     }
     private func highlighted(_ code: String, language: String) -> [CodeSpan] {
         if highlighter == nil { highlighter = Highlighter() }

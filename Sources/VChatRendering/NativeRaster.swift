@@ -26,7 +26,7 @@ public struct NativeRaster: View {
     }
 }
 #if os(iOS)
-private struct RasterImageView: UIViewRepresentable {
+struct RasterImageView: UIViewRepresentable {
     var data: Data; var animating: Bool
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> SDAnimatedImageView { let view = SDAnimatedImageView(); view.contentMode = .scaleAspectFill; view.clipsToBounds = true; view.autoPlayAnimatedImage = false; view.maxBufferSize = 8_000_000; view.clearBufferWhenStopped = true; return view }
@@ -38,7 +38,7 @@ private struct RasterImageView: UIViewRepresentable {
     @MainActor final class Coordinator { var data: Data? }
 }
 #else
-private struct RasterImageView: NSViewRepresentable {
+struct RasterImageView: NSViewRepresentable {
     var data: Data; var animating: Bool
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> SDAnimatedImageView { let view = SDAnimatedImageView(); view.imageScaling = .scaleAxesIndependently; view.autoPlayAnimatedImage = false; view.maxBufferSize = 8_000_000; view.clearBufferWhenStopped = true; return view }

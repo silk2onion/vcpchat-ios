@@ -39,7 +39,7 @@ private struct RenderingSettings: View {
                 Toggle("Mermaid 图表",isOn: $model.renderOptions.mermaid)
                 Toggle("HTML 视觉气泡", isOn: $model.renderOptions.html)
                 Toggle("气泡动画", isOn: $model.renderOptions.motion)
-                Toggle("气泡图片与媒体", isOn: $model.renderOptions.media)
+                Toggle("图片与视频", isOn: $model.renderOptions.media)
             }.disabled(!model.renderOptions.enabled)
             Section { Text("修改后会立即应用到已有消息。关闭高级渲染时显示原始文字。").font(.callout).foregroundStyle(.secondary) }
         }.formStyle(.grouped).navigationTitle("消息渲染")

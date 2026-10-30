@@ -16,7 +16,7 @@ public struct CodeSpan: Sendable, Equatable {
     public var color: [Double]?
     public init(text: String, color: [Double]? = nil) { self.text = text; self.color = color }
 }
-public enum InlineRun: Sendable, Equatable { case text(AttributedString); case math(String) }
+public enum InlineRun: Sendable, Equatable { case text(AttributedString); case math(String); case media(MessageMedia) }
 public enum RenderBlock: Sendable, Equatable {
     case html(String)
     case diagram(String, DiagramRaster)

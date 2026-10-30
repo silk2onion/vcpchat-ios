@@ -36,12 +36,17 @@ struct NativeDiagram: View {
     var body: some View {
         if let image = raster.image {
             Button { expanded = true } label: { Image(decorative: image,scale: 2).resizable().scaledToFit().frame(maxWidth: .infinity).padding(12).background(.secondary.opacity(0.05),in: RoundedRectangle(cornerRadius: 12)) }.buttonStyle(.plain).accessibilityLabel("打开图表，可放大查看")
-                .sheet(isPresented: $expanded) { DiagramViewer(image: image) }
+                .sheet(isPresented: $expanded) { RasterViewer(image: image) }
         } else { Label(raster.issue ?? "图表未完成",systemImage: "doc.text").font(.caption).foregroundStyle(.secondary) }
     }
 }
-private struct DiagramViewer: View {
+struct RasterViewer: View {
     var image: CGImage
+    var title = "图表"
+    var animation: Data?
+    var animations = true
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var zoom: CGFloat = 1
     @GestureState private var pinch: CGFloat = 1
     @Environment(\.dismiss) private var dismiss
@@ -51,12 +56,12 @@ private struct DiagramViewer: View {
                 GeometryReader { g in
                     let ratio = CGFloat(image.height)/CGFloat(image.width)
                     let width = max(80,min(g.size.width-32,(g.size.height-32)/ratio)),height = width*ratio,scale = min(6,max(0.5,zoom*pinch))
-                    ScrollView([.horizontal,.vertical]) { Image(decorative: image,scale: 2).resizable().frame(width: width*scale,height: height*scale).frame(minWidth: g.size.width-32,minHeight: g.size.height-32).padding(16) }
+                    ScrollView([.horizontal,.vertical]) { MediaImage(raster: MediaRaster(image: image,animation: animation),animating: animations && !reduceMotion && phase == .active).frame(width: width*scale,height: height*scale).frame(minWidth: g.size.width-32,minHeight: g.size.height-32).padding(16) }
                         .gesture(MagnifyGesture().updating($pinch) { value,state,_ in state = value.magnification }.onEnded { zoom = min(6,max(0.5,zoom*$0.magnification)) })
                 }
                 Divider()
                 HStack(spacing: 20) { Button("缩小",systemImage: "minus.magnifyingglass") { zoom = max(0.5,zoom/1.5) }; Button("还原") { zoom = 1 }; Button("放大",systemImage: "plus.magnifyingglass") { zoom = min(6,zoom*1.5) } }.padding(12)
-            }.navigationTitle("图表").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+            }.navigationTitle(title).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }.frame(minWidth: 350,minHeight: 450)
     }
 }

@@ -44,7 +44,7 @@ public struct RichMessageBody: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
     public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth }
-    private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) }))) }
+    private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.contains("http://") && !source.contains("https://") && !(source.contains("@") && source.contains(".")) && (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })))) }
     public var body: some View {
         Group {
             if plain { Text(verbatim: source).textSelection(.enabled) }
@@ -78,8 +78,8 @@ private struct NativeBlocks: View, Equatable {
         case .diagram(let source,let raster): VStack(alignment: .leading,spacing: 8) { NativeDiagram(source: source,raster: raster); DisclosureGroup("图表源码") { NativeCode(language: "mermaid",source: source,spans: []) } }
         case .vcp(let segment): VCPCardView(segment: segment, options: options)
         case .literal(let text): Text(verbatim: text).textSelection(.enabled)
-        case .paragraph(let runs): InlineBody(runs: runs)
-        case .heading(let level, let text): InlineBody(runs: text).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
+        case .paragraph(let runs): InlineBody(runs: runs,animations: options.motion)
+        case .heading(let level, let text): InlineBody(runs: text,animations: options.motion).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
         case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
         case .list(let items, let start):
             VStack(alignment: .leading, spacing: 8) { ForEach(Array(items.enumerated()), id: \.offset) { index, blocks in HStack(alignment: .top, spacing: 8) { Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary); NativeBlocks(blocks: blocks, options: options) } } }
@@ -90,7 +90,7 @@ private struct NativeBlocks: View, Equatable {
             ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                        GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, cell in InlineBody(runs: cell).fontWeight(index == 0 ? .semibold : .regular).frame(minWidth: 70, alignment: .leading) } }
+                        GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, cell in InlineBody(runs: cell,animations: options.motion).fontWeight(index == 0 ? .semibold : .regular).frame(minWidth: 70, alignment: .leading) } }
                         if index == 0 { Divider().gridCellUnsizedAxes(.horizontal) }
                     }
                 }.padding(12)
@@ -136,6 +136,7 @@ private struct CopyCode: View {
 }
 private struct InlineBody: View {
     var runs: [InlineRun]
+    var animations = true
     var text: AttributedString {
         runs.reduce(into: AttributedString()) { result, run in if case .text(let text) = run { result.append(text) } }
     }
@@ -154,11 +155,15 @@ private struct InlineBody: View {
         return pieces
     }
     var body: some View {
-        if !hasMath { Text(text).textSelection(.enabled).lineSpacing(4) }
+        if runs.contains(where: { if case .media = $0 { true } else { false } }) {
+            VStack(alignment: .leading,spacing: 10) { ForEach(Array(runs.enumerated()),id: \.offset) { _,run in
+                switch run { case .text(let value): Text(value).textSelection(.enabled).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+            } }
+        } else if !hasMath { Text(text).textSelection(.enabled).lineSpacing(4) }
         else {
             InlineFlow {
                 ForEach(Array(pieces.enumerated()), id: \.offset) { _, part in
-                    switch part { case .text(let value): Text(value).textSelection(.enabled); case .math(let value): NativeMath(value, size: 17).fixedSize() }
+                    switch part { case .text(let value): Text(value).textSelection(.enabled); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
                 }
             }
         }
