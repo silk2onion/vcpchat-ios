@@ -6,6 +6,7 @@ struct WorkspaceView: View {
     @Bindable var model: ChatViewModel
     @State private var tab = Tab.chats
     @State private var chatPath: [String] = []
+    @State private var editingGroup: VCPGroup?
     @State private var editing: VCPAgent?
     @State private var search = ""
     @State private var settings = false
@@ -35,7 +36,7 @@ struct WorkspaceView: View {
                                     ContactAvatar(name: agent?.name ?? "会话", image: agent?.avatarUrl ?? "", size: 44)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(topic.title).foregroundStyle(.primary).lineLimit(1)
-                                        Text(agent?.name ?? "已删除的 Agent").font(.caption).foregroundStyle(.secondary)
+                                        Text(agent?.name ?? model.groups.first(where: { $0.id == topic.ownerId })?.name ?? "已删除的联系人").font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     if model.rooms[topic.id]?.busy == true { ProgressView().controlSize(.small) }
@@ -64,6 +65,21 @@ struct WorkspaceView: View {
                             Button { editing = agent } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }.buttonStyle(.plain).accessibilityLabel("编辑 \(agent.name)")
                         }.padding(.vertical, 4)
                     }
+                    Section {
+                        ForEach(model.groups.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { group in
+                            HStack(spacing: 12) {
+                                Button { Task { await model.openGroup(group); tab = .chats; chatPath = [model.activeTopicID] } } label: {
+                                    HStack(spacing: 12) {
+                                        ContactAvatar(name: group.name, image: group.avatarUrl, size: 46)
+                                        VStack(alignment: .leading, spacing: 4) { Text(group.name).font(.headline); Text("\(group.memberIds.count) 位 Agent · \(group.mode.title)").font(.caption).foregroundStyle(.secondary) }
+                                        Spacer()
+                                    }.contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                Button { editingGroup = group } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }.buttonStyle(.plain).accessibilityLabel("编辑群聊 \(group.name)")
+                            }.padding(.vertical, 4)
+                        }
+                        Button("创建群聊", systemImage: "person.2.badge.plus") { editingGroup = VCPGroup() }
+                    } header: { Text("群聊") }
                 }
                 .searchable(text: $search, prompt: "搜索 Agent")
                 .navigationTitle("通讯录")
@@ -85,6 +101,7 @@ struct WorkspaceView: View {
             }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)
         }
         .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
+        .sheet(item: $editingGroup) { group in GroupEditor(model: model, group: group) }
         .sheet(isPresented: $settings) { ConnectionView(model: model) }
         .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("好") { model.error = nil } } message: { Text(model.error ?? "") }
     }

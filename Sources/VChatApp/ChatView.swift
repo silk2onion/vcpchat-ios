@@ -5,6 +5,7 @@ struct ChatView: View {
     @Bindable var model: ChatViewModel
     @State private var showTopics = false
     @State private var showAgent = false
+    @State private var showGroup = false
     @State private var showSettings = false
     @State private var showSearch = false
     @State private var showLog = false
@@ -29,14 +30,14 @@ struct ChatView: View {
                     else { Button { model.send(); writing = true } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(.mint, in: Circle()).foregroundStyle(.black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(.plain).padding(.horizontal, 15).padding(.vertical, 5).background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 25)).overlay(RoundedRectangle(cornerRadius: 25).stroke(.secondary.opacity(0.15))).padding(.horizontal, 16).padding(.bottom, 12)
             }
-            .navigationTitle(model.activeAgent?.name ?? "会话")
+            .navigationTitle(model.ownerName)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Button { showAgent = true } label: {
-                        VStack(spacing: 2) { Text(model.activeAgent?.name ?? "会话").font(.headline); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    Button { if model.activeGroup != nil { showGroup = true } else { showAgent = true } } label: {
+                        VStack(spacing: 2) { Text(model.ownerName).font(.headline); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                     }.buttonStyle(.plain)
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -47,6 +48,7 @@ struct ChatView: View {
                 }
             }
             .sheet(isPresented: $showTopics) { TopicsView(model: model) }
+            .sheet(isPresented: $showGroup) { if let group = model.activeGroup { GroupEditor(model: model, group: group) } }
             .sheet(isPresented: $showAgent) { if let agent = model.activeAgent { AgentEditor(model: model, agent: agent) } }
             .sheet(isPresented: $showSettings) { ConnectionView(model: model) }
             .sheet(isPresented: $showSearch) {
