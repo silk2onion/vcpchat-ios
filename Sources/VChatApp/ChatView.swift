@@ -1,5 +1,6 @@
 import SwiftUI
 import VChatCore
+import VChatRendering
 
 struct ChatView: View {
     @Bindable var model: ChatViewModel
@@ -78,7 +79,7 @@ private struct ChatTimeline: View {
                                     if model.apiKey.isEmpty { Button("连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(.mint) }
                                 }.padding(.top, 68).padding(.bottom, 30)
                             }
-                            ForEach(model.messages) { message in NativeMessageRow(message: message).id(message.id) }
+                            ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }
                             Color.clear.frame(height: 1).id("latest")
                         }.padding(.horizontal, 20).padding(.vertical, 22)
                     }
@@ -96,11 +97,12 @@ private struct ChatTimeline: View {
 
 private struct NativeMessageRow: View {
     let message: MessageViewModel
+    let model: ChatViewModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if message.role == "assistant" { Label(message.authorName, systemImage: "sparkle").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+            if message.role == "assistant" { HStack(spacing: 8) { ContactAvatar(name: message.authorName, image: model.agents.first(where: { $0.id == message.agentID })?.avatarUrl ?? "", size: 25); Text(message.authorName) }.font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
             if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) } }
-            Text(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text).font(.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text, options: model.renderOptions).font(.body)
             if ["interrupted", "stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.caption).foregroundStyle(.secondary) }
         }.padding(message.role == "user" ? 15 : 0).background(message.role == "user" ? Color.secondary.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 18))
     }

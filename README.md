@@ -48,7 +48,7 @@ Temperature 默认不发送，只有打开“发送 Temperature”才会启用�
 - 点放大镜搜索本机消息，至少输入 3 个字符，支持中英文。
 - 中断或失败的消息不会自动重复发送。
 
-每位 Agent 有独立对话，可从聊天顶部的历史按钮新建、切换、重命名和删除话题。每个话题分别保留草稿；切到其他话题时，正在生成的回复会继续接收。代码、公式和 HTML 暂按文字显示；后台续流和系统推送尚未开放。
+每位 Agent 有独立对话，可从聊天顶部的历史按钮新建、切换、重命名和删除话题。每个话题分别保留草稿；切到其他话题时，正在生成的回复会继续接收。普通文字直接由原生 Text 显示；Markdown 标题、引用、列表和表格使用原生视图，代码支持语法高亮和复制，行内与独立公式使用原生数学排版。富内容在独立 Actor 中解析，可视区外停止解析。HTML 暂按文字显示；后台续流和系统推送尚未开放。
 
 ## 安装
 
@@ -71,3 +71,5 @@ Copyright 2026 VCPChat iOS contributors。
 原 Tauri/Vue 实现已重写为 SwiftUI 原生客户端，应用图标沿用原 iOS 客户端；相关历史来源与改动保留在 Git 历史中。
 
 数据库组件 [GRDB.swift](https://github.com/groue/GRDB.swift) 使用其独立的 [MIT 许可](https://github.com/groue/GRDB.swift/blob/v7.0.0/LICENSE)。
+
+Markdown 解析采用 [swift-markdown](https://github.com/swiftlang/swift-markdown)（Apache 2.0 + Runtime Library Exception），代码高亮采用 [HighlighterSwift](https://github.com/smittytone/HighlighterSwift)（MIT），原生公式采用 [SwiftMath](https://github.com/mgriebling/SwiftMath)（MIT）。各组件及附带字体保留各自许可。

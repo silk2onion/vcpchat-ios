@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import VChatCore
+import VChatRendering
 
 @MainActor @Observable final class MessageViewModel: Identifiable {
     let id: String
@@ -40,6 +41,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var groups: [VCPGroup] = []
     var topics: [ChatTopic] = []
     var profile = UserProfile()
+    var renderOptions = RenderOptions()
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
     var configuration: ConnectionConfiguration
@@ -96,6 +98,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             agents = try await database.records(VCPAgent.self, kind: "agent")
             groups = try await database.records(VCPGroup.self, kind: "group")
             profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
+            renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
             if agents.isEmpty {
                 let assistant = VCPAgent(id: "assistant", name: "助手")
                 try await database.put(assistant, kind: "agent", id: assistant.id); agents = [assistant]
