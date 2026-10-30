@@ -1,8 +1,8 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
@@ -12,10 +12,49 @@ use url::Url;
 
 const MAX_HTTP_BODY: usize = 2_000_000;
 const DEVICE_HEADER_LIMIT: usize = 8_000;
+const MAX_STREAM_BYTES: usize = 8_000_000;
+const STREAM_IDLE_LIMIT: Duration = Duration::from_secs(180);
+const FINISHED_STREAM_TTL: Duration = Duration::from_secs(30 * 60);
+
+/// Everything a stream has produced, kept in Rust so the WebView can switch topics, be suspended
+/// or even reload and still replay the reply from any sequence number.
+#[derive(Default)]
+struct StreamLog {
+    chunks: Vec<String>,
+    bytes: usize,
+    state: StreamState,
+    error: String,
+    finished_at: Option<Instant>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+enum StreamState {
+    #[default]
+    Running,
+    Done,
+    Error,
+    Cancelled,
+}
+
+impl StreamState {
+    fn as_str(self) -> &'static str {
+        match self {
+            StreamState::Running => "running",
+            StreamState::Done => "done",
+            StreamState::Error => "error",
+            StreamState::Cancelled => "cancelled",
+        }
+    }
+}
+
+struct StreamEntry {
+    token: CancellationToken,
+    log: Arc<Mutex<StreamLog>>,
+}
 
 pub struct NetState {
     client: reqwest::Client,
-    streams: Mutex<HashMap<String, CancellationToken>>,
+    streams: Mutex<HashMap<String, StreamEntry>>,
     sockets: Mutex<HashMap<String, CancellationToken>>,
 }
 
@@ -24,6 +63,7 @@ impl NetState {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(20))
+            .tcp_keepalive(Duration::from_secs(30))
             .user_agent("VCPChat-iOS/0.1")
             .build()
             .expect("HTTP client");
@@ -66,6 +106,17 @@ struct StreamEvent {
     request_id: String,
     kind: String,
     text: String,
+    /// For a chunk, its index; for a final event, the total number of chunks.
+    seq: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamSnapshot {
+    pub from_seq: usize,
+    pub chunks: Vec<String>,
+    pub state: String,
+    pub error: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -107,41 +158,77 @@ pub async fn spawn_stream(app: AppHandle, state: &NetState, request: StartStream
         return Err("请求体过大".into());
     }
     let token = CancellationToken::new();
+    let log = Arc::new(Mutex::new(StreamLog::default()));
     {
         let mut guard = state.streams.lock().map_err(|_| "内部锁失败".to_string())?;
-        if let Some(previous) = guard.insert(request.request_id.clone(), token.clone()) {
-            previous.cancel();
+        forget_finished(&mut guard, Instant::now());
+        let entry = StreamEntry {
+            token: token.clone(),
+            log: log.clone(),
+        };
+        if let Some(previous) = guard.insert(request.request_id.clone(), entry) {
+            previous.token.cancel();
         }
     }
     let client = state.client.clone();
-    let request_id = request.request_id.clone();
+    crate::background::stream_started(&app);
     tauri::async_runtime::spawn(async move {
-        let kind = match run_stream(&client, &app, &request, token.clone()).await {
-            Ok(()) => "done",
-            Err(message) if token.is_cancelled() => {
-                let _ = message;
-                "cancelled"
-            }
-            Err(message) => {
-                let _ = emit_stream(&app, &request_id, "error", &message);
-                return;
-            }
+        let outcome = run_stream(&client, &app, &request, &log, token.clone()).await;
+        let (final_state, message) = match outcome {
+            Ok(()) => (StreamState::Done, String::new()),
+            Err(_) if token.is_cancelled() => (StreamState::Cancelled, String::new()),
+            Err(message) => (StreamState::Error, message),
         };
-        let _ = emit_stream(&app, &request_id, kind, "");
+        let total = finish_log(&log, final_state, &message);
+        emit_stream(&app, &request.request_id, final_state.as_str(), &message, total);
+        crate::background::stream_finished(&app);
     });
     Ok(())
 }
 
-async fn run_stream(client: &reqwest::Client, app: &AppHandle, request: &StartStream, token: CancellationToken) -> Result<(), String> {
-    let response = client
+fn forget_finished(streams: &mut HashMap<String, StreamEntry>, now: Instant) {
+    streams.retain(|_, entry| match entry.log.lock() {
+        Ok(log) => log.finished_at.map(|at| now.duration_since(at) < FINISHED_STREAM_TTL).unwrap_or(true),
+        Err(_) => false,
+    });
+}
+
+fn finish_log(log: &Mutex<StreamLog>, state: StreamState, message: &str) -> usize {
+    let Ok(mut log) = log.lock() else { return 0 };
+    log.state = state;
+    log.error = message.to_string();
+    log.finished_at = Some(Instant::now());
+    log.chunks.len()
+}
+
+fn append_chunk(log: &Mutex<StreamLog>, text: String) -> Result<usize, String> {
+    let mut log = log.lock().map_err(|_| "内部锁失败".to_string())?;
+    if log.bytes + text.len() > MAX_STREAM_BYTES {
+        return Err("回复超过 8MB，已停止接收".into());
+    }
+    log.bytes += text.len();
+    log.chunks.push(text);
+    Ok(log.chunks.len() - 1)
+}
+
+async fn run_stream(
+    client: &reqwest::Client,
+    app: &AppHandle,
+    request: &StartStream,
+    log: &Mutex<StreamLog>,
+    token: CancellationToken,
+) -> Result<(), String> {
+    let send = client
         .post(&request.url)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", request.api_key))
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .header(reqwest::header::ACCEPT, "text/event-stream, application/json")
         .body(request.body.clone())
-        .send()
-        .await
-        .map_err(|error| format!("无法连接服务器: {error}"))?;
+        .send();
+    let response = tokio::select! {
+        _ = token.cancelled() => return Err("cancelled".into()),
+        response = send => response.map_err(|error| format!("无法连接服务器: {error}"))?,
+    };
     if response.status().is_redirection() {
         return Err("服务器要求重定向，已拒绝以免密钥离开原主机".into());
     }
@@ -151,26 +238,107 @@ async fn run_stream(client: &reqwest::Client, app: &AppHandle, request: &StartSt
         return Err(format!("HTTP {status}：{}", clip(&body, 500)));
     }
     let mut stream = response.bytes_stream();
+    let mut decoder = Utf8Stream::default();
     loop {
         let next = tokio::select! {
             _ = token.cancelled() => return Err("cancelled".into()),
-            item = stream.next() => item,
+            item = tokio::time::timeout(STREAM_IDLE_LIMIT, stream.next()) => item,
         };
-        match next {
-            Some(Ok(bytes)) => {
-                let text = String::from_utf8_lossy(&bytes);
-                emit_stream(app, &request.request_id, "chunk", &text)?;
-            }
-            Some(Err(error)) => return Err(format!("流中断: {error}")),
-            None => return Ok(()),
+        let done = matches!(next, Ok(None));
+        let text = match next {
+            Err(_) => return Err(format!("流中断：{} 秒没有收到数据", STREAM_IDLE_LIMIT.as_secs())),
+            Ok(Some(Ok(bytes))) => decoder.push(&bytes),
+            Ok(Some(Err(error))) => return Err(format!("流中断: {error}")),
+            Ok(None) => decoder.finish(),
+        };
+        if !text.is_empty() {
+            let seq = append_chunk(log, text.clone())?;
+            emit_stream(app, &request.request_id, "chunk", &text, seq);
         }
+        if done {
+            return Ok(());
+        }
+    }
+}
+
+/// Decodes UTF-8 across network chunks, holding back a character split between two reads.
+#[derive(Default)]
+struct Utf8Stream {
+    pending: Vec<u8>,
+}
+
+impl Utf8Stream {
+    fn push(&mut self, bytes: &[u8]) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut out = String::new();
+        loop {
+            match std::str::from_utf8(&self.pending) {
+                Ok(text) => {
+                    out.push_str(text);
+                    self.pending.clear();
+                    return out;
+                }
+                Err(error) => {
+                    let valid = error.valid_up_to();
+                    out.push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
+                    match error.error_len() {
+                        None => {
+                            self.pending.drain(..valid);
+                            return out;
+                        }
+                        Some(len) => {
+                            out.push(char::REPLACEMENT_CHARACTER);
+                            self.pending.drain(..valid + len);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn finish(&mut self) -> String {
+        let rest = String::from_utf8_lossy(&self.pending).into_owned();
+        self.pending.clear();
+        rest
     }
 }
 
 pub fn cancel_stream(state: &NetState, request_id: &str) -> Result<(), String> {
     let guard = state.streams.lock().map_err(|_| "内部锁失败".to_string())?;
-    if let Some(token) = guard.get(request_id) {
-        token.cancel();
+    if let Some(entry) = guard.get(request_id) {
+        entry.token.cancel();
+    }
+    Ok(())
+}
+
+pub fn stream_snapshot(state: &NetState, request_id: &str, from_seq: usize) -> Result<StreamSnapshot, String> {
+    let guard = state.streams.lock().map_err(|_| "内部锁失败".to_string())?;
+    let Some(entry) = guard.get(request_id) else {
+        return Ok(StreamSnapshot {
+            from_seq,
+            chunks: Vec::new(),
+            state: "missing".into(),
+            error: String::new(),
+        });
+    };
+    let log = entry.log.lock().map_err(|_| "内部锁失败".to_string())?;
+    Ok(StreamSnapshot {
+        from_seq,
+        chunks: log.chunks.iter().skip(from_seq).cloned().collect(),
+        state: log.state.as_str().into(),
+        error: log.error.clone(),
+    })
+}
+
+/// Drops a finished stream's log once the frontend has saved the reply.
+pub fn release_stream(state: &NetState, request_id: &str) -> Result<(), String> {
+    let mut guard = state.streams.lock().map_err(|_| "内部锁失败".to_string())?;
+    let finished = guard
+        .get(request_id)
+        .map(|entry| entry.log.lock().map(|log| log.state != StreamState::Running).unwrap_or(true))
+        .unwrap_or(false);
+    if finished {
+        guard.remove(request_id);
     }
     Ok(())
 }
@@ -317,16 +485,17 @@ async fn pump_socket(
     }
 }
 
-fn emit_stream(app: &AppHandle, request_id: &str, kind: &str, text: &str) -> Result<(), String> {
-    app.emit(
+/// Best effort: a suspended or reloading WebView misses events and catches up from the log.
+fn emit_stream(app: &AppHandle, request_id: &str, kind: &str, text: &str, seq: usize) {
+    let _ = app.emit(
         "vcp-stream",
         StreamEvent {
             request_id: request_id.to_string(),
             kind: kind.to_string(),
             text: text.to_string(),
+            seq,
         },
-    )
-    .map_err(|error| format!("事件发送失败: {error}"))
+    );
 }
 
 fn emit_socket(app: &AppHandle, channel: &str, kind: &str, text: &str) -> Result<(), String> {
@@ -356,5 +525,65 @@ mod tests {
         assert!(validate_http_url("file:///etc/passwd").is_err());
         assert!(validate_ws_url("ws://host:6005/VCPlog/VCP_Key=fixture").is_ok());
         assert!(validate_ws_url("http://host").is_err());
+    }
+
+    #[test]
+    fn utf8_split_across_chunks_is_reassembled() {
+        let bytes = "流式中文".as_bytes();
+        let mut decoder = Utf8Stream::default();
+        let mut text = decoder.push(&bytes[..4]);
+        text += &decoder.push(&bytes[4..7]);
+        text += &decoder.push(&bytes[7..]);
+        text += &decoder.finish();
+        assert_eq!(text, "流式中文");
+        assert_eq!(Utf8Stream::default().push(&[0xff, b'a']), "\u{fffd}a");
+    }
+
+    #[test]
+    fn the_log_replays_from_any_sequence_and_survives_until_released() {
+        let state = NetState::new();
+        let log = Arc::new(Mutex::new(StreamLog::default()));
+        state.streams.lock().unwrap().insert(
+            "r1".into(),
+            StreamEntry {
+                token: CancellationToken::new(),
+                log: log.clone(),
+            },
+        );
+        for part in ["a", "b", "c"] {
+            append_chunk(&log, part.into()).unwrap();
+        }
+        let running = stream_snapshot(&state, "r1", 1).unwrap();
+        assert_eq!((running.from_seq, running.chunks, running.state.as_str()), (1, vec!["b".to_string(), "c".to_string()], "running"));
+
+        release_stream(&state, "r1").unwrap();
+        assert_eq!(stream_snapshot(&state, "r1", 0).unwrap().state, "running");
+
+        assert_eq!(finish_log(&log, StreamState::Error, "流中断"), 3);
+        let failed = stream_snapshot(&state, "r1", 3).unwrap();
+        assert_eq!((failed.chunks.len(), failed.state.as_str(), failed.error.as_str()), (0, "error", "流中断"));
+
+        release_stream(&state, "r1").unwrap();
+        assert_eq!(stream_snapshot(&state, "r1", 0).unwrap().state, "missing");
+    }
+
+    #[test]
+    fn finished_logs_expire_and_running_ones_stay() {
+        let mut streams = HashMap::new();
+        let old = Arc::new(Mutex::new(StreamLog::default()));
+        let now = Instant::now();
+        old.lock().unwrap().finished_at = Some(now);
+        streams.insert("old".to_string(), StreamEntry { token: CancellationToken::new(), log: old });
+        streams.insert("live".to_string(), StreamEntry { token: CancellationToken::new(), log: Arc::new(Mutex::new(StreamLog::default())) });
+        forget_finished(&mut streams, now + FINISHED_STREAM_TTL + Duration::from_secs(1));
+        assert!(streams.contains_key("live"));
+        assert!(!streams.contains_key("old"));
+    }
+
+    #[test]
+    fn a_stream_log_stops_at_its_size_limit() {
+        let log = Mutex::new(StreamLog::default());
+        append_chunk(&log, "x".repeat(MAX_STREAM_BYTES)).unwrap();
+        assert!(append_chunk(&log, "y".into()).is_err());
     }
 }

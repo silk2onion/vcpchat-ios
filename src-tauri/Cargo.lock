@@ -4043,7 +4043,10 @@ dependencies = [
 name = "vcpchat-ios"
 version = "0.1.0"
 dependencies = [
+ "block2",
  "futures-util",
+ "objc2",
+ "objc2-ui-kit",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

@@ -1,3 +1,4 @@
+mod background;
 mod net;
 
 use std::collections::HashMap;
@@ -30,6 +31,16 @@ async fn start_chat_stream(
 #[tauri::command]
 fn cancel_chat_stream(state: State<'_, NetState>, request_id: String) -> Result<(), String> {
     net::cancel_stream(&state, &request_id)
+}
+
+#[tauri::command]
+fn chat_stream_snapshot(state: State<'_, NetState>, request_id: String, from_seq: usize) -> Result<net::StreamSnapshot, String> {
+    net::stream_snapshot(&state, &request_id, from_seq)
+}
+
+#[tauri::command]
+fn release_chat_stream(state: State<'_, NetState>, request_id: String) -> Result<(), String> {
+    net::release_stream(&state, &request_id)
 }
 
 #[tauri::command]
@@ -69,6 +80,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_chat_stream,
             cancel_chat_stream,
+            chat_stream_snapshot,
+            release_chat_stream,
             http_request,
             socket_connect,
             socket_disconnect

@@ -105,6 +105,10 @@ export function createIndexedDbRepository(): Repository {
     async saveMessage(message) {
       await put("messages", message);
     },
+    async listUnfinishedMessages() {
+      const rows = await all<ChatMessage>("messages");
+      return rows.filter((message) => message.status === "streaming");
+    },
     async listNotes() {
       const rows = await all<LocalNote>("notes");
       return rows.sort((a, b) => b.updatedAt - a.updatedAt);

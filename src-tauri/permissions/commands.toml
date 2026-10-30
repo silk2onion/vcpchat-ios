@@ -9,6 +9,16 @@ description = "Cancel a streaming chat request."
 commands.allow = ["cancel_chat_stream"]
 
 [[permission]]
+identifier = "allow-chat-stream-snapshot"
+description = "Read what a running or finished chat stream has produced so far."
+commands.allow = ["chat_stream_snapshot"]
+
+[[permission]]
+identifier = "allow-release-chat-stream"
+description = "Forget a finished chat stream after the reply is saved."
+commands.allow = ["release_chat_stream"]
+
+[[permission]]
 identifier = "allow-http-request"
 description = "Send a bounded HTTP request to the configured server."
 commands.allow = ["http_request"]

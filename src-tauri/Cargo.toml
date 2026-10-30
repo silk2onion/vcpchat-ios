@@ -23,3 +23,8 @@ tokio-util = { version = "0.7", features = ["rt"] }
 futures-util = "0.3"
 url = "2"
 tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "block2", "UIApplication", "UIResponder"] }

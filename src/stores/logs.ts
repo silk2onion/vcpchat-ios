@@ -13,6 +13,10 @@ import { useSettingsStore } from "./settings";
 
 type Channel = "log" | "info";
 
+const CHANNELS: Channel[] = ["log", "info"];
+/** After this long in the background a socket that still looks open is assumed dead. */
+const STALE_AFTER_MS = 20_000;
+
 export const useLogStore = defineStore("logs", () => {
   const entries = ref<LogEntry[]>([]);
   const status = ref<Record<Channel, string>>({ log: "未连接", info: "未连接" });
@@ -97,6 +101,31 @@ export const useLogStore = defineStore("logs", () => {
     await invoke("socket_connect", { channel: "info", url: next.info });
   }
 
+  /** Called when the app comes back to the foreground: reconnect now instead of waiting out the backoff. */
+  async function resume(hiddenForMs: number) {
+    if (!urls.log || !urls.info) return;
+    const stale = hiddenForMs >= STALE_AFTER_MS;
+    if (native) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      for (const channel of CHANNELS) {
+        if (!stale && status.value[channel] === "已连接") continue;
+        await invoke("socket_connect", { channel, url: urls[channel] });
+      }
+      return;
+    }
+    for (const channel of CHANNELS) {
+      const socket = sockets[channel];
+      if (!stale && socket?.readyState === WebSocket.OPEN) continue;
+      window.clearTimeout(timers[channel]);
+      delete timers[channel];
+      delete sockets[channel];
+      socket?.close();
+      delays[channel] = 1000;
+      const url = urls[channel];
+      if (url) connectBrowser(channel, url);
+    }
+  }
+
   async function push(channel: Channel, raw: unknown) {
     let payload: unknown = raw;
     if (typeof raw === "string") {
@@ -144,5 +173,5 @@ export const useLogStore = defineStore("logs", () => {
     await getRepository().saveLogs([]);
   }
 
-  return { entries, status, load, sync, reconnect, disconnect, clear };
+  return { entries, status, load, sync, reconnect, resume, disconnect, clear };
 });

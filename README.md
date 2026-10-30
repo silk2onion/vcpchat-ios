@@ -21,7 +21,8 @@
 | 能力 | 桌面 VCPChat | VCPMobile | 本 iOS 应用 |
 | --- | --- | --- | --- |
 | 自有服务器 URL 与 API Key | 有 | 有 | 有，只存在本机 IndexedDB |
-| OpenAI 兼容流式对话 | 有 | 有，由 Rust 读 SSE | 有。浏览器里直接读 SSE；iOS 壳由 Rust 转发字节，解析仍在同一套 TypeScript |
+| OpenAI 兼容流式对话 | 有 | 有，由 Rust 读 SSE | 有。浏览器里直接读 SSE；iOS 壳里流由 Rust 持有并按序号记下每一段，解析仍在同一套 TypeScript |
+| 流式保活与续写 | 有，后台流可切换话题继续 | 有，Android 前台服务保活 | 有。切话题、切到别的 app 再回来，流都不断；WebView 漏掉的事件或被系统重载后，从 Rust 记下的分段补齐或重新接上。进后台时立即保存已写部分。被系统断开时保留已写内容、标成「已中断」，点「继续写」让同一位助手接着写进同一个气泡。应用被杀后重开，没写完的回复同样标成已中断 |
 | `/v1/chatvcp/completions` 工具路由 | 有 | 有 | 有，设置里切换 |
 | 模型列表 `/v1/models` | 有 | 有 | 有 |
 | 本地话题与消息 | 有 | 有，SQLite | 有，IndexedDB |
@@ -40,7 +41,7 @@
 | 图片与文本附件 | 有 | 有 | 有。图片上限 1.5MB，文本 200KB，最多 4 个。不接受 SVG |
 | 主题 | 有，分布式主题和壁纸 | 有 | 有三种本机主题：墨色、纸色、极光 |
 | 笔记 / 日记 | 有本地笔记、网络笔记、Memo | 有日记中心 | 有本机笔记，以及 `/admin_api/dailynotes` 的列表、阅读、保存和搜索 |
-| VCPLog WebSocket | `/VCPlog/VCP_Key=`，设备名 `VCPChat-Desktop` | 同一路径 | 同一路径，设备名 `VCPChat-iOS` |
+| VCPLog WebSocket | `/VCPlog/VCP_Key=`，设备名 `VCPChat-Desktop` | 同一路径 | 同一路径，设备名 `VCPChat-iOS`。断线按指数退避重连；回到前台时立刻重连，离开超过 20 秒的连接即使看起来还开着也重建 |
 | VCPInfo WebSocket | 有 | `/vcpinfo/VCP_Key=` | 有，只展示文本帧 |
 | 流式桌面 / VCPDesktop | 有 | 无 | 无。悬浮桌面不适合手机 |
 | 音乐专注、歌词与 ID3 | 近期有 | 无 | 无 |
@@ -53,7 +54,7 @@
 | 与桌面双向同步 | 通过同步插件 | 有 | 无 |
 | 工具审批回写 | 有 | 部分 | 无。日志里能看到消息，不能在手机上批 |
 | 翻译器 | 近期重做了界面 | 无独立模块 | 无 |
-| Android 前台保活 | 无 | 有 | 无。iOS 进后台后流式请求可能被系统挂起 |
+| 后台继续运行 | 无 | Android 前台服务 | 部分。流式中向 iOS 申请后台执行时间，通常约 30 秒；更久会被挂起，回来后按「已中断」处理 |
 
 ## 本地运行
 
@@ -143,7 +144,8 @@ GitHub Actions 的 `iOS` 工作流会在 `macos-15` 上分别跑未签名设备�
 在 Linux 上可以验证：
 
 - `pnpm check`：`vue-tsc`、ESLint、Vitest、Vite 生产构建
-- 浏览器里的设置、主题、本地笔记、流式回复、工具卡片和日志通道（配合 `pnpm mock-server`）
+- 单元测试覆盖：公式和代码不被 Markdown 误伤、VCP 标签解析（日记、工具结果、角色分界、元思考链、摘要）、HTML 沙箱文档与 CSP、只有内容需要时才加载 highlight.js / KaTeX / Mermaid、关掉高级渲染后重渲染为轻量 Markdown、切话题不丢流、断开后保存并续写、重启后恢复或重新接上、原生流按序号补齐漏掉的事件、VCPLog 回前台重连
+- 浏览器里的设置、主题、本地笔记、流式回复、工具卡片和日志通道（配合 `pnpm mock-server`）。这一轮的渲染和保活改动只用测试、类型检查、lint 和构建验证过，没有在浏览器里点过
 
 需要一台 Mac 才能验证，本次没有做：
 
@@ -151,7 +153,8 @@ GitHub Actions 的 `iOS` 工作流会在 `macos-15` 上分别跑未签名设备�
 - 未签名 IPA 和模拟器包是否真的由当前 Tauri CLI 打出
 - 真机上的 WKWebView、安全区、键盘、相册选择器
 - 局域网 `http` / `ws` 是否被系统的本地网络权限拦住
+- 真机上切到后台多久会被挂起、`visibilitychange` 是否按预期触发、HTML 沙箱 iframe 里拿不到 Tauri 接口
 - 连上真实 VCPToolBox 时的日记接口和工具流
 - 用免费 Apple ID 签名后能否安装
 
-Rust 壳在装了 WebKitGTK 4.1 开发包的 Linux 上可以用 `cargo test --lib --manifest-path src-tauri/Cargo.toml` 编译并跑过 URL 校验。GitHub 的 Linux 工作流只跑 `pnpm check`，避免把系统图形库放进每次检查。iOS 链接和签名仍然要在 Mac 上确认。
+Rust 壳在 macOS 或装了 WebKitGTK 4.1 开发包的 Linux 上可以用 `cargo test --lib --manifest-path src-tauri/Cargo.toml` 编译并跑测试：URL 校验、跨网络分片的 UTF-8 拼接、流日志按序号回放、释放与过期、单条流 8MB 上限。申请 iOS 后台执行时间的代码（`src-tauri/src/background.rs`）只对 `aarch64-apple-ios` 做过单独的类型检查，没有在装了 Xcode 的机器上链接过。GitHub 的 Linux 工作流只跑 `pnpm check`，避免把系统图形库放进每次检查。iOS 链接和签名仍然要在 Mac 上确认。

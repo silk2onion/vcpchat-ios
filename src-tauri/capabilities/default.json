@@ -10,6 +10,8 @@
     "core:default",
     "allow-start-chat-stream",
     "allow-cancel-chat-stream",
+    "allow-chat-stream-snapshot",
+    "allow-release-chat-stream",
     "allow-http-request",
     "allow-socket-connect",
     "allow-socket-disconnect"

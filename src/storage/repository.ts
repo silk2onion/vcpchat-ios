@@ -14,6 +14,8 @@ export interface Repository {
   deleteTopic(id: string): Promise<void>;
   listMessages(topicId: string): Promise<ChatMessage[]>;
   saveMessage(message: ChatMessage): Promise<void>;
+  /** Replies still marked as streaming, across all topics. */
+  listUnfinishedMessages(): Promise<ChatMessage[]>;
   listNotes(): Promise<LocalNote[]>;
   saveNote(note: LocalNote): Promise<void>;
   deleteNote(id: string): Promise<void>;

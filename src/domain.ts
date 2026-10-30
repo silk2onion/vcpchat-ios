@@ -2,7 +2,7 @@ export type ThemeId = "ink" | "paper" | "aurora";
 export type EndpointMode = "standard" | "vcp-tools";
 export type GroupMode = "rotate" | "mention" | "all";
 export type OwnerType = "agent" | "group";
-export type MessageStatus = "complete" | "streaming" | "error" | "stopped";
+export type MessageStatus = "complete" | "streaming" | "error" | "stopped" | "interrupted";
 
 export interface Settings {
   serverUrl: string;
@@ -74,6 +74,10 @@ export interface ChatMessage {
   createdAt: number;
   status: MessageStatus;
   error?: string;
+  /** Id of the native stream still producing this reply; lets a reloaded page re-attach. */
+  streamId?: string;
+  /** Length of content and reasoning before the current stream, i.e. where a continuation starts. */
+  streamOffset?: { content: number; reasoning: number };
 }
 
 export interface LocalNote {

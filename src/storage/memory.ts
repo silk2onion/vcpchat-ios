@@ -62,6 +62,9 @@ export function createMemoryRepository(): Repository {
     async saveMessage(message) {
       messages.set(message.id, { ...message, attachments: message.attachments.map((file) => ({ ...file })) });
     },
+    async listUnfinishedMessages() {
+      return [...messages.values()].filter((message) => message.status === "streaming").map((message) => ({ ...message }));
+    },
     async listNotes() {
       return [...notes.values()].sort((a, b) => b.updatedAt - a.updatedAt);
     },

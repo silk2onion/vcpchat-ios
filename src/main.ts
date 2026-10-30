@@ -1,6 +1,7 @@
 import { createPinia } from "pinia";
 import { createApp } from "vue";
 import App from "./App.vue";
+import { watchAppLifecycle } from "./lifecycle";
 import { router } from "./router";
 import { installRepository } from "./storage";
 import { useLibraryStore } from "./stores/library";
@@ -17,9 +18,16 @@ app.use(router);
 async function boot() {
   installRepository();
   await useSettingsStore().load();
-  await useLibraryStore().load();
+  const library = useLibraryStore();
+  await library.load();
   await useNotesStore().load();
-  await useLogStore().load();
+  const logs = useLogStore();
+  await logs.load();
+  watchAppLifecycle({
+    hidden: () => void library.flushStreams(),
+    visible: (hiddenForMs) => void logs.resume(hiddenForMs),
+  });
+  void library.recoverStreams();
   app.mount("#app");
 }
 

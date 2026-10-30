@@ -4,7 +4,7 @@ import AgentDrawer from "../components/AgentDrawer.vue";
 import MessageBody from "../components/MessageBody.vue";
 import { assertAttachmentCount, attachmentKind } from "../protocol/messages";
 import { createId } from "../protocol/ids";
-import type { Attachment } from "../domain";
+import type { Attachment, ChatMessage, MessageStatus } from "../domain";
 import { openViewer } from "../render/media";
 import { optionsKey, renderOptionsFrom } from "../render/options";
 import { useLibraryStore } from "../stores/library";
@@ -30,6 +30,18 @@ media.addEventListener("change", () => {
 const showDrawer = computed(() => wide.value || drawer.value);
 const renderOptions = computed(() => renderOptionsFrom(settings.settings));
 const renderKey = computed(() => optionsKey(renderOptions.value));
+const statusLabels: Record<MessageStatus, string> = {
+  complete: "",
+  streaming: "正在写",
+  error: "失败",
+  stopped: "已停止",
+  interrupted: "已中断",
+};
+
+function canContinue(message: ChatMessage, index: number): boolean {
+  if (library.streaming || message.role !== "assistant" || index !== library.messages.length - 1) return false;
+  return message.status === "interrupted" || (message.status === "stopped" && Boolean(message.content.trim()));
+}
 
 watch(
   () => library.messages.map((message) => message.content + message.reasoning).join(""),
@@ -130,10 +142,10 @@ async function saveTitle() {
           <h2>把这句话发给你的服务器</h2>
           <p class="hint">回复按流式到达。工具标记会收成卡片，思考过程可以展开。</p>
         </div>
-        <article v-for="message in library.messages" :key="message.id" class="bubble" :class="[message.role, { streaming: message.status === 'streaming' }]">
+        <article v-for="(message, index) in library.messages" :key="message.id" class="bubble" :class="[message.role, { streaming: message.status === 'streaming' }]">
           <header>
             <strong>{{ message.authorName || (message.role === "user" ? "我" : "助手") }}</strong>
-            <span class="meta">{{ message.status === "streaming" ? "正在写" : message.status === "error" ? "失败" : message.status === "stopped" ? "已停止" : "" }}</span>
+            <span class="meta">{{ statusLabels[message.status] }}</span>
           </header>
           <div class="body">
             <MessageBody :key="renderKey" :content="message.content" :reasoning="message.reasoning" :streaming="message.status === 'streaming'" :options="renderOptions" />
@@ -153,6 +165,7 @@ async function saveTitle() {
               附件：{{ message.attachments.filter((file) => file.kind !== "image").map((file) => file.name).join("、") }}
             </p>
             <p v-if="message.error && message.status !== 'streaming'" class="hint">{{ message.error }}</p>
+            <button v-if="canContinue(message, index)" class="ghost continue" type="button" @click="library.continueMessage(message.id)">继续写</button>
           </div>
         </article>
       </div>

@@ -150,6 +150,7 @@ h2 { font-size: 22px; }
   box-shadow: var(--shadow);
 }
 .bubble.user .body { background: color-mix(in srgb, var(--accent) 18%, var(--bg-raise)); }
+.bubble .continue { margin-top: 8px; color: var(--accent); }
 .think, .tool, .result {
   border-radius: 14px;
   border: 1px solid var(--line);
