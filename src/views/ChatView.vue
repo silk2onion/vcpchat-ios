@@ -5,6 +5,8 @@ import MessageBody from "../components/MessageBody.vue";
 import { assertAttachmentCount, attachmentKind } from "../protocol/messages";
 import { createId } from "../protocol/ids";
 import type { Attachment } from "../domain";
+import { openViewer } from "../render/media";
+import { effectiveOptions, fullRenderOptions, optionsKey } from "../render/options";
 import { useLibraryStore } from "../stores/library";
 import { useSettingsStore } from "../stores/settings";
 
@@ -26,6 +28,8 @@ media.addEventListener("change", () => {
 });
 
 const showDrawer = computed(() => wide.value || drawer.value);
+const renderOptions = computed(() => effectiveOptions(fullRenderOptions()));
+const renderKey = computed(() => optionsKey(renderOptions.value));
 
 watch(
   () => library.messages.map((message) => message.content + message.reasoning).join(""),
@@ -120,20 +124,34 @@ async function saveTitle() {
         服务器地址和 API Key 还空着。去设置里填上你自己的 VCPToolBox，密钥只留在这台设备。
       </p>
       <p v-if="library.error" class="error-line">{{ library.error }}</p>
-      <div ref="scroller" class="messages">
+      <div ref="scroller" class="messages" :class="{ motion: renderOptions.motion }">
         <div v-if="!library.messages.length" class="empty">
           <p class="eyebrow">还没有消息</p>
           <h2>把这句话发给你的服务器</h2>
           <p class="hint">回复按流式到达。工具标记会收成卡片，思考过程可以展开。</p>
         </div>
-        <article v-for="message in library.messages" :key="message.id" class="bubble" :class="message.role">
+        <article v-for="message in library.messages" :key="message.id" class="bubble" :class="[message.role, { streaming: message.status === 'streaming' }]">
           <header>
             <strong>{{ message.authorName || (message.role === "user" ? "我" : "助手") }}</strong>
             <span class="meta">{{ message.status === "streaming" ? "正在写" : message.status === "error" ? "失败" : message.status === "stopped" ? "已停止" : "" }}</span>
           </header>
           <div class="body">
-            <MessageBody :content="message.content" :reasoning="message.reasoning" :streaming="message.status === 'streaming'" />
-            <p v-if="message.attachments.length" class="hint">附件：{{ message.attachments.map((file) => file.name).join("、") }}</p>
+            <MessageBody :key="renderKey" :content="message.content" :reasoning="message.reasoning" :streaming="message.status === 'streaming'" :options="renderOptions" />
+            <div v-if="message.attachments.some((file) => file.kind === 'image' && file.dataUrl)" class="attachment-strip">
+              <button
+                v-for="file in message.attachments.filter((item) => item.kind === 'image' && item.dataUrl)"
+                :key="file.id"
+                class="attachment-thumb"
+                type="button"
+                :aria-label="`预览 ${file.name}`"
+                @click="openViewer({ kind: 'image', src: file.dataUrl ?? '', alt: file.name })"
+              >
+                <img :src="file.dataUrl" :alt="file.name" loading="lazy" />
+              </button>
+            </div>
+            <p v-if="message.attachments.some((file) => file.kind !== 'image')" class="hint">
+              附件：{{ message.attachments.filter((file) => file.kind !== "image").map((file) => file.name).join("、") }}
+            </p>
             <p v-if="message.error && message.status !== 'streaming'" class="hint">{{ message.error }}</p>
           </div>
         </article>

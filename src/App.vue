@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
+import MediaViewer from "./components/MediaViewer.vue";
 
 const route = useRoute();
 const tabs = [
@@ -18,5 +19,6 @@ const tabs = [
     <nav class="tabbar" aria-label="主导航">
       <RouterLink v-for="tab in tabs" :key="tab.to" :to="tab.to" :class="{ active: route.path === tab.to }">{{ tab.label }}</RouterLink>
     </nav>
+    <MediaViewer />
   </div>
 </template>
