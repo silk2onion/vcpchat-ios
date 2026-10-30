@@ -77,6 +77,7 @@ export const useLibraryStore = defineStore("library", () => {
       agents.value.find(
         (agent) => agent.id === useSettingsStore().settings.mainAgentId,
       ) ??
+      agents.value.find((agent) => !agent.id.startsWith("sync:")) ??
       agents.value[0] ??
       null,
   );
@@ -326,7 +327,7 @@ export const useLibraryStore = defineStore("library", () => {
     try {
       for (const speaker of speakers) {
         if (controller.signal.aborted) break;
-        if (!resolveModel(speaker, settings)) {
+        if (!resolveModel(speaker, settings, group)) {
           showError(
             topic.id,
             `「${speaker.name}」还没有模型。请在设置里选择默认模型。`,
@@ -354,7 +355,7 @@ export const useLibraryStore = defineStore("library", () => {
         track(placeholder);
         const { outcome, message } = await streamReply(
           placeholder.id,
-          buildRequestBody(settings, speaker, apiMessages),
+          buildRequestBody(settings, speaker, apiMessages, group),
           controller.signal,
         );
         if (message) transcript.push(message);
@@ -395,14 +396,14 @@ export const useLibraryStore = defineStore("library", () => {
       error.value = "找不到写这条回复的助手，没法续写。";
       return;
     }
-    if (!resolveModel(speaker, settings)) {
-      error.value = `「${speaker.name}」还没有模型。请在设置里选择默认模型。`;
-      return;
-    }
     const group =
       topic.ownerType === "group"
         ? (groups.value.find((item) => item.id === topic.ownerId) ?? null)
         : null;
+    if (!resolveModel(speaker, settings, group)) {
+      error.value = `「${speaker.name}」还没有模型。请在设置里选择默认模型。`;
+      return;
+    }
     const apiMessages: ApiMessage[] = [
       ...toApiMessages({
         settings,
@@ -427,7 +428,7 @@ export const useLibraryStore = defineStore("library", () => {
       });
       await streamReply(
         id,
-        buildRequestBody(settings, speaker, apiMessages),
+        buildRequestBody(settings, speaker, apiMessages, group),
         controller.signal,
       );
     } finally {

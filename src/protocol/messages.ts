@@ -13,12 +13,13 @@ export interface ApiMessage {
   content: string | ApiContentPart[];
 }
 
-export function resolveModel(agent: Agent, settings: Settings): string {
+export function resolveModel(agent: Agent, settings: Settings, group?: Group | null): string {
+  if (group?.unifiedModel?.trim()) return group.unifiedModel.trim();
   return agent.model.trim() || settings.defaultModel.trim();
 }
 
-export function buildRequestBody(settings: Settings, agent: Agent, messages: ApiMessage[]): string {
-  const model = resolveModel(agent, settings);
+export function buildRequestBody(settings: Settings, agent: Agent, messages: ApiMessage[], group?: Group | null): string {
+  const model = resolveModel(agent, settings, group);
   if (!model) throw new Error("请先在设置或助手里填写模型名");
   const payload: Record<string, unknown> = {
     model,
@@ -46,6 +47,7 @@ export function toApiMessages(options: {
   const rules = [...(settings.regexRules ?? []), ...(agent.regexRules ?? [])];
   if (system) api.push({ role: "system", content: system });
   for (const message of window) {
+    if (message.originalRole && !["user","assistant"].includes(message.originalRole)) continue;
     if (message.role === "assistant" && !message.content.trim()) continue;
     const transformed = { ...message, content: applyRules(message.content, rules, "context", message.role, depths.get(message.id) ?? 0) };
     if (message.role === "user") {
@@ -64,6 +66,7 @@ function systemPrompt(settings: Settings, agent: Agent, group?: Group | null): s
   const lines: string[] = [];
   if (settings.userName.trim()) lines.push(`用户名叫「${settings.userName.trim()}」。`);
   if (group) {
+    if (group.systemPrompt?.trim()) lines.push(group.systemPrompt.trim());
     lines.push(`你正在群组「${group.name}」里发言。你的名字是「${agent.name}」。只以你自己的身份回复，不要代替其他成员说话。`);
   }
   if (agent.systemPrompt.trim()) lines.push(agent.systemPrompt.trim());

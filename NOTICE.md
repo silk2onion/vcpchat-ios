@@ -21,3 +21,9 @@ The mobile wallpaper/portrait gallery also reuses forest_night.jpg, leaf.jpg and
 default_avatar.png from the user's VCPChat desktop checkout at
 40c0d3cfd34288b4f38f3a14971b5f4d26729462. They are copied unchanged; the mobile
 client adds its own wallpaper presentation, image import and avatar controls.
+
+The MobileSync browser adapters in src/sync/upstream/ and the canonical contract
+fixtures in src/sync/fixtures/ are adapted from lioensky/VCPChat at
+1fadcf1531151cd7c5070fc1737d944133918dba (CC BY-NC-SA 4.0). Node crypto and CommonJS
+were replaced with browser ESM and @noble/hashes; the canonical/hash rules are
+retained. @noble/hashes is distributed under its own MIT license.

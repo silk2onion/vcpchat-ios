@@ -93,11 +93,11 @@ const agents = computed(() =>
             type="button"
             @click="openOwner('group', group.id)"
           >
-            <AgentAvatar :name="group.name" group /><span
+            <AgentAvatar :name="group.name" :image="group.avatarUrl" group /><span
               class="conversation-copy"
             ><strong>{{ group.name }}</strong><span>{{ group.memberIds.length }} 位 Agent ·
               {{
-                { mention: "@点名发言", rotate: "轮流发言", all: "依次回复" }[
+                { mention: "@点名发言", rotate: "轮流发言", all: "依次回复", random: "随机发言", invite_only: "仅点名发言" }[
                   group.mode
                 ]
               }}</span></span>

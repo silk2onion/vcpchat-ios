@@ -353,7 +353,7 @@ async function remove() {
       <label class="field">发言方式<select v-model="mode">
         <option value="mention">@点名，否则轮流</option>
         <option value="rotate">轮流一位</option>
-        <option value="all">每位依次回复</option>
+        <option value="random">随机发言</option><option value="invite_only">仅点名发言</option><option value="all">每位依次回复</option>
       </select></label>
       <h3 class="form-label">参与的 Agent</h3>
       <label v-for="agent in library.agents" :key="agent.id" class="choice-row"><AgentAvatar

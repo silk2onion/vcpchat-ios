@@ -659,3 +659,32 @@ mod tests {
         assert!(append_chunk(&log, "y".into()).is_err());
     }
 }
+
+// Foreground sync and file operations have their own byte budget. Ordinary chat HTTP stays at 2MB.
+pub async fn sync_http_request(state: &NetState, call: HttpCall) -> Result<HttpResult, String> {
+    validate_http_url(&call.url)?;
+    let method = match call.method.as_str() { "GET" => reqwest::Method::GET, "POST" => reqwest::Method::POST, _ => return Err("同步只允许 GET/POST".into()) };
+    const LIMIT: usize = 34 * 1024 * 1024;
+    if call.body.as_ref().is_some_and(|b| b.len() > LIMIT) { return Err("同步请求超过34MiB".into()); }
+    let mut request = state.client.request(method, &call.url).timeout(Duration::from_secs(90));
+    for (name,value) in call.headers { if (allowed_header(&name) || name.eq_ignore_ascii_case("x-idempotency-key")) && value.len() <= DEVICE_HEADER_LIMIT { request=request.header(name,value); } }
+    if let Some(body)=call.body { request=request.body(body); }
+    let response=request.send().await.map_err(|e|format!("同步连接失败: {e}"))?;
+    if response.status().is_redirection() { return Err("同步服务器要求重定向，已拒绝".into()); }
+    let status=response.status().as_u16(); let mut stream=response.bytes_stream(); let mut bytes=Vec::new();
+    while let Some(chunk)=stream.next().await { let chunk=chunk.map_err(|e|format!("同步消息流中断: {e}"))?; if bytes.len()+chunk.len()>LIMIT {return Err("同步响应超过34MiB，未保存".into());} bytes.extend_from_slice(&chunk); }
+    let body=String::from_utf8(bytes).map_err(|_|"同步响应不是有效 UTF-8")?; Ok(HttpResult{status,body})
+}
+pub async fn binary_request(state: &NetState,url: String,headers: HashMap<String,String>,body:Option<Vec<u8>>) -> Result<Vec<u8>,String> {
+    validate_http_url(&url)?;const LIMIT:usize=20_000_000;
+    if body.as_ref().is_some_and(|b|b.len()>LIMIT){return Err("文件超过20MB".into());}
+    let method=if body.is_some(){reqwest::Method::POST}else{reqwest::Method::GET};
+    let mut request=state.client.request(method,&url).timeout(Duration::from_secs(90));
+    for (name,value) in headers { if allowed_header(&name) && value.len()<=DEVICE_HEADER_LIMIT {request=request.header(name,value);} }
+    if let Some(body)=body{request=request.body(body);}
+    let response=request.send().await.map_err(|e|format!("文件连接失败: {e}"))?;
+    if !response.status().is_success(){return Err(format!("文件 HTTP {}",response.status().as_u16()));}
+    let mut bytes=Vec::new();let mut stream=response.bytes_stream();
+    while let Some(chunk)=stream.next().await{let chunk=chunk.map_err(|e|format!("文件传输中断: {e}"))?;if bytes.len()+chunk.len()>LIMIT{return Err("文件响应超过20MB".into());}bytes.extend_from_slice(&chunk);}
+    Ok(bytes)
+}

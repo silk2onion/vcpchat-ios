@@ -23,6 +23,7 @@
     "mock-server": "node scripts/mock-vcp.mjs"
   },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
     "@tauri-apps/api": "2.12.1",
     "dompurify": "^3.2.6",
     "highlight.js": "^11.12.0",

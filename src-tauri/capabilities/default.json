@@ -2,9 +2,16 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "VCPChat iOS can call its own server bridge.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "remote": {
-    "urls": ["http://127.0.0.1:43123", "http://localhost:43123", "http://127.0.0.1:43123/*", "http://localhost:43123/*"]
+    "urls": [
+      "http://127.0.0.1:43123",
+      "http://localhost:43123",
+      "http://127.0.0.1:43123/*",
+      "http://localhost:43123/*"
+    ]
   },
   "permissions": [
     "core:default",
@@ -16,6 +23,10 @@
     "allow-socket-connect",
     "allow-socket-disconnect",
     "allow-socket-send",
-    "allow-audio-request"
+    "allow-audio-request",
+    "allow-sync-http-request",
+    "allow-binary-request",
+    "allow-export-file",
+    "allow-show-exports"
   ]
 }

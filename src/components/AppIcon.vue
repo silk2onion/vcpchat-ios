@@ -1,6 +1,8 @@
 <script setup lang="ts">
 withDefaults(defineProps<{ name: string; size?: number }>(), { size: 22 });
 const paths: Record<string, string> = {
+  folder: "M3 7V4h6l3 3h9v14H3V7Z",
+  sync: "M3 11a9 9 0 0 1 15-7l3 3M21 3v4h-4M21 13a9 9 0 0 1-15 7l-3-3M3 21v-4h4",
   person: "M20 21v-2a8 8 0 0 0-16 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
   chat: "M21 11.5a8.4 8.4 0 0 1-9 8.5 9.5 9.5 0 0 1-4-.8L3 21l1.8-5A9.5 9.5 0 0 1 4 12a8.4 8.4 0 0 1 8.5-9H13a8.4 8.4 0 0 1 8 8.5Z",
   agents:

@@ -10,13 +10,13 @@ export const primaryTabs = [
 
 export function tabIsActive(tab: string, path: string): boolean {
   if (tab === "/") return path === "/" || path.startsWith("/chat/") || path === "/chat";
-  if (tab === "/me") return path === "/me" || path === "/notes" || path === "/logs" || path === "/settings" || path.startsWith("/settings/");
+  if (tab === "/me") return path === "/me" || path === "/sync" || path === "/files" || path === "/notes" || path === "/logs" || path === "/settings" || path.startsWith("/settings/");
   return path === tab;
 }
 
 export function pageTransition(next: string, previous: string): string {
   if ((next === "/" && tabIsActive("/", previous)) || (next === "/me" && previous !== "/me" && tabIsActive("/me", previous)) || (next === "/settings" && (previous.startsWith("/settings/") || previous === "/logs"))) return "page-back";
-  if (next.startsWith("/chat") || next === "/notes" || next === "/logs" || next.startsWith("/settings")) return "page-forward";
+  if (next.startsWith("/chat") || next === "/sync" || next === "/files" || next === "/notes" || next === "/logs" || next.startsWith("/settings")) return "page-forward";
   return "page-tab";
 }
 

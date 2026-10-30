@@ -1,6 +1,14 @@
+import type { SyncVault, SyncCommit, LocalFile, Snapshot } from "../sync/types";
 import type { Agent, ChatMessage, Group, LocalNote, LogEntry, Settings, Topic } from "../domain";
 
 export interface Repository {
+  readSnapshot(): Promise<Snapshot>;
+  getSyncVault(): Promise<SyncVault>;
+  commitSync(commit: SyncCommit): Promise<void>;
+  listFiles(): Promise<Omit<LocalFile,"bytes">[]>;
+  getFile(id: string): Promise<LocalFile | undefined>;
+  saveFile(file: LocalFile): Promise<void>;
+  deleteFile(id: string): Promise<void>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
   listAgents(): Promise<Agent[]>;

@@ -5,6 +5,8 @@ import AgentAvatar from "../components/AgentAvatar.vue";
 import AppIcon from "../components/AppIcon.vue";
 import ActivityButton from "../components/ActivityButton.vue";
 import MessageBody from "../components/MessageBody.vue";
+import { addFile } from "../files/library";
+import { computeBinaryHash } from "../sync/upstream/hash.js";
 import { assertAttachmentCount, attachmentKind } from "../protocol/messages";
 import { createId } from "../protocol/ids";
 import type { Attachment, ChatMessage, MessageStatus } from "../domain";
@@ -159,7 +161,7 @@ async function onFiles(event: Event) {
       files.length,
     );
     const next = await Promise.all(
-      files.map((file) => readFile(file, attachmentKind(file))),
+      files.map(async (file) => { const kind=attachmentKind(file);const data=await readFile(file,kind);const bytes=new Uint8Array(await file.arrayBuffer());data.hash=computeBinaryHash(bytes);await addFile(file.name,bytes,file.type);return data; }),
     );
     workspace.saveDraft(topic, {
       attachments: [...workspace.draftFor(topic).attachments, ...next],
@@ -317,6 +319,8 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
               :streaming="message.status === 'streaming'"
               :options="renderOptions"
             />
+            <p v-if="message.syncNotice" class="hint">{{ message.syncNotice }}</p>
+            <RouterLink v-if="message.attachments.some((a) => a.desktopOnly)" to="/files" class="text-button">桌面附件未下载 · 在文件页导入原文件</RouterLink>
             <div
               v-if="
                 message.attachments.some(
@@ -345,12 +349,12 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
               </button>
             </div>
             <p
-              v-if="message.attachments.some((file) => file.kind !== 'image')"
+              v-if="message.attachments.some((file) => file.kind !== 'image' || !file.dataUrl)"
               class="hint"
             >
               附件：{{
                 message.attachments
-                  .filter((file) => file.kind !== "image")
+                  .filter((file) => file.kind !== "image" || !file.dataUrl)
                   .map((file) => file.name)
                   .join("、")
               }}
