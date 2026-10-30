@@ -10,7 +10,7 @@ struct ChatView: View {
     @State private var showSettings = false
     @State private var showSearch = false
     @State private var showLog = false
-    @FocusState private var writing: Bool
+    @State private var newlineRequest = 0
     var body: some View {
         Group {
             VStack(spacing: 0) {
@@ -26,9 +26,10 @@ struct ChatView: View {
                 ChatTimeline(model: model)
                 if model.pendingCount > 0 { Text("\(model.pendingCount) 条本机待确认消息；不会自动重复发送").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
                 HStack(alignment: .bottom, spacing: 12) {
-                    TextField("发消息", text: $model.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).focused($writing).padding(.vertical, 10)
+                    NativeComposer(text: $model.draft, enterSends: model.inputPreferences.enterSends, insertNewline: newlineRequest) { if !model.busy { model.send() } }
+                    if model.inputPreferences.enterSends { Button { newlineRequest += 1 } label: { Image(systemName: "return").frame(width: 32, height: 40) }.accessibilityLabel("换行") }
                     if model.busy { Button { Task { await model.stop() } } label: { Image(systemName: "stop.fill").frame(width: 40, height: 40) }.accessibilityLabel("停止生成") }
-                    else { Button { model.send(); writing = true } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(.mint, in: Circle()).foregroundStyle(.black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
+                    else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(.mint, in: Circle()).foregroundStyle(.black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(.plain).padding(.horizontal, 15).padding(.vertical, 5).background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 25)).overlay(RoundedRectangle(cornerRadius: 25).stroke(.secondary.opacity(0.15))).padding(.horizontal, 16).padding(.bottom, 12)
             }
             .navigationTitle(model.ownerName)

@@ -12,8 +12,13 @@ struct SettingsView: View {
                     Button { connection = true } label: { Label("服务器与模型", systemImage: "network").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
                     NavigationLink { RenderingSettings(model: model) } label: { Label("消息渲染", systemImage: "text.alignleft") }
                 }
+                Section("输入") {
+                    Toggle("回车键发送消息", isOn: $model.inputPreferences.enterSends)
+                    Text(model.inputPreferences.enterSends ? "回车发送，点“换行”插入新行" : "回车换行，点箭头发送").font(.caption).foregroundStyle(.secondary)
+                }
             }.formStyle(.grouped).navigationTitle("设置")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+            .onChange(of: model.inputPreferences) { _, _ in Task { await model.saveInputPreferences() } }
             .sheet(isPresented: $connection) { ConnectionView(model: model) }
         }.frame(minWidth: 350, minHeight: 540)
     }

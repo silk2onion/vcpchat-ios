@@ -42,6 +42,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var topics: [ChatTopic] = []
     var profile = UserProfile()
     var renderOptions = RenderOptions()
+    var inputPreferences = InputPreferences()
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
     var configuration: ConnectionConfiguration
@@ -99,6 +100,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             agents = try await database.records(VCPAgent.self, kind: "agent")
             groups = try await database.records(VCPGroup.self, kind: "group")
             profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
+            inputPreferences = try await database.records(InputPreferences.self, kind: "input-options").first ?? InputPreferences()
             renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
             if agents.isEmpty {
                 let assistant = VCPAgent(id: "assistant", name: "助手")
@@ -117,6 +119,10 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             apiKey = try await vault.read("chat-api-key"); logKey = try await vault.read("vcp-log-key")
         } catch { self.error = error.localizedDescription }
         loading = false
+    }
+    func saveInputPreferences() async {
+        do { try await store?.put(inputPreferences, kind: "input-options", id: "keyboard") }
+        catch { self.error = error.localizedDescription }
     }
     func saveRenderOptions() async {
         do { try await store?.put(renderOptions, kind: "render-options", id: "display") }
