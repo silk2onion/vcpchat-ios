@@ -33,9 +33,10 @@ struct ChatView: View {
                     NativeComposer(text: $model.draft, enterSends: model.inputPreferences.enterSends, insertNewline: newlineRequest) { if !model.busy { model.send() } }
                     if model.inputPreferences.enterSends { Button { newlineRequest += 1 } label: { Image(systemName: "return").frame(width: 32, height: 40) }.accessibilityLabel("换行") }
                     if model.busy { Button { Task { await model.stop() } } label: { Image(systemName: "stop.fill").frame(width: 40, height: 40) }.accessibilityLabel("停止生成") }
-                    else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(.mint, in: Circle()).foregroundStyle(.black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
+                    else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(model.appearance.theme.tint, in: Circle()).foregroundStyle(model.appearance.theme == .paper ? .white : .black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(.plain).padding(.horizontal, 15).padding(.vertical, 5).background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 25)).overlay(RoundedRectangle(cornerRadius: 25).stroke(.secondary.opacity(0.15))).padding(.horizontal, 16).padding(.bottom, 12)
             }
+            .background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
             .navigationTitle(model.ownerName)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -120,7 +121,7 @@ private struct NativeMessageRow: View {
             RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text, options: model.renderOptions, streaming: ["connecting", "streaming"].contains(message.status), rules: model.displayRules(for: message), role: message.role, depth: model.rooms[message.topicID]?.depths[message.id] ?? 0).font(.body)
             if !["streaming", "connecting"].contains(message.status) { MessageActions(message: message, model: model) }
             if ["interrupted", "stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.caption).foregroundStyle(.secondary) }
-        }.padding(message.role == "user" ? 15 : 0).background(message.role == "user" ? Color.secondary.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 18))
+        }.padding(15).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
 }
 

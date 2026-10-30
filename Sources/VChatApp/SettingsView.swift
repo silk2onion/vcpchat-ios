@@ -11,6 +11,7 @@ struct SettingsView: View {
             Form {
                 Section {
                     Button { connection = true } label: { Label("服务器与模型", systemImage: "network").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
+                    NavigationLink { AppearanceSettingsView(model: model) } label: { Label("外观与壁纸", systemImage: "paintpalette") }
                     NavigationLink { RenderingSettings(model: model) } label: { Label("消息渲染", systemImage: "text.alignleft") }
                     Button { regex = true } label: { Label("正则规则", systemImage: "text.magnifyingglass").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
                 }

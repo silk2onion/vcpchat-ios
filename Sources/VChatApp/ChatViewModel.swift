@@ -44,6 +44,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var topics: [ChatTopic] = []
     var profile = UserProfile()
     var renderOptions = RenderOptions()
+    var appearance = AppearanceSettings()
     var inputPreferences = InputPreferences()
     var regexRules: [RegexRule] = []
     var activeTopicID = "legacy"
@@ -110,6 +111,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
             regexRules = try await database.records([RegexRule].self, kind: "regex-global").first ?? []
             inputPreferences = try await database.records(InputPreferences.self, kind: "input-options").first ?? InputPreferences()
+            appearance = try await database.records(AppearanceSettings.self, kind: "appearance").first ?? AppearanceSettings()
             renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
             if agents.isEmpty {
                 let assistant = VCPAgent(id: "assistant", name: "助手")
@@ -128,6 +130,10 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             credentialsLocked = !credentialsInMemory && UserDefaults.standard.data(forKey: "native.connection") != nil
         } catch { self.error = error.localizedDescription }
         loading = false
+    }
+    func saveAppearance() async {
+        do { try await store?.put(appearance, kind: "appearance", id: "theme") }
+        catch { self.error = error.localizedDescription }
     }
     func saveRegexRules() async {
         do { try await store?.put(regexRules, kind: "regex-global", id: "rules") }

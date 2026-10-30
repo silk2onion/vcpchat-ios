@@ -1,5 +1,6 @@
 import SwiftUI
 import VChatCore
+import VChatRendering
 #if os(iOS)
 import UIKit
 #else
@@ -50,6 +51,7 @@ struct WorkspaceView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
                 .navigationTitle("会话")
                 .navigationDestination(for: String.self) { _ in ChatView(model: model) }
             }.tabItem { Label("会话", systemImage: "bubble.left.and.bubble.right") }.tag(Tab.chats)
@@ -86,6 +88,7 @@ struct WorkspaceView: View {
                         Button("创建群聊", systemImage: "person.2.badge.plus") { editingGroup = VCPGroup() }
                     } header: { Text("群聊") }
                 }
+                .scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
                 .searchable(text: $search, prompt: "搜索 Agent")
                 .navigationTitle("通讯录")
                 .toolbar { Button { editing = VCPAgent() } label: { Image(systemName: "plus") }.accessibilityLabel("添加 Agent") }
@@ -102,9 +105,11 @@ struct WorkspaceView: View {
                         }.padding(.vertical, 20) }
                     }
                     Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
-                }.navigationTitle("我")
+                }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("我")
             }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)
         }
+        .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
+        .tint(model.appearance.theme.tint)
         .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
         .sheet(item: $editingGroup) { group in GroupEditor(model: model, group: group) }
         .sheet(isPresented: $settings) { SettingsView(model: model) }

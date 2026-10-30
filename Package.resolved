@@ -1,5 +1,5 @@
 {
-  "originHash" : "cac1d8bb69b679c71f6f59b0c8fa09e7e3f289cff92282c5e2e65634f1c870ad",
+  "originHash" : "b23dcf86765d95abad8fc332df0affb5eb4cf9eb617383874cc3b3556c4e43ca",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "fe7aae9c9b31d3b296fd3d2dd575e1a207bb29e0",
         "version" : "3.1.0"
+      }
+    },
+    {
+      "identity" : "sdwebimage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/SDWebImage/SDWebImage.git",
+      "state" : {
+        "revision" : "2053b120767c42a70bcba21095f34e4cfb54a75d",
+        "version" : "5.21.3"
       }
     },
     {

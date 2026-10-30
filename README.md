@@ -60,6 +60,10 @@ Temperature 默认不发送，只有打开“发送 Temperature”才会启用�
 
 可分别作用于消息显示、发送上下文、用户或助手消息，并限定轮深；一组相邻的用户/助手消息计为同一轮。规则只处理显示或发送副本，不修改已保存的原文。复制与分享使用显示后的内容。
 
+## 外观与壁纸
+
+在 **我 → 设置 → 外观与壁纸** 切换墨色、纸色、极光主题，选择林间夜游、雨后绿叶、纯色或自己的照片。背景遮罩范围为 15–90%，模糊范围为 0–16 px；推荐值为 58% 与 0 px。自定义图片不超过 8 MB，静态图片保留比例并缩至最长 2560 像素；GIF 由原生图片视图播放，离页、后台或开启系统“减少动态效果”时暂停。
+
 ## 安装
 
 目前通过源码运行：使用完整版 **Xcode 16 或更新版本** 打开 `VChat.xcodeproj`，选择 **VChat** 和 iPhone 模拟器后运行。
@@ -83,3 +87,5 @@ Copyright 2026 VCPChat iOS contributors。
 数据库组件 [GRDB.swift](https://github.com/groue/GRDB.swift) 使用其独立的 [MIT 许可](https://github.com/groue/GRDB.swift/blob/v7.0.0/LICENSE)。
 
 Markdown 解析采用 [swift-markdown](https://github.com/swiftlang/swift-markdown)（Apache 2.0 + Runtime Library Exception），代码高亮采用 [HighlighterSwift](https://github.com/smittytone/HighlighterSwift)（MIT），原生公式采用 [SwiftMath](https://github.com/mgriebling/SwiftMath)（MIT）。各组件及附带字体保留各自许可。
+
+原生动态图片使用 [SDWebImage](https://github.com/SDWebImage/SDWebImage)（MIT）；壁纸沿用原 iOS 客户端的林间夜游与雨后绿叶素材。
