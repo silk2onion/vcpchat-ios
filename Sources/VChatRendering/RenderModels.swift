@@ -1,4 +1,5 @@
 import Foundation
+import VChatCore
 
 public struct RenderOptions: Codable, Sendable, Equatable {
     public var enabled = true
@@ -17,6 +18,7 @@ public struct CodeSpan: Sendable, Equatable {
 }
 public enum InlineRun: Sendable, Equatable { case text(AttributedString); case math(String) }
 public enum RenderBlock: Sendable, Equatable {
+    case vcp(VCPMarkup.Segment)
     case literal(String)
     case paragraph([InlineRun])
     case heading(Int, [InlineRun])

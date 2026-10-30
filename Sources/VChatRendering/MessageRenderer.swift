@@ -1,5 +1,6 @@
 import Foundation
 import Markdown
+import VChatCore
 import Highlighter
 #if os(iOS)
 import UIKit
@@ -17,6 +18,16 @@ public actor MessageRenderer {
     public func render(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
         try Task.checkCancellation()
         guard options.enabled else { return [.literal(source)] }
+        var output: [RenderBlock] = []
+        for segment in VCPMarkup.parse(source) {
+            switch segment {
+            case .text(let prose): output += try markdown(prose, options: options, dark: dark)
+            default: output.append(.vcp(segment))
+            }
+        }
+        return output
+    }
+    private func markdown(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
         self.dark = dark
         mathTokens = []
         let text = source as NSString

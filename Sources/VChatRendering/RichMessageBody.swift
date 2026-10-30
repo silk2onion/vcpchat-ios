@@ -64,6 +64,7 @@ private struct NativeBlocks: View, Equatable {
     }
     @ViewBuilder func blockView(_ block: RenderBlock) -> some View {
         switch block {
+        case .vcp(let segment): VCPCardView(segment: segment, options: options)
         case .literal(let text): Text(verbatim: text).textSelection(.enabled)
         case .paragraph(let runs): InlineBody(runs: runs)
         case .heading(let level, let text): InlineBody(runs: text).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
