@@ -1,24 +1,62 @@
-# VCPChat iOS
+<a id="top"></a>
 
-**把你的 VCP 工作台带到 iPhone。**
+<p align="center">
+  <picture>
+    <source media="(max-width: 600px)" srcset="docs/assets/readme-hero-mobile.svg" />
+    <img src="docs/assets/readme-hero.svg" alt="VCPChat iOS — 把你的 VCP 工作台带到 iPhone" width="100%" />
+  </picture>
+</p>
 
-VCPChat iOS 是连接自有 VCPToolBox 服务的多 Agent 聊天客户端。与不同 Agent 开展独立对话，让多个 Agent 参与同一场讨论，把桌面历史、工具审批、检索信息和文件放进随身的工作台。
+<p align="center">
+  <img src="https://img.shields.io/badge/iOS-16%2B-10191e?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="iOS 16+" />
+  <img src="https://img.shields.io/badge/Tauri-2-10191e?style=flat-square&amp;logo=tauri&amp;logoColor=88d6b0" alt="Tauri 2" />
+  <img src="https://img.shields.io/badge/Vue-3-10191e?style=flat-square&amp;logo=vuedotjs&amp;logoColor=88d6b0" alt="Vue 3" />
+  <img src="https://img.shields.io/badge/Rust-10191e?style=flat-square&amp;logo=rust&amp;logoColor=white" alt="Rust" />
+</p>
 
-[开始使用](#quick-start) · [桌面同步](#sync) · [文件管理](#files) · [开发](#development) · [构建与安装](#build)
+<p align="center">
+  连接自有 VCPToolBox 服务的多 Agent 聊天客户端。<br />
+  独立对话、群聊协作、桌面同步，让 Agent 与工作随你同行。
+</p>
 
-## 功能
+<p align="center">
+  <a href="#features">产品功能</a> ·
+  <a href="#guide"><strong>使用指南</strong></a> ·
+  <a href="#build">构建与安装</a> ·
+  <a href="#development">开发</a>
+</p>
 
-- **多 Agent 会话**：为每位 Agent 设置头像、人设、模型与声音，按话题组织对话，随时切换主 Agent。
-- **群聊协作**：组合不同 Agent，通过点名、轮流、随机或依次回复开展讨论。
-- **富消息呈现**：支持 Markdown、代码、公式、Mermaid、HTML 交互气泡、图片与视频，清晰呈现思考、工具调用和执行结果。
-- **语音与文本处理**：接入 SoVITS 或 MiMo 朗读回复，使用全局或 Agent 正则整理显示与上下文。
-- **通知与审批**：集中查看 VCPLog、工具审批和 RAG 信息流，追踪检索来源、知识片段与 Agent 活动。
-- **桌面同步**：同步桌面 Agent、群组、会话、消息和头像，支持增量写回与本机恢复点。
-- **文件与笔记**：管理本机附件和服务器文件，记录本机笔记，读写服务器日记。
-- **个性化界面**：选择主题、壁纸和头像，调整渲染与输入习惯。
+---
+
+<a id="features"></a>
+## 随身的多 Agent 工作台
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><h3>💬 多 Agent</h3>为每位 Agent 设置头像、人设、模型与声音。按话题组织对话，随时切换主 Agent。</td>
+    <td width="50%" valign="top"><h3>👥 群聊协作</h3>组合不同 Agent，通过点名、轮流、随机或依次回复开展讨论。</td>
+  </tr>
+  <tr>
+    <td valign="top"><h3>✨ 富消息呈现</h3>Markdown、代码、公式、Mermaid、HTML 交互气泡与图片视频，清晰呈现思考、工具调用和执行结果。</td>
+    <td valign="top"><h3>🎧 语音与正则</h3>接入 SoVITS 或 MiMo 朗读回复，使用全局或 Agent 正则整理显示与上下文。</td>
+  </tr>
+  <tr>
+    <td valign="top"><h3>🔔 通知与审批</h3>集中查看 VCPLog、工具审批和 RAG 信息流，追踪检索来源、知识片段与 Agent 活动。</td>
+    <td valign="top"><h3>🔄 桌面同步</h3>同步桌面 Agent、群组、会话、消息和头像，支持增量写回与本机恢复点。</td>
+  </tr>
+  <tr>
+    <td valign="top"><h3>📂 文件与笔记</h3>管理本机附件和服务器文件，记录本机笔记，读写服务器日记。</td>
+    <td valign="top"><h3>🎨 个性化界面</h3>选择主题、壁纸和头像，调整渲染与输入习惯。</td>
+  </tr>
+</table>
+
+<a id="guide"></a>
+## 使用指南
+
+[首次连接](#quick-start) · [Agent 与会话](#agents) · [通知与信息流](#activity) · [桌面同步](#sync) · [文件与笔记](#files) · [声音与外观](#personalize)
 
 <a id="quick-start"></a>
-## 开始使用
+## 🚀 开始使用
 
 打开 **我 → 设置 → 服务器与模型**，填写连接信息：
 
@@ -33,7 +71,8 @@ VCPChat iOS 是连接自有 VCPToolBox 服务的多 Agent 聊天客户端。与�
 
 **OpenAI 兼容**使用 `/v1/chat/completions`；**VCP 工具模式**使用 `/v1/chatvcp/completions`，由 VCP 后端处理工具调用。服务器 URL 支持基础地址和完整聊天路径。
 
-## Agent 与会话
+<a id="agents"></a>
+## 💬 Agent 与会话
 
 ### 创建你的 Agent
 
@@ -59,7 +98,8 @@ VCPChat iOS 是连接自有 VCPToolBox 服务的多 Agent 聊天客户端。与�
 - **仅点名发言**：用 `@名字` 邀请成员参与。
 - **每位依次回复**：所有成员依次加入讨论。
 
-## 通知与信息流
+<a id="activity"></a>
+## 🔔 通知与信息流
 
 打开 **我 → 设置 → 日志通道**，填写 VCP WebSocket 地址和 WebSocket Key，点“连接日志通道”。例如：
 
@@ -75,7 +115,7 @@ VCP WebSocket Key: 服务器配置的日志密钥
 - **RAG 监视器**：阅读检索问题、知识片段、来源与分数，以及元思考、Agent、记忆和梦境事件。
 
 <a id="sync"></a>
-## 桌面同步
+## 🔄 桌面同步
 
 ### 连接桌面 VCPChat
 
@@ -101,7 +141,7 @@ VCP WebSocket Key: 服务器配置的日志密钥
 同步消息中的附件可在文件页导入原件，或从服务器下载；文件库会按内容关联到对应消息。
 
 <a id="files"></a>
-## 文件与笔记
+## 📂 文件与笔记
 
 ### 本机附件
 
@@ -127,7 +167,8 @@ Mac 上点“查看导出位置”打开 Finder；iPhone 上可在“文件 → 
 
 使用服务器日记时，在 **设置 → 身份与日记** 填写管理员用户名和密码，再进入 **笔记 → 服务器日记**，选择文件夹，即可搜索、阅读、编辑和保存日记。
 
-## 声音、外观与文本
+<a id="personalize"></a>
+## 🎛️ 声音、外观与文本
 
 ### 语音朗读
 
@@ -152,8 +193,10 @@ Mac 上点“查看导出位置”打开 Finder；iPhone 上可在“文件 → 
 
 **Enter 发送消息**可在设置中切换；⌘/Ctrl+Enter 用于发送，Shift+Enter 用于换行。
 
+---
+
 <a id="development"></a>
-## 开发
+## 🛠️ 开发
 
 技术栈：**Tauri 2 · Vue 3 · TypeScript · Rust**。
 
@@ -195,7 +238,7 @@ cargo test --lib --manifest-path src-tauri/Cargo.toml --locked
 `pnpm check` 包含类型检查、lint、测试和网页构建；`pnpm build` 的网页产物位于 `dist/`。
 
 <a id="build"></a>
-## 构建与安装
+## 📦 构建与安装
 
 ### 构建 iOS 应用
 
@@ -233,8 +276,12 @@ bash scripts/build-unsigned-ipa.sh
 
 在仓库的 **Actions → iOS → Run workflow** 选择分支启动构建。完成后，从 `VCPChat-iOS-products` 下载模拟器 App 和未签名 IPA；构建日志保存在 `VCPChat-iOS-logs`。
 
+---
+
 ## 致谢与许可
 
 本项目参考并适配了 [VCPChat](https://github.com/lioensky/VCPChat)、[VCPMobile](https://github.com/MRiecy/VCPMobile) 与 [VCPToolBox](https://github.com/lioensky/VCPToolBox) 的相关协议与实现。上游版本及素材说明见 [NOTICE.md](NOTICE.md)。
 
 采用 [CC BY-NC-SA 4.0](LICENSE) 许可。第三方依赖遵循各自许可。
+
+<p align="center"><a href="#top">返回顶部 ↑</a></p>
