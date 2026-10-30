@@ -9,6 +9,7 @@ import { createId } from "../protocol/ids";
 import type { Attachment, ChatMessage, MessageStatus } from "../domain";
 import { openViewer } from "../render/media";
 import { optionsKey, renderOptionsFrom } from "../render/options";
+import { useFrameMessages } from "../render/frame";
 import { useLibraryStore } from "../stores/library";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspaceStore } from "../stores/workspace";
@@ -18,6 +19,11 @@ const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
 const route = useRoute();
 const router = useRouter();
+const displayedMessages = useFrameMessages(() => ({
+  topicId: library.topicId,
+  streaming: library.streaming,
+  messages: library.messages,
+}));
 const draft = computed({
   get: () => workspace.draftFor(library.topicId).text,
   set: (text) => workspace.saveDraft(library.topicId, { text }),
@@ -65,10 +71,7 @@ watch(
   },
 );
 watch(
-  () =>
-    library.messages
-      .map((m) => m.id + m.content + m.reasoning + m.status)
-      .join(""),
+  displayedMessages,
   async () => {
     const follow = following.value;
     await nextTick();
@@ -241,7 +244,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
         :class="{ motion: renderOptions.motion }"
         @scroll.passive="onScroll"
       >
-        <div v-if="!library.messages.length" class="empty-chat">
+        <div v-if="!displayedMessages.length" class="empty-chat">
           <AgentAvatar
             :name="recipient?.name || 'Agent'"
             :symbol="
@@ -262,7 +265,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
           </p>
         </div>
         <article
-          v-for="(message, index) in library.messages"
+          v-for="(message, index) in displayedMessages"
           :key="message.id"
           class="bubble"
           :class="[message.role, { streaming: message.status === 'streaming' }]"
@@ -350,7 +353,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
         </article>
       </div>
       <button
-        v-if="!following && library.messages.length"
+        v-if="!following && displayedMessages.length"
         class="jump-latest"
         type="button"
         @click="bottom"
