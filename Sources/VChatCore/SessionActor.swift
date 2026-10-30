@@ -25,7 +25,7 @@ public actor SessionActor {
     public func stream(_ request: ChatRequest) throws -> AsyncThrowingStream<SessionUpdate, Error> {
         guard !request.apiKey.isEmpty else { throw ClientError.missingKey }
         guard !request.configuration.model.isEmpty else { throw ClientError.missingModel }
-        let url = try request.configuration.endpoint("v1/chat/completions")
+        let url = try request.configuration.chatEndpoint()
         stop()
         let id = UUID(); chatID = id; text = ""; reasoning = ""; sequence = 0; rawEvents = 0; emittedEvents = 0; allParsingOffMain = true
         let (stream, continuation) = AsyncThrowingStream<SessionUpdate, Error>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -61,8 +61,8 @@ public actor SessionActor {
             call.setValue("Bearer \(request.apiKey)", forHTTPHeaderField: "Authorization")
             call.setValue("application/json", forHTTPHeaderField: "Content-Type")
             call.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            struct Body: Encodable { let model: String; let messages: [ChatTurn]; let stream = true }
-            call.httpBody = try JSONEncoder().encode(Body(model: request.configuration.model, messages: request.messages))
+            struct Body: Encodable { let model: String; let messages: [ChatTurn]; let temperature: Double?; let stream = true }
+            call.httpBody = try JSONEncoder().encode(Body(model: request.configuration.model, messages: request.messages, temperature: request.temperature))
             let (bytes, response) = try await network.bytes(for: call)
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
             guard (200..<300).contains(response.statusCode) else { throw ClientError.http(response.statusCode) }

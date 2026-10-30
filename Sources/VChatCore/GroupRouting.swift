@@ -61,6 +61,6 @@ public actor ConversationBuilder {
             let content = group != nil && message.role == "assistant" && !message.authorName.isEmpty ? "【\(message.authorName)】\n\(message.content)" : message.content
             turns.append(ChatTurn(role: message.role, content: content))
         }
-        return ChatRequest(configuration: config, apiKey: apiKey, messages: turns)
+        return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil)
     }
 }

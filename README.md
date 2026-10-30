@@ -20,7 +20,9 @@
 已有桌面 VCPChat 连接可以通过 **导入桌面 VCPChat 连接…** 选择原版 `AppData/settings.json`。
 只读取连接信息，不改原文件或旧会话；密钥保存在系统钥匙串。
 
-服务器使用 `/v1/chat/completions` 的 SSE 聊天协议；WebSocket 用于 VCPLog 推送。当前不支持需要额外协议转换的聊天接口。
+“OpenAI 兼容”使用 `/v1/chat/completions`；“VCP 工具模式”使用 `/v1/chatvcp/completions`，都通过 SSE 流式接收。WebSocket 用于 VCPLog 推送。
+
+Temperature 默认不发送，只有打开“发送 Temperature”才会启用。Agent 可设置独立数值，否则继承全局数值。
 
 ## Agent 通讯录
 

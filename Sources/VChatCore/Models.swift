@@ -1,24 +1,44 @@
 import Foundation
 
+public enum EndpointMode: String, Codable, CaseIterable, Sendable {
+    case standard
+    case vcpTools = "vcp-tools"
+    public var title: String { self == .standard ? "OpenAI 兼容" : "VCP 工具模式" }
+}
 public struct ConnectionConfiguration: Codable, Sendable, Equatable {
     public var server: String
     public var model: String
     public var framesPerSecond: Int
-    public init(server: String = "https://agent.sijinworld.com", model: String = "", framesPerSecond: Int = 60) {
+    public var endpointMode: EndpointMode
+    public var temperature: Double
+    public var sendTemperature: Bool
+    public init(server: String = "https://agent.sijinworld.com", model: String = "", framesPerSecond: Int = 60, endpointMode: EndpointMode = .standard, temperature: Double = 0.8, sendTemperature: Bool = false) {
         self.server = server; self.model = model; self.framesPerSecond = framesPerSecond
+        self.endpointMode = endpointMode; self.temperature = temperature; self.sendTemperature = sendTemperature
+    }
+    enum CodingKeys: String, CodingKey { case server, model, framesPerSecond, endpointMode, temperature, sendTemperature }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(server: try c.decode(String.self, forKey: .server), model: try c.decodeIfPresent(String.self, forKey: .model) ?? "", framesPerSecond: try c.decodeIfPresent(Int.self, forKey: .framesPerSecond) ?? 60, endpointMode: try c.decodeIfPresent(EndpointMode.self, forKey: .endpointMode) ?? .standard, temperature: try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.8, sendTemperature: try c.decodeIfPresent(Bool.self, forKey: .sendTemperature) ?? false)
     }
     public func baseURL() throws -> URL {
-        guard let url = URL(string: server.trimmingCharacters(in: .whitespacesAndNewlines)),
-              ["https", "http"].contains(url.scheme), url.host != nil,
-              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { throw ClientError.invalidConfiguration }
+        var raw = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty, !raw.unicodeScalars.contains(where: { $0.value <= 31 }), !raw.contains("#") else { throw ClientError.invalidConfiguration }
+        if !raw.contains("://") { raw = "http://" + raw }
+        guard let url = URL(string: raw), ["https", "http"].contains(url.scheme), url.host != nil,
+              url.user == nil, url.password == nil else { throw ClientError.invalidConfiguration }
         return url
     }
     public func endpoint(_ path: String) throws -> URL {
-        var base = try baseURL()
-        if base.path.hasSuffix("/v1/chat/completions") { base.deleteLastPathComponent(); base.deleteLastPathComponent(); base.deleteLastPathComponent() }
+        let url = try baseURL()
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.query = nil; components.fragment = nil
+        var base = components.url!
+        if base.path.hasSuffix("/v1/chat/completions") || base.path.hasSuffix("/v1/chatvcp/completions") { base.deleteLastPathComponent(); base.deleteLastPathComponent(); base.deleteLastPathComponent() }
         if base.lastPathComponent == "v1" { base.deleteLastPathComponent() }
         return base.appendingPathComponent(path)
     }
+    public func chatEndpoint() throws -> URL { try endpoint(endpointMode == .vcpTools ? "v1/chatvcp/completions" : "v1/chat/completions") }
 }
 public struct ChatTurn: Codable, Sendable, Equatable {
     public var role: String
@@ -29,8 +49,9 @@ public struct ChatRequest: Sendable {
     public let configuration: ConnectionConfiguration
     public let apiKey: String
     public let messages: [ChatTurn]
-    public init(configuration: ConnectionConfiguration, apiKey: String, messages: [ChatTurn]) {
-        self.configuration = configuration; self.apiKey = apiKey; self.messages = messages
+    public let temperature: Double?
+    public init(configuration: ConnectionConfiguration, apiKey: String, messages: [ChatTurn], temperature: Double? = nil) {
+        self.configuration = configuration; self.apiKey = apiKey; self.messages = messages; self.temperature = temperature
     }
 }
 public enum SessionState: String, Codable, Sendable { case connecting, streaming, complete, stopped, interrupted, failed }

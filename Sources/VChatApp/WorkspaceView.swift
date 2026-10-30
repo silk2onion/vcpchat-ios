@@ -151,7 +151,12 @@ struct AgentEditor: View {
                     TextField("简介", text: $agent.description, axis: .vertical).lineLimit(2...4)
                 }
                 Section("系统提示词") { TextEditor(text: $agent.systemPrompt).frame(minHeight: 140) }
-                Section("模型") { TextField("留空使用全局模型", text: $agent.model) }
+                Section("模型") {
+                    TextField("留空使用全局模型", text: $agent.model)
+                    Toggle("独立 Temperature", isOn: Binding(get: { agent.temperature != nil }, set: { agent.temperature = $0 ? model.configuration.temperature : nil }))
+                    if let temperature = agent.temperature { LabeledContent("Temperature", value: temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: Binding(get: { agent.temperature ?? 0.8 }, set: { agent.temperature = $0 }), in: 0...2) }
+                    Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.caption).foregroundStyle(.secondary)
+                }
                 if existing {
                     Section {
                         Button(agent.id == model.profile.mainAgentID ? "当前主 Agent" : "设为主 Agent", systemImage: "star") { Task { await model.setMainAgent(agent.id) } }.disabled(agent.id == model.profile.mainAgentID)

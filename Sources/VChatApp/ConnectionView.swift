@@ -1,4 +1,5 @@
 import SwiftUI
+import VChatCore
 import UniformTypeIdentifiers
 struct ConnectionView: View {
     @Bindable var model: ChatViewModel
@@ -16,7 +17,10 @@ struct ConnectionView: View {
                 Section("VCP 服务器") {
                     TextField("https://agent.sijinworld.com", text: $model.configuration.server)
                     SecureField("聊天 API Key", text: $model.apiKey)
+                    Picker("接口模式", selection: $model.configuration.endpointMode) { ForEach(EndpointMode.allCases, id: \.self) { Text($0.title).tag($0) } }
                     TextField("模型 ID", text: $model.configuration.model)
+                    Toggle("发送 Temperature", isOn: $model.configuration.sendTemperature)
+                    if model.configuration.sendTemperature { LabeledContent("Temperature", value: model.configuration.temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: $model.configuration.temperature, in: 0...2) }
                     Button(fetching ? "正在读取…" : "鉴权并读取模型") { fetching = true; Task { await model.refreshModels(); fetching = false } }.disabled(fetching)
                     if !model.models.isEmpty {
                         TextField("筛选模型", text: $query)
@@ -31,8 +35,8 @@ struct ConnectionView: View {
                     LabeledContent("状态", value: model.pushStatus)
                 }
                 Section("流式显示") {
-                    Picker("帧预算", selection: $model.configuration.framesPerSecond) { Text("16 ms · 60 Hz").tag(60); Text("8 ms · 120 Hz").tag(120) }
-                    Text("网络解析和文字组装在独立 Actor 内；仅聚合后的消息快照交给界面。").font(.caption).foregroundStyle(.secondary)
+                    Picker("流式刷新率", selection: $model.configuration.framesPerSecond) { Text("标准 · 60 Hz").tag(60); Text("高刷新率 · 120 Hz").tag(120) }
+
                 }
                 if let error = model.error { Section { Text(error).foregroundStyle(.red) } }
             }
