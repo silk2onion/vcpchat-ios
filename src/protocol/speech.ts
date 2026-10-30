@@ -6,7 +6,9 @@ export interface Voice { voice: string; name: string }
 export const mimoVoices: Voice[] = ["mimo_default", "冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean", "mimo:natural-control"].map((voice) => ({ voice, name: voice === "mimo:natural-control" ? "自然语言导演" : voice === "mimo_default" ? "默认音色" : voice }));
 
 function base(url: string): string {
-  const parsed = new URL(url.trim());
+  if (!url.trim()) throw new Error("先填写语音服务地址");
+  let parsed: URL;
+  try { parsed = new URL(url.trim()); } catch { throw new Error("语音服务地址无效，请填写完整的 HTTP 或 HTTPS 地址"); }
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("请填写 HTTP 或 HTTPS 语音服务地址");
   return parsed.toString().replace(/\/+$/, "");
 }

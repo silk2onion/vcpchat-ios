@@ -30,8 +30,11 @@ const displayedMessages = useFrameMessages(() => ({
   messages: library.messages,
 }));
 const depths = computed(() => turnDepths(displayedMessages.value));
+function messageAgent(message: ChatMessage) {
+  return library.agents.find((a) => a.id === message.agentId) ?? (library.ownerType === "agent" ? library.currentAgent ?? undefined : library.agents.find((a) => a.name === message.authorName));
+}
 function displayedText(message: ChatMessage) {
-  const agent = library.agents.find((a) => a.id === message.agentId) ?? library.currentAgent;
+  const agent = messageAgent(message);
   return applyRules(message.content, [...settings.settings.regexRules, ...(agent?.regexRules ?? [])], "frontend", message.role, depths.value.get(message.id) ?? 0);
 }
 async function copyMessage(message: ChatMessage) {
@@ -41,7 +44,7 @@ async function copyMessage(message: ChatMessage) {
 function readMessage(message: ChatMessage) {
   if (speech.messageId === message.id && speech.active) { speech.stop(); return; }
   if (!settings.settings.ttsUrl.trim()) { void router.push("/settings/speech"); return; }
-  void speech.read(message.id, displayedText(message), library.agents.find((a) => a.id === message.agentId));
+  void speech.read(message.id, displayedText(message), messageAgent(message));
 }
 const draft = computed({
   get: () => workspace.draftFor(library.topicId).text,
@@ -296,9 +299,9 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
           <header v-if="message.role === 'assistant'">
             <AgentAvatar
               :name="message.authorName || 'Agent'"
-              :image="library.agents.find((a) => a.id === message.agentId)?.avatarUrl"
+              :image="messageAgent(message)?.avatarUrl"
               :symbol="
-                library.agents.find((a) => a.id === message.agentId)?.avatar
+                messageAgent(message)?.avatar
               "
               :size="24"
             /><strong>{{ message.authorName || "Agent" }}</strong><span

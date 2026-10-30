@@ -9,6 +9,7 @@
 .app-wallpaper:not(.has-wallpaper) .wallpaper-scrim { display:none; }
 .app-shell { z-index:1; }
 .app-main { position:relative; }
+.route-surface { height:100%;width:100%;min-width:0;min-height:0;overflow:hidden; }
 .page,.conversation-panel,.chat-stage { background:transparent; }
 .chat-header,.tabbar { background:var(--glass);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border-color:var(--glass-line); }
 .desktop-sidebar { background:var(--glass-soft);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px); }
@@ -206,3 +207,13 @@ input[role=switch]:checked::after { transform:translateX(17px); }
 @media (max-width:540px) { .overlay-drawer .app-sheet { max-width:100%;border-radius:0; } .overlay-drawer .sheet-header { padding-top:17px; } .activity-card { padding:15px; } }
 @media (min-width:980px) { .speech-player { left:calc(50% + 150px); } .bubble.assistant>.body { padding:20px 24px; } }
 @media (prefers-reduced-motion:reduce) { [class*="page-"][class*="-active"],.sheet-overlay,.sheet-overlay .app-sheet,.player-enter-active,.player-leave-active { transition:none!important;animation:none!important; } }
+
+.settings-group.form-stack { padding:18px; }
+.regex-rule-row { background:var(--glass);border:1px solid var(--glass-line);border-radius:16px;padding:15px;margin-top:12px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px); }
+.regex-editor>.section-note { background:var(--glass);padding:12px 14px;border-radius:12px; }
+.message-actions { gap:6px; }
+.message-actions .icon-button { width:44px;height:44px;min-height:44px;border-radius:50%;background:var(--glass-soft);color:var(--ink); }
+.conversation-row { background:var(--glass-soft);margin-bottom:8px; }
+.page-header,.panel-header { isolation:isolate; }
+.page-header:not(.detail-header) { background:linear-gradient(var(--glass-soft),transparent); }
+.detail-header { background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px); }

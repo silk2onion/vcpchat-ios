@@ -34,6 +34,7 @@ async function upload(event: Event) {
     <div v-if="settings.settings.wallpaper !== 'none'" class="settings-group wallpaper-tuning">
       <label class="range-field"><span>背景遮罩<strong>{{ settings.settings.wallpaperDim }}%</strong></span><input v-model.number="settings.settings.wallpaperDim" type="range" min="15" max="90" aria-label="壁纸遮罩" @change="settings.patch({ wallpaperDim: settings.settings.wallpaperDim })" /></label>
       <label class="range-field"><span>背景模糊<strong>{{ settings.settings.wallpaperBlur }} px</strong></span><input v-model.number="settings.settings.wallpaperBlur" type="range" min="0" max="16" aria-label="壁纸模糊" @change="settings.patch({ wallpaperBlur: settings.settings.wallpaperBlur })" /></label>
+      <button class="text-button" type="button" @click="settings.patch({ wallpaperDim: 58, wallpaperBlur: 0 })"><AppIcon name="history" :size="16" />恢复推荐效果</button>
     </div>
     <p v-if="error" class="error-line" role="alert">{{ error }}</p>
   </div>

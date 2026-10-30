@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { installRepository, getRepository } from "../storage";
 import { createMemoryRepository } from "../storage/memory";
 import { useSettingsStore } from "./settings";
@@ -132,4 +132,18 @@ describe("multi-agent workspace", () => {
     expect(workspace.draftFor("one").text).toBe("第一份草稿");
     expect(workspace.draftFor("two").text).toBe("");
   });
+  test("sheets remain mounted through exit motion and reopening cancels stale closure", () => {
+    vi.useFakeTimers();
+    const workspace = useWorkspaceStore();
+    workspace.open({ type: "agent" }); workspace.close();
+    expect(workspace.closing).toBe(true); expect(workspace.sheet?.type).toBe("agent");
+    vi.advanceTimersByTime(100); workspace.open({ type: "main-agent" });
+    vi.advanceTimersByTime(100); expect(workspace.sheet?.type).toBe("main-agent");
+    workspace.openActivity("rag"); workspace.closeActivity();
+    expect(workspace.activityOpen).toBe(true);
+    vi.advanceTimersByTime(180); expect(workspace.activityOpen).toBe(false);
+    workspace.close(); vi.advanceTimersByTime(180); expect(workspace.sheet).toBeNull();
+    vi.useRealTimers();
+  });
+
 });

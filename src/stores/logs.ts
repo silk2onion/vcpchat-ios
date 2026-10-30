@@ -186,15 +186,15 @@ export const useLogStore = defineStore("logs", () => {
     sending.add(requestId);
     try {
       if (native) {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("socket_send", { channel: "log", text: message });
-    } else {
-      const socket = sockets.log;
-      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("连接已断开，审批尚未发送");
-      socket.send(message);
-    }
-    entries.value = entries.value.map((e) => approvalId(e) === requestId && activityData(e).type === "tool_approval_request" ? { ...e, decision: { approved, reason: reason.trim().slice(0, 1000), sentAt: Date.now() } } : e);
-    await getRepository().saveLogs(entries.value);
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("socket_send", { channel: "log", text: message });
+      } else {
+        const socket = sockets.log;
+        if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("连接已断开，审批尚未发送");
+        socket.send(message);
+      }
+      entries.value = entries.value.map((e) => approvalId(e) === requestId && activityData(e).type === "tool_approval_request" ? { ...e, decision: { approved, reason: reason.trim().slice(0, 1000), sentAt: Date.now() } } : e);
+      await getRepository().saveLogs(entries.value);
     } finally { sending.delete(requestId); }
   }
 

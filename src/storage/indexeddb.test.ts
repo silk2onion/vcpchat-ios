@@ -53,4 +53,18 @@ describe("indexedDB repository", () => {
     expect((await reopened.listTopics())[0].ownerId).toBe("original-agent");
     expect((await reopened.listMessages("original-topic"))[0].content).toBe("已有内容");
   });
+  test("new appearance, voice, regex and image avatars survive reopening; older records keep defaults", async () => {
+    const repository = createIndexedDbRepository();
+    const legacy: Record<string, unknown> = { ...defaultSettings(), userName: "丝巾" };
+    for (const key of Object.keys(legacy)) if (key.startsWith("wallpaper") || key.startsWith("tts") || key === "regexRules") delete legacy[key];
+    await repository.saveSettings(legacy as never);
+    const old = await repository.getSettings();
+    expect(old).toMatchObject({ userName: "丝巾", wallpaper: "forest", ttsUrl: "", ttsKey: "", regexRules: [] });
+    await repository.saveSettings({ ...old, wallpaper: "custom", wallpaperCustom: "data:image/webp;base64,fixture", ttsVoice: "Amadeus", ttsSpeed: 0.9 });
+    await repository.saveAgent({ id: "photo", name: "Amadeus", systemPrompt: "", model: "", temperature: null, createdAt: 1, avatarUrl: "data:image/webp;base64,avatar", voice: "red", regexRules: [] });
+    const reopened = createIndexedDbRepository();
+    expect(await reopened.getSettings()).toMatchObject({ wallpaper: "custom", wallpaperCustom: "data:image/webp;base64,fixture", ttsVoice: "Amadeus", ttsSpeed: 0.9 });
+    expect((await reopened.listAgents())[0]).toMatchObject({ avatarUrl: "data:image/webp;base64,avatar", voice: "red", regexRules: [] });
+  });
+
 });

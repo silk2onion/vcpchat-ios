@@ -40,7 +40,7 @@ const active = (to: string) =>
   >
     <aside class="desktop-sidebar"><ConversationList sidebar /></aside>
     <main class="app-main">
-      <RouterView v-slot="{ Component, route: current }"><Transition :name="transition" mode="out-in"><component :is="Component" :key="current.path" /></Transition></RouterView>
+      <RouterView v-slot="{ Component, route: current }"><Transition :name="transition" mode="out-in"><div :key="current.path" class="route-surface"><component :is="Component" /></div></Transition></RouterView>
     </main>
     <nav class="tabbar" aria-label="主导航">
       <RouterLink
