@@ -3,6 +3,8 @@ import VChatCore
 
 struct ChatView: View {
     @Bindable var model: ChatViewModel
+    @State private var showTopics = false
+    @State private var showAgent = false
     @State private var showSettings = false
     @State private var showSearch = false
     @State private var showLog = false
@@ -32,12 +34,20 @@ struct ChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Button { showAgent = true } label: {
+                        VStack(spacing: 2) { Text(model.activeAgent?.name ?? "会话").font(.headline); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    }.buttonStyle(.plain)
+                }
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button { showTopics = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("历史话题")
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索本机消息")
                     Button { showLog = true } label: { Image(systemName: "waveform.path") }.accessibilityLabel("VCPLog")
                     Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }.accessibilityLabel("连接设置")
                 }
             }
+            .sheet(isPresented: $showTopics) { TopicsView(model: model) }
+            .sheet(isPresented: $showAgent) { if let agent = model.activeAgent { AgentEditor(model: model, agent: agent) } }
             .sheet(isPresented: $showSettings) { ConnectionView(model: model) }
             .sheet(isPresented: $showSearch) {
                 NavigationStack { List { TextField("搜索本机消息（至少 3 个字）", text: $model.search).onChange(of: model.search) { _, _ in Task { await model.searchLocal() } }; ForEach(model.results) { Text($0.content).lineLimit(5) } }.navigationTitle("本机搜索").toolbar { Button("完成") { showSearch = false } } }.frame(minWidth: 340, minHeight: 420)
