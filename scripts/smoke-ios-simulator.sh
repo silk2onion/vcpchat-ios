@@ -28,5 +28,8 @@ xcrun simctl launch "$udid" "$bundle_id" | tee "$results/simulator-launch.log"
 # Give the initial WKWebView a chance to render before collecting the first screen.
 sleep 8
 xcrun simctl io "$udid" screenshot "$results/simulator-first-screen.png"
+export CLANG_MODULE_CACHE_PATH="${TMPDIR:-/tmp}/clang-module-cache"
+export SWIFT_MODULECACHE_PATH="${TMPDIR:-/tmp}/swift-module-cache"
+swift "$(dirname "$0")/check-ios-frame.swift" "$results/simulator-first-screen.png"
 xcrun simctl spawn "$udid" launchctl list > "$results/simulator-processes.log"
 grep -F "$bundle_id" "$results/simulator-processes.log"

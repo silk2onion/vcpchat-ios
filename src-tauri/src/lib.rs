@@ -1,5 +1,7 @@
 mod background;
 mod net;
+#[cfg(target_os = "ios")]
+mod ios_webview;
 
 use std::collections::HashMap;
 
@@ -77,6 +79,11 @@ fn socket_disconnect(state: State<'_, NetState>, channel: String) -> Result<(), 
 pub fn run() {
     tauri::Builder::default()
         .manage(NetState::new())
+        .setup(|_app| {
+            #[cfg(target_os = "ios")]
+            ios_webview::configure(_app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_chat_stream,
             cancel_chat_stream,

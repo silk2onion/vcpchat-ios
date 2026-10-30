@@ -27,4 +27,4 @@ tokio-tungstenite = { version = "0.26", default-features = false, features = ["c
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "block2", "UIApplication", "UIResponder"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "block2", "UIApplication", "UIResponder", "UIScrollView"] }
