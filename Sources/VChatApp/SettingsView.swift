@@ -36,6 +36,7 @@ private struct RenderingSettings: View {
             Section {
                 Toggle("代码语法高亮", isOn: $model.renderOptions.code)
                 Toggle("数学公式", isOn: $model.renderOptions.math)
+                Toggle("Mermaid 图表",isOn: $model.renderOptions.mermaid)
                 Toggle("HTML 视觉气泡", isOn: $model.renderOptions.html)
                 Toggle("气泡动画", isOn: $model.renderOptions.motion)
                 Toggle("气泡图片与媒体", isOn: $model.renderOptions.media)

@@ -12,6 +12,8 @@ public actor MessageRenderer {
     public static let shared = MessageRenderer()
     private var highlighter: Highlighter?
     private var dark = false
+    private var streaming = false
+    private var diagrams = DiagramCache()
     public init() {}
     private struct MathToken { var token: String; var latex: String; var original: String; var block: Bool }
     private var mathTokens: [MathToken] = []
@@ -20,6 +22,7 @@ public actor MessageRenderer {
         let source = rules.isEmpty ? source : try await RegexEngine.shared.apply(source, rules: rules, scope: "frontend", role: role, depth: depth)
         guard options.enabled else { return [.literal(source)] }
         if HTMLIslandPolicy.accepts(source) { return options.html ? (streaming ? [.literal("视觉气泡生成中…")] : [.html(source)]) : [.literal(source)] }
+        self.streaming = streaming
         var output: [RenderBlock] = []
         for segment in VCPMarkup.parse(source) {
             switch segment {
@@ -55,6 +58,11 @@ public actor MessageRenderer {
             case let node as Heading: return .heading(node.level, inline(node, options: options))
             case let node as CodeBlock:
                 let language = node.language ?? ""
+                if options.mermaid,!streaming,["mermaid","flowchart","graph"].contains(language.lowercased()) {
+                    var text = restore(node.code)
+                    if language.lowercased() != "mermaid",!text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("flowchart"),!text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("graph") { text = language.lowercased() + " " + text }
+                    return .diagram(text,diagrams.render(text,dark: dark))
+                }
                 return .code(language, restore(node.code), options.code ? highlighted(restore(node.code), language: language) : [])
             case let node as BlockQuote: return .quote(try blocks(node, options: options))
             case let node as OrderedList: return .list(try node.children.map { try blocks($0, options: options) }, Int(node.startIndex))

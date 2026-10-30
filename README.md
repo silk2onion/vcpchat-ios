@@ -50,7 +50,7 @@ Temperature 默认不发送，只有打开“发送 Temperature”才会启用�
 - 中断或失败的消息不会自动重复发送；最后一条助手回复可点“继续写”接着写，或在消息菜单选择重新生成。
 - 消息支持复制、分享和编辑；编辑前保留本机旧版本。移除的消息可在对话菜单的“已删除消息”中恢复。对话菜单也可导出 Markdown。
 
-每位 Agent 有独立对话，可从聊天顶部的历史按钮新建、切换、重命名和删除话题。每个话题分别保留草稿；切到其他话题时，正在生成的回复会继续接收。普通文字直接由原生 Text 显示；Markdown 标题、引用、列表和表格使用原生视图，代码支持语法高亮和复制，行内与独立公式使用原生数学排版。富内容在独立 Actor 中解析，可视区外停止解析。只有以 `<div id="vcp-root">` 开头的完整消息会进入独立视觉气泡；其余 HTML 按文字显示。视觉气泡可运行动画与交互，离开可视区或页面时释放运行环境，重新进入后重建；不会作为整个 App 的主界面。切到后台后会短暂继续收流，并降低更新频率；系统后台时间到期或约 25 秒后，把回复保存为“已中断”，回到前台后可点“继续写”。短暂切换回来会恢复前台更新与日志连接；后台时间由 iOS 决定，不能保证无限续流。系统推送尚未开放。
+每位 Agent 有独立对话，可从聊天顶部的历史按钮新建、切换、重命名和删除话题。每个话题分别保留草稿；切到其他话题时，正在生成的回复会继续接收。普通文字直接由原生 Text 显示；Markdown 标题、引用、列表和表格使用原生视图，代码支持语法高亮和复制，行内与独立公式使用原生数学排版。Mermaid 流程图、时序图、类图、状态图、ER、饼图、Git、旅程及架构图由 Swift/Core Graphics 绘制，可点开放大；其他图表类型保留可复制源码。生成未结束时先显示源码，结束后排版，避免反复计算。富内容在独立 Actor 中解析，可视区外停止解析。只有以 `<div id="vcp-root">` 开头的完整消息会进入独立视觉气泡；其余 HTML 按文字显示。视觉气泡可运行动画与交互，离开可视区或页面时释放运行环境，重新进入后重建；不会作为整个 App 的主界面。切到后台后会短暂继续收流，并降低更新频率；系统后台时间到期或约 25 秒后，把回复保存为“已中断”，回到前台后可点“继续写”。短暂切换回来会恢复前台更新与日志连接；后台时间由 iOS 决定，不能保证无限续流。系统推送尚未开放。
 
 在 **我 → 设置 → 消息渲染** 可切换高级渲染、代码、公式、HTML、气泡动画与媒体；已有消息会立即按新设置重绘。
 
@@ -144,3 +144,5 @@ Copyright 2026 VCPChat iOS contributors。
 Markdown 解析采用 [swift-markdown](https://github.com/swiftlang/swift-markdown)（Apache 2.0 + Runtime Library Exception），代码高亮采用 [HighlighterSwift](https://github.com/smittytone/HighlighterSwift)（MIT），原生公式采用 [SwiftMath](https://github.com/mgriebling/SwiftMath)（MIT）。各组件及附带字体保留各自许可。
 
 原生动态图片使用 [SDWebImage](https://github.com/SDWebImage/SDWebImage)（MIT）；壁纸沿用原 iOS 客户端的林间夜游与雨后绿叶素材。
+
+原生 Mermaid 图表使用 [swift-mermaid 0.3.0](https://github.com/Australware/swift-mermaid)（MIT，Copyright 2026 Australware LLC），布局组件包含 lukilabs/dagre-swift（MIT）。
