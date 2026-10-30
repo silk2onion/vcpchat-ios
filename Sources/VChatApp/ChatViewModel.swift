@@ -77,6 +77,7 @@ struct TopicDraft: Codable, Sendable {
     var pushEvents: [String] { activity.entries.map { $0.payload.pretty } }
     var search = ""
     var results: [StoredMessage] = []
+    @ObservationIgnored var connectedFolders: ConnectedFolders?
     @ObservationIgnored let network = SessionActor()
     @ObservationIgnored let vault: CredentialVault
     var credentialsInMemory: Bool { vault.persistence == .session }
@@ -118,6 +119,7 @@ struct TopicDraft: Codable, Sendable {
             else { root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent(Bundle.main.bundleIdentifier == "app.vcpchat.native" ? "VChatNative" : (Bundle.main.bundleIdentifier ?? "VChatNative"), isDirectory: true) }
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             let database = try await ChatStore.open(path: root.appendingPathComponent("chat.sqlite").path); store = database
+            connectedFolders = ConnectedFolders(storage: root.appendingPathComponent("connected-folders",isDirectory: true))
             try await database.recoverInterrupted()
             agents = try await database.records(VCPAgent.self, kind: "agent")
             groups = try await database.records(VCPGroup.self, kind: "group")
