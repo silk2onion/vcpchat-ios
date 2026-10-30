@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
@@ -52,10 +52,20 @@ struct StreamEntry {
     log: Arc<Mutex<StreamLog>>,
 }
 
+struct SocketWrite {
+    text: String,
+    receipt: oneshot::Sender<Result<(), String>>,
+}
+
+struct SocketEntry {
+    token: CancellationToken,
+    sender: Arc<Mutex<Option<mpsc::Sender<SocketWrite>>>>,
+}
+
 pub struct NetState {
     client: reqwest::Client,
     streams: Mutex<HashMap<String, StreamEntry>>,
-    sockets: Mutex<HashMap<String, CancellationToken>>,
+    sockets: Mutex<HashMap<String, SocketEntry>>,
 }
 
 impl NetState {
@@ -387,33 +397,79 @@ fn allowed_header(name: &str) -> bool {
     matches!(name.to_ascii_lowercase().as_str(), "authorization" | "accept" | "content-type")
 }
 
+/// Audio and MiMo PCM/SSE are binary, unlike the existing text-only HTTP entry point.
+pub async fn audio_request(state: &NetState, call: HttpCall) -> Result<Vec<u8>, String> {
+    validate_http_url(&call.url)?;
+    let body = call.body.unwrap_or_default();
+    if body.len() > MAX_HTTP_BODY { return Err("语音请求过大".into()); }
+    let mut builder = state.client.post(&call.url).timeout(Duration::from_secs(90));
+    for (name, value) in &call.headers {
+        if allowed_header(name) && value.len() <= DEVICE_HEADER_LIMIT {
+            builder = builder.header(name, value);
+        }
+    }
+    let response = builder.body(body).send().await.map_err(|e| format!("语音服务连接失败: {e}"))?;
+    let status = response.status();
+    let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("语音接收失败: {e}"))?;
+        if bytes.len() + chunk.len() > 16_000_000 { return Err("语音响应超过 16MB，请分段朗读".into()); }
+        bytes.extend_from_slice(&chunk);
+    }
+    if !status.is_success() {
+        return Err(format!("语音 HTTP {}: {}", status.as_u16(), clip(&String::from_utf8_lossy(&bytes), 300)));
+    }
+    if !content_type.starts_with("audio/") && !content_type.contains("text/event-stream") {
+        return Err(format!("语音服务未返回音频或 MiMo 音频流（{content_type}）"));
+    }
+    Ok(bytes)
+}
+
 pub async fn socket_connect(app: AppHandle, state: &NetState, channel: String, url: String) -> Result<(), String> {
     if channel != "log" && channel != "info" {
         return Err("未知通道".into());
     }
     validate_ws_url(&url)?;
     let token = CancellationToken::new();
+    let sender = Arc::new(Mutex::new(None));
     {
         let mut guard = state.sockets.lock().map_err(|_| "内部锁失败".to_string())?;
-        if let Some(previous) = guard.insert(channel.clone(), token.clone()) {
-            previous.cancel();
+        if let Some(previous) = guard.insert(channel.clone(), SocketEntry { token: token.clone(), sender: sender.clone() }) {
+            previous.token.cancel();
         }
     }
     tauri::async_runtime::spawn(async move {
-        run_socket(app, channel, url, token).await;
+        run_socket(app, channel, url, token, sender).await;
     });
     Ok(())
 }
 
 pub fn socket_disconnect(state: &NetState, channel: &str) -> Result<(), String> {
-    let guard = state.sockets.lock().map_err(|_| "内部锁失败".to_string())?;
-    if let Some(token) = guard.get(channel) {
-        token.cancel();
+    let mut guard = state.sockets.lock().map_err(|_| "内部锁失败".to_string())?;
+    if let Some(entry) = guard.remove(channel) {
+        entry.token.cancel();
     }
     Ok(())
 }
 
-async fn run_socket(app: AppHandle, channel: String, url: String, token: CancellationToken) {
+pub async fn socket_send(state: &NetState, channel: &str, text: String) -> Result<(), String> {
+    if channel != "log" || text.len() > 16_000 { return Err("审批消息无效".into()); }
+    let payload: serde_json::Value = serde_json::from_str(&text).map_err(|_| "审批 JSON 无效")?;
+    if payload["type"] != "tool_approval_response" || payload["data"]["requestId"].as_str().unwrap_or("").is_empty() || !payload["data"]["approved"].is_boolean() {
+        return Err("审批缺少 requestId 或 approved".into());
+    }
+    let sender = {
+        let guard = state.sockets.lock().map_err(|_| "内部锁失败")?;
+        guard.get(channel).and_then(|entry| entry.sender.lock().ok()?.clone())
+    }.ok_or("VCPLog 已断开，审批尚未发送")?;
+    let (receipt, received) = oneshot::channel();
+    sender.send(SocketWrite { text, receipt }).await.map_err(|_| "连接已断开，审批尚未发送")?;
+    received.await.map_err(|_| "发送未完成，审批尚未确认".to_string())?
+}
+
+async fn run_socket(app: AppHandle, channel: String, url: String, token: CancellationToken, sender: Arc<Mutex<Option<mpsc::Sender<SocketWrite>>>>) {
     let mut delay = Duration::from_secs(1);
     loop {
         if token.is_cancelled() {
@@ -423,8 +479,12 @@ async fn run_socket(app: AppHandle, channel: String, url: String, token: Cancell
         match connect_async(&url).await {
             Ok((socket, _)) => {
                 delay = Duration::from_secs(1);
+                let (write_tx, write_rx) = mpsc::channel(8);
+                if let Ok(mut slot) = sender.lock() { *slot = Some(write_tx); }
                 let _ = emit_socket(&app, &channel, "status", "已连接");
-                if let Err(error) = pump_socket(&app, &channel, socket, &token).await {
+                let outcome = pump_socket(&app, &channel, socket, &token, write_rx).await;
+                if let Ok(mut slot) = sender.lock() { *slot = None; }
+                if let Err(error) = outcome {
                     let _ = emit_socket(&app, &channel, "error", &error);
                 }
             }
@@ -450,6 +510,7 @@ async fn pump_socket(
     channel: &str,
     socket: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     token: &CancellationToken,
+    mut outgoing: mpsc::Receiver<SocketWrite>,
 ) -> Result<(), String> {
     use futures_util::SinkExt;
     let (mut write, mut read) = socket.split();
@@ -457,6 +518,13 @@ async fn pump_socket(
     loop {
         tokio::select! {
             _ = token.cancelled() => return Ok(()),
+            outgoing = outgoing.recv() => {
+                if let Some(outgoing) = outgoing {
+                    let result = write.send(Message::Text(outgoing.text.into())).await.map_err(|e| format!("审批发送失败: {e}"));
+                    let _ = outgoing.receipt.send(result.clone());
+                    result?;
+                }
+            }
             _ = tokio::time::sleep(Duration::from_secs(15)) => {
                 write
                     .send(Message::Ping(Vec::new().into()))
@@ -471,7 +539,11 @@ async fn pump_socket(
             incoming = read.next() => {
                 match incoming {
                     Some(Ok(Message::Text(text))) => {
-                        let _ = emit_socket(app, channel, "message", text.as_str());
+                        if text.len() <= MAX_HTTP_BODY {
+                            let _ = emit_socket(app, channel, "message", text.as_str());
+                        } else {
+                            let _ = emit_socket(app, channel, "message", r#"{"type":"error","message":"单条日志超过 2MB，未载入"}"#);
+                        }
                     }
                     Some(Ok(Message::Ping(payload))) => {
                         let _ = pong_tx.try_send(Message::Pong(payload));
@@ -504,7 +576,7 @@ fn emit_socket(app: &AppHandle, channel: &str, kind: &str, text: &str) -> Result
         SocketEvent {
             channel: channel.to_string(),
             kind: kind.to_string(),
-            text: clip(text, 4000),
+            text: if kind == "message" { text.to_string() } else { clip(text, 4000) },
         },
     )
     .map_err(|error| format!("事件发送失败: {error}"))

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import AppIcon from "./AppIcon.vue";
-defineProps<{ title: string; subtitle?: string }>();
+defineProps<{ title: string; subtitle?: string; closing?: boolean; variant?: "sheet" | "drawer" }>();
 const emit = defineEmits<{ close: [] }>();
 const dialog = ref<HTMLElement | null>(null);
 let previous: HTMLElement | null = null;
@@ -43,7 +43,7 @@ onBeforeUnmount(() => previous?.focus({ preventScroll: true }));
 </script>
 <template>
   <Teleport to="body">
-    <div class="sheet-overlay" @click.self="$emit('close')">
+    <div class="sheet-overlay" :class="{ 'is-leaving': closing, 'overlay-drawer': variant === 'drawer' }" @click.self="$emit('close')">
       <section
         ref="dialog"
         class="app-sheet"

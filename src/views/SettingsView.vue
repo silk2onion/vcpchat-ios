@@ -11,6 +11,9 @@ import { useLibraryStore } from "../stores/library";
 import { useLogStore } from "../stores/logs";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspaceStore } from "../stores/workspace";
+import AppearanceSettings from "../components/AppearanceSettings.vue";
+import SpeechSettings from "../components/SpeechSettings.vue";
+import RegexEditor from "../components/RegexEditor.vue";
 const settings = useSettingsStore();
 const library = useLibraryStore();
 const logs = useLogStore();
@@ -24,6 +27,8 @@ const titles: Record<string, string> = {
   render: "高级渲染",
   data: "本机数据",
   about: "关于 VCPChat",
+  speech: "语音与朗读",
+  regex: "全局正则",
 };
 const section = computed(() =>
   typeof route.params.section === "string" && titles[route.params.section]
@@ -34,6 +39,7 @@ const showKey = ref(false);
 const modelStatus = ref("");
 const checking = ref(false);
 const models = ref<string[]>([]);
+const globalRules = computed({ get: () => settings.settings.regexRules, set: (regexRules) => { void settings.patch({ regexRules }); } });
 const renderSwitches = [
   { key: "renderCode", label: "代码高亮", description: "代码块的语法着色" },
   { key: "renderMath", label: "KaTeX 公式", description: "数学公式与符号" },
@@ -140,6 +146,8 @@ async function clearKeys() {
             ]
           }}</small></span><AppIcon name="chevron" :size="18" /></RouterLink>
           <RouterLink to="/settings/profile" class="settings-row"><span class="setting-icon blue"><AppIcon name="agents" /></span><span><strong>身份与日记</strong><small>称呼与服务器日记账号</small></span><AppIcon name="chevron" :size="18" /></RouterLink>
+          <RouterLink to="/settings/speech" class="settings-row"><span class="setting-icon"><AppIcon name="speaker" /></span><span><strong>语音与朗读</strong><small>SoVITS / MiMo · 每个 Agent 的声音</small></span><AppIcon name="chevron" :size="18" /></RouterLink>
+          <RouterLink to="/settings/regex" class="settings-row"><span class="setting-icon purple"><AppIcon name="regex" /></span><span><strong>全局正则</strong><small>{{ settings.settings.regexRules.length }} 条规则 · 显示与上下文</small></span><AppIcon name="chevron" :size="18" /></RouterLink>
         </div>
         <h2 class="settings-label">应用</h2>
         <div class="settings-group">
@@ -297,27 +305,9 @@ async function clearKeys() {
         </div>
         <p class="section-note">只用于服务器日记；聊天使用单独的 API Key。</p>
       </form>
-      <div v-else-if="section === 'appearance'" class="theme-choices">
-        <button
-          v-for="theme in [
-            { id: 'ink', name: '深色' },
-            { id: 'paper', name: '浅色' },
-            { id: 'aurora', name: '极光' },
-          ] as const"
-          :key="theme.id"
-          class="theme-choice"
-          :class="{ chosen: settings.settings.theme === theme.id }"
-          type="button"
-          :aria-pressed="settings.settings.theme === theme.id"
-          @click="settings.patch({ theme: theme.id })"
-        >
-          <span class="theme-preview" :class="theme.id"><i /><i /><i /></span><strong>{{ theme.name }}</strong><AppIcon
-            v-if="settings.settings.theme === theme.id"
-            name="check"
-            :size="18"
-          />
-        </button>
-      </div>
+      <AppearanceSettings v-else-if="section === 'appearance'" />
+      <SpeechSettings v-else-if="section === 'speech'" />
+      <RegexEditor v-else-if="section === 'regex'" v-model="globalRules" />
       <div v-else-if="section === 'render'" class="form-stack">
         <div class="settings-group">
           <label class="switch-row master-switch"><span><strong>开启高级渲染</strong><small>切换后，已有消息立即更新</small></span><input

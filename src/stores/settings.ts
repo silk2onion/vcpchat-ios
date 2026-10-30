@@ -22,7 +22,7 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function clearSecrets() {
-    await patch({ apiKey: "", logKey: "", adminPassword: "" });
+    await patch({ apiKey: "", logKey: "", adminPassword: "", ttsKey: "" });
     status.value = "密钥已从本机设置里清除";
   }
 

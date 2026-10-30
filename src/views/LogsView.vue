@@ -7,7 +7,7 @@ onMounted(() => {
   void logs.sync();
 });
 async function clear() {
-  if (confirm("清空本机保存的日志？")) await logs.clear();
+  if (confirm("清空本机保存的日志？未完成的审批会保留。")) await logs.clear();
 }
 </script>
 <template>

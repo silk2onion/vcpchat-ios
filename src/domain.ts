@@ -9,6 +9,19 @@ export type MessageStatus =
   | "stopped"
   | "interrupted";
 
+export interface RegexRule {
+  id: string;
+  title: string;
+  findPattern: string;
+  replaceWith: string;
+  applyToRoles: ("user" | "assistant")[];
+  applyToFrontend: boolean;
+  applyToContext: boolean;
+  minDepth: number;
+  maxDepth: number;
+  enabled: boolean;
+}
+
 export interface Settings {
   serverUrl: string;
   apiKey: string;
@@ -30,6 +43,18 @@ export interface Settings {
   renderMotion: boolean;
   renderMedia: boolean;
   mainAgentId: string;
+  wallpaper: "forest" | "leaves" | "none" | "custom";
+  wallpaperCustom: string;
+  wallpaperDim: number;
+  wallpaperBlur: number;
+  ttsMode: "sovits" | "mimo";
+  ttsUrl: string;
+  ttsKey: string;
+  ttsVoice: string;
+  ttsModel: string;
+  ttsSpeed: number;
+  ttsDirector: string;
+  regexRules: RegexRule[];
 }
 
 export interface Agent {
@@ -40,7 +65,12 @@ export interface Agent {
   temperature: number | null;
   createdAt: number;
   avatar?: string;
+  avatarUrl?: string;
   description?: string;
+  voice?: string;
+  speechSpeed?: number;
+  speechDirector?: string;
+  regexRules?: RegexRule[];
 }
 
 export interface Group {
@@ -101,6 +131,9 @@ export interface LogEntry {
   title: string;
   detail: string;
   createdAt: number;
+  payload?: Record<string, unknown>;
+  seen?: boolean;
+  decision?: { approved: boolean; reason: string; sentAt: number };
 }
 
 export const LIMITS = {
@@ -133,11 +166,23 @@ export function defaultSettings(): Settings {
     renderMotion: true,
     renderMedia: true,
     mainAgentId: "",
+    wallpaper: "forest",
+    wallpaperCustom: "",
+    wallpaperDim: 58,
+    wallpaperBlur: 0,
+    ttsMode: "sovits",
+    ttsUrl: "",
+    ttsKey: "",
+    ttsVoice: "",
+    ttsModel: "mimo-v2.5-tts",
+    ttsSpeed: 1,
+    ttsDirector: "",
+    regexRules: [],
   };
 }
 
 export function secretsOf(settings: Settings): string[] {
-  return [settings.apiKey, settings.logKey, settings.adminPassword].filter(
+  return [settings.apiKey, settings.logKey, settings.adminPassword, settings.ttsKey].filter(
     (value) => value.length >= 4,
   );
 }

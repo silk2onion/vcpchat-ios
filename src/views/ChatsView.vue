@@ -14,6 +14,7 @@ const { openOwner } = useChatNavigation();
       <AgentAvatar
         :name="library.mainAgent.name"
         :symbol="library.mainAgent.avatar"
+        :image="library.mainAgent.avatarUrl"
         :size="80"
       /><span class="main-agent-label"><AppIcon name="star" :size="14" /> 你的主 Agent</span>
       <h1>{{ library.mainAgent.name }}</h1>

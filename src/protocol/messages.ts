@@ -1,5 +1,6 @@
 import type { Agent, ChatMessage, Group, Settings } from "../domain";
 import { LIMITS } from "../domain";
+import { applyRules, turnDepths } from "./regex";
 
 export interface ApiContentPart {
   type: "text" | "image_url";
@@ -41,16 +42,19 @@ export function toApiMessages(options: {
   const window = messages.slice(-LIMITS.historyMessages);
   const lastUser = [...window].reverse().find((message) => message.role === "user");
   const api: ApiMessage[] = [];
+  const depths = turnDepths(window);
+  const rules = [...(settings.regexRules ?? []), ...(agent.regexRules ?? [])];
   if (system) api.push({ role: "system", content: system });
   for (const message of window) {
     if (message.role === "assistant" && !message.content.trim()) continue;
+    const transformed = { ...message, content: applyRules(message.content, rules, "context", message.role, depths.get(message.id) ?? 0) };
     if (message.role === "user") {
       const includeFiles = message.id === lastUser?.id;
-      api.push({ role: "user", content: userContent(message, includeFiles) });
+      api.push({ role: "user", content: userContent(transformed, includeFiles) });
       continue;
     }
     const speaker = message.authorName?.trim();
-    const content = group && speaker ? `【${speaker}】\n${message.content}` : message.content;
+    const content = group && speaker ? `【${speaker}】\n${transformed.content}` : transformed.content;
     api.push({ role: "assistant", content });
   }
   return api;

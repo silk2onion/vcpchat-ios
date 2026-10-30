@@ -14,6 +14,8 @@
     "allow-release-chat-stream",
     "allow-http-request",
     "allow-socket-connect",
-    "allow-socket-disconnect"
+    "allow-socket-disconnect",
+    "allow-socket-send",
+    "allow-audio-request"
   ]
 }

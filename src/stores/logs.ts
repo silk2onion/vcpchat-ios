@@ -1,7 +1,8 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, onScopeDispose, ref } from "vue";
 import type { LogEntry } from "../domain";
-import { LIMITS } from "../domain";
+import { LIMITS, secretsOf } from "../domain";
+import { activityData, approvalExpired, approvalId, approvalResponse, record, redactPayload } from "../protocol/activity";
 import { buildInfoSocketUrl, buildLogSocketUrl } from "../protocol/endpoint";
 import { createId } from "../protocol/ids";
 import { summarizePayload } from "../protocol/logs";
@@ -20,6 +21,12 @@ const STALE_AFTER_MS = 20_000;
 export const useLogStore = defineStore("logs", () => {
   const entries = ref<LogEntry[]>([]);
   const status = ref<Record<Channel, string>>({ log: "未连接", info: "未连接" });
+  const unread = computed(() => entries.value.filter((e) => e.seen === false && activityData(e).type !== "connection_ack").length);
+  const pending = computed(() => entries.value.filter((e, i, all) => activityData(e).type === "tool_approval_request" && approvalId(e) && approvalStatus(e) === "pending" && all.findIndex((other) => approvalId(other) === approvalId(e)) === i));
+  const sending = new Set<string>();
+  const now = ref(Date.now());
+  const expiryTimer = typeof window === "undefined" ? undefined : window.setInterval(() => { now.value = Date.now(); }, 1000);
+  onScopeDispose(() => { if (expiryTimer !== undefined) window.clearInterval(expiryTimer); });
   let sockets: Partial<Record<Channel, WebSocket>> = {};
   const delays: Record<Channel, number> = { log: 1000, info: 1000 };
   let timers: Partial<Record<Channel, number>> = {};
@@ -135,21 +142,65 @@ export const useLogStore = defineStore("logs", () => {
         payload = raw;
       }
     }
-    const summary = summarizePayload(payload);
+    const cleaned = redactPayload(payload, redact);
+    const summary = summarizePayload(cleaned);
     const entry: LogEntry = {
       id: createId("log"),
       channel,
       title: redact(summary.title),
       detail: redact(summary.detail),
       createdAt: Date.now(),
+      payload: cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) ? record(cleaned) : undefined,
+      seen: false,
     };
-    entries.value = [...entries.value, entry].slice(-LIMITS.maxLogEntries);
+    const next = [...entries.value, entry].slice(-LIMITS.maxLogEntries);
+    let bytes = 0;
+    entries.value = next.reverse().filter((item) => {
+      bytes += JSON.stringify(item.payload ?? item.detail).length * 2;
+      return bytes <= 8_000_000;
+    }).reverse();
     await getRepository().saveLogs(entries.value);
   }
 
   function redact(text: string): string {
     const settings = useSettingsStore().settings;
-    return redactSecrets(text, [settings.apiKey, settings.logKey, settings.adminPassword]);
+    return redactSecrets(text, secretsOf(settings));
+  }
+
+  function approvalStatus(entry: LogEntry): "pending" | "sent" | "approved" | "rejected" | "expired" {
+    const id = approvalId(entry);
+    const answer = [...entries.value].reverse().find((e) => activityData(e).type === "tool_approval_response" && approvalId(e) === id);
+    if (answer) return activityData(answer).approved === true ? "approved" : "rejected";
+    if (entries.value.some((e) => approvalId(e) === id && e.decision)) return "sent";
+    if (approvalExpired(entry, now.value)) return "expired";
+    return "pending";
+  }
+
+  async function respond(entryId: string, approved: boolean, reason: string) {
+    const entry = entries.value.find((e) => e.id === entryId);
+    if (!entry || activityData(entry).type !== "tool_approval_request" || !approvalId(entry) || approvalExpired(entry) || approvalStatus(entry) !== "pending") throw new Error("这条审批已处理或已过期");
+    const requestId = approvalId(entry);
+    if (sending.has(requestId)) throw new Error("这条审批正在发送");
+    if (status.value.log !== "已连接") throw new Error("VCPLog 未连接，审批尚未发送");
+    const message = JSON.stringify(approvalResponse(requestId, approved, reason));
+    sending.add(requestId);
+    try {
+      if (native) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("socket_send", { channel: "log", text: message });
+    } else {
+      const socket = sockets.log;
+      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("连接已断开，审批尚未发送");
+      socket.send(message);
+    }
+    entries.value = entries.value.map((e) => approvalId(e) === requestId && activityData(e).type === "tool_approval_request" ? { ...e, decision: { approved, reason: reason.trim().slice(0, 1000), sentAt: Date.now() } } : e);
+    await getRepository().saveLogs(entries.value);
+    } finally { sending.delete(requestId); }
+  }
+
+  async function markRead() {
+    entries.value = entries.value.map((e) => e.seen === false ? { ...e, seen: true } : e);
+    await getRepository().saveLogs(entries.value);
   }
 
   async function disconnect() {
@@ -169,9 +220,10 @@ export const useLogStore = defineStore("logs", () => {
   }
 
   async function clear() {
-    entries.value = [];
-    await getRepository().saveLogs([]);
+    // Clearing a diagnostic log must not discard a decision still owed to the server.
+    entries.value = entries.value.filter((e) => activityData(e).type === "tool_approval_request" && ["pending", "sent"].includes(approvalStatus(e)));
+    await getRepository().saveLogs(entries.value);
   }
 
-  return { entries, status, load, sync, reconnect, resume, disconnect, clear };
+  return { entries, status, unread, pending, load, sync, reconnect, resume, disconnect, clear, respond, approvalStatus, markRead };
 });

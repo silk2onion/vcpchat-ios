@@ -71,6 +71,17 @@ async fn socket_connect(app: tauri::AppHandle, state: State<'_, NetState>, chann
 }
 
 #[tauri::command]
+async fn socket_send(state: State<'_, NetState>, channel: String, text: String) -> Result<(), String> {
+    net::socket_send(&state, &channel, text).await
+}
+
+#[tauri::command]
+async fn audio_request(state: State<'_, NetState>, url: String, headers: HashMap<String, String>, body: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = net::audio_request(&state, HttpCall { method: "POST".into(), url, headers, body: Some(body) }).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
 fn socket_disconnect(state: State<'_, NetState>, channel: String) -> Result<(), String> {
     net::socket_disconnect(&state, &channel)
 }
@@ -91,6 +102,8 @@ pub fn run() {
             release_chat_stream,
             http_request,
             socket_connect,
+            socket_send,
+            audio_request,
             socket_disconnect
         ])
         .run(tauri::generate_context!())

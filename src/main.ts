@@ -9,6 +9,7 @@ import { useLogStore } from "./stores/logs";
 import { useNotesStore } from "./stores/notes";
 import { useSettingsStore } from "./stores/settings";
 import "./styles.css";
+import "./polish.css";
 import { installAppViewport } from "./viewport";
 
 installAppViewport();
@@ -26,6 +27,7 @@ async function boot() {
   await useNotesStore().load();
   const logs = useLogStore();
   await logs.load();
+  void logs.sync();
   watchAppLifecycle({
     hidden: () => void library.flushStreams(),
     visible: (hiddenForMs) => void logs.resume(hiddenForMs),

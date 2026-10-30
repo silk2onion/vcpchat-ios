@@ -5,10 +5,11 @@ const props = withDefaults(
   defineProps<{
     name: string;
     symbol?: string;
+    image?: string;
     size?: number;
     group?: boolean;
   }>(),
-  { size: 44, symbol: "", group: false },
+  { size: 44, symbol: "", image: "", group: false },
 );
 const tone = computed(
   () =>
@@ -29,7 +30,7 @@ const initial = computed(
       fontSize: `${size * 0.42}px`,
     }"
     aria-hidden="true"
-  ><AppIcon v-if="group" name="agents" :size="size * 0.52" /><template
+  ><img v-if="image" :src="image" alt="" /><AppIcon v-else-if="group" name="agents" :size="size * 0.52" /><template
     v-else
   >{{ initial }}</template></span>
 </template>

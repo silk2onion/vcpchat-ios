@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import AgentAvatar from "../components/AgentAvatar.vue";
 import AppIcon from "../components/AppIcon.vue";
+import ActivityButton from "../components/ActivityButton.vue";
 import MessageBody from "../components/MessageBody.vue";
 import { assertAttachmentCount, attachmentKind } from "../protocol/messages";
 import { createId } from "../protocol/ids";
@@ -13,10 +14,14 @@ import { useFrameMessages } from "../render/frame";
 import { useLibraryStore } from "../stores/library";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspaceStore } from "../stores/workspace";
+import { useSpeechStore } from "../stores/speech";
+import { applyRules, turnDepths } from "../protocol/regex";
 
 const library = useLibraryStore();
 const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
+const speech = useSpeechStore();
+const copied = ref("");
 const route = useRoute();
 const router = useRouter();
 const displayedMessages = useFrameMessages(() => ({
@@ -24,6 +29,20 @@ const displayedMessages = useFrameMessages(() => ({
   streaming: library.streaming,
   messages: library.messages,
 }));
+const depths = computed(() => turnDepths(displayedMessages.value));
+function displayedText(message: ChatMessage) {
+  const agent = library.agents.find((a) => a.id === message.agentId) ?? library.currentAgent;
+  return applyRules(message.content, [...settings.settings.regexRules, ...(agent?.regexRules ?? [])], "frontend", message.role, depths.value.get(message.id) ?? 0);
+}
+async function copyMessage(message: ChatMessage) {
+  try { await navigator.clipboard.writeText(displayedText(message)); copied.value = message.id; }
+  catch { library.error = "复制失败，请长按选择消息文本"; }
+}
+function readMessage(message: ChatMessage) {
+  if (speech.messageId === message.id && speech.active) { speech.stop(); return; }
+  if (!settings.settings.ttsUrl.trim()) { void router.push("/settings/speech"); return; }
+  void speech.read(message.id, displayedText(message), library.agents.find((a) => a.id === message.agentId));
+}
 const draft = computed({
   get: () => workspace.draftFor(library.topicId).text,
   set: (text) => workspace.saveDraft(library.topicId, { text }),
@@ -198,6 +217,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
       >
         <AgentAvatar
           :name="recipient?.name || 'Agent'"
+          :image="library.ownerType === 'agent' ? library.currentAgent?.avatarUrl : undefined"
           :symbol="
             library.ownerType === 'agent'
               ? library.currentAgent?.avatar
@@ -215,6 +235,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
       >
         <AppIcon name="history" :size="21" />
       </button>
+      <ActivityButton />
       <button
         class="icon-button subtle"
         type="button"
@@ -247,6 +268,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
         <div v-if="!displayedMessages.length" class="empty-chat">
           <AgentAvatar
             :name="recipient?.name || 'Agent'"
+            :image="library.ownerType === 'agent' ? library.currentAgent?.avatarUrl : undefined"
             :symbol="
               library.ownerType === 'agent'
                 ? library.currentAgent?.avatar
@@ -274,6 +296,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
           <header v-if="message.role === 'assistant'">
             <AgentAvatar
               :name="message.authorName || 'Agent'"
+              :image="library.agents.find((a) => a.id === message.agentId)?.avatarUrl"
               :symbol="
                 library.agents.find((a) => a.id === message.agentId)?.avatar
               "
@@ -289,7 +312,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
           <div class="body">
             <MessageBody
               :key="renderKey"
-              :content="message.content"
+              :content="displayedText(message)"
               :reasoning="message.reasoning"
               :streaming="message.status === 'streaming'"
               :options="renderOptions"
@@ -350,6 +373,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
               <AppIcon name="send" :size="16" />继续写
             </button>
           </div>
+          <div v-if="message.status !== 'streaming'" class="message-actions"><button class="icon-button subtle" type="button" :aria-label="`复制消息 ${index + 1}`" @click="copyMessage(message)"><AppIcon :name="copied === message.id ? 'check' : 'copy'" :size="16" /></button><button v-if="message.role === 'assistant' && message.content.trim()" class="icon-button subtle" type="button" :class="{ 'is-speaking': speech.messageId === message.id && speech.active }" :aria-label="speech.messageId === message.id && speech.active ? '停止朗读这条消息' : `朗读回复 ${index + 1}`" @click="readMessage(message)"><AppIcon :name="speech.messageId === message.id && speech.active ? 'stop' : 'speaker'" :size="17" /></button></div>
         </article>
       </div>
       <button

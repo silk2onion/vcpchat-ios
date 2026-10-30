@@ -11,6 +11,8 @@ class FakeSocket {
   static OPEN = 1;
   static opened: FakeSocket[] = [];
   readyState = 0;
+  sent: string[] = [];
+  send(text: string) { this.sent.push(text); }
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -78,6 +80,56 @@ describe("VCPLog reconnect on foreground", () => {
     await logs.resume(60_000);
     expect(FakeSocket.opened).toHaveLength(0);
   });
+  test("preserves full structured RAG, redacts secrets and keeps pending approvals on clear", async () => {
+    const logs = useLogStore(); await logs.sync();
+    for (const socket of FakeSocket.opened) socket.open();
+    FakeSocket.opened[1].onmessage?.({ data: JSON.stringify({ type: "RAG_RETRIEVAL_DETAILS", results: [{ text: "x".repeat(6000) + "fixture" }] }) });
+    await Promise.resolve();
+    expect(JSON.stringify(logs.entries[0].payload)).toContain("x".repeat(6000));
+    expect(JSON.stringify(logs.entries[0].payload)).not.toContain("fixture");
+    FakeSocket.opened[0].onmessage?.({ data: JSON.stringify({ type: "tool_approval_request", data: { requestId: "req1", toolName: "Read" } }) });
+    await Promise.resolve();
+    expect(logs.pending).toHaveLength(1);
+    await logs.clear();
+    expect(logs.entries).toHaveLength(1);
+    expect(logs.pending).toHaveLength(1);
+    await logs.disconnect();
+  });
+
+  test("sends once per request ID and waits for a remote confirmation", async () => {
+    const logs = useLogStore(); await logs.sync();
+    for (const socket of FakeSocket.opened) socket.open();
+    const socket = FakeSocket.opened[0];
+    const data = JSON.stringify({ type: "tool_approval_request", data: { requestId: "req1", toolName: "Read" } });
+    socket.onmessage?.({ data }); socket.onmessage?.({ data });
+    await Promise.resolve();
+    expect(logs.pending).toHaveLength(1);
+    const id = logs.pending[0].id;
+    await logs.respond(id, true, "  只读  ");
+    expect(socket.sent.map((value) => JSON.parse(value))).toEqual([{ type: "tool_approval_response", data: { requestId: "req1", approved: true, reason: "只读" } }]);
+    expect(logs.approvalStatus(logs.entries[0])).toBe("sent");
+    expect(logs.approvalStatus(logs.entries[1])).toBe("sent");
+    await expect(logs.respond(logs.entries[1].id, false, "")).rejects.toThrow("已处理");
+    socket.onmessage?.({ data: socket.sent[0] });
+    await Promise.resolve();
+    expect(logs.approvalStatus(logs.entries[0])).toBe("approved");
+    await logs.disconnect();
+  });
+
+  test("a disconnected or expired request remains unsent", async () => {
+    const logs = useLogStore(); await logs.sync();
+    for (const socket of FakeSocket.opened) socket.open();
+    const socket = FakeSocket.opened[0];
+    socket.onmessage?.({ data: JSON.stringify({ type: "tool_approval_request", data: { requestId: "expired", expiresAt: Date.now() - 1 } }) });
+    socket.onmessage?.({ data: JSON.stringify({ type: "tool_approval_request", data: { requestId: "pending" } }) });
+    await Promise.resolve();
+    await expect(logs.respond(logs.entries[0].id, true, "")).rejects.toThrow("已过期");
+    socket.close();
+    await expect(logs.respond(logs.entries[1].id, true, "")).rejects.toThrow("未连接");
+    expect(logs.entries[1].decision).toBeUndefined(); expect(socket.sent).toHaveLength(0);
+    await logs.disconnect();
+  });
+
 });
 
 describe("app lifecycle", () => {

@@ -55,7 +55,7 @@ const agents = computed(() =>
             type="button"
             @click="openOwner('agent', agent.id)"
           >
-            <AgentAvatar :name="agent.name" :symbol="agent.avatar" /><span
+            <AgentAvatar :name="agent.name" :symbol="agent.avatar" :image="agent.avatarUrl" /><span
               class="conversation-copy"
             ><strong>{{ agent.name }}
               <span v-if="agent.id === library.mainAgent?.id" class="badge">主 Agent</span></strong><span>{{

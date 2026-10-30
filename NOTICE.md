@@ -16,3 +16,8 @@ You must give appropriate credit, link the license, and indicate changes. You ma
 
 The license text is in LICENSE.
 https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+The mobile wallpaper/portrait gallery also reuses forest_night.jpg, leaf.jpg and
+default_avatar.png from the user's VCPChat desktop checkout at
+40c0d3cfd34288b4f38f3a14971b5f4d26729462. They are copied unchanged; the mobile
+client adds its own wallpaper presentation, image import and avatar controls.

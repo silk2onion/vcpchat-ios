@@ -29,6 +29,22 @@ const paths: Record<string, string> = {
   palette:
     "M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-3.7 1.5 1.5 0 0 1 1-2.8h2a4 4 0 0 0 4-4A8 8 0 0 0 12 3ZM7 10h.01M9 6h.01M14 6h.01M17 10h.01",
   shield: "m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z",
+  bell: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4",
+  image: "M3 3h18v18H3ZM3 16l6-6 5 5 3-3 4 4M16 7h.01",
+  upload: "M12 16V3m-5 5 5-5 5 5M3 15v6h18v-6",
+  camera: "M8 4h8l2 3h4v14H2V7h4l2-3ZM16 13a4 4 0 1 0-8 0 4 4 0 0 0 8 0Z",
+  speaker: "m11 5-6 4H2v6h3l6 4V5ZM15 8a6 6 0 0 1 0 8M18 4a11 11 0 0 1 0 16",
+  play: "m8 4 13 8-13 8V4Z",
+  pause: "M7 4v16M17 4v16",
+  regex: "M4 17h.01M8 8l10 10M18 8 8 18M13 3v7M9 5l8 4M17 5l-8 4",
+  brain: "M12 3v18M12 5C9 0 4 4 5 8 1 10 2 16 6 16c0 5 6 7 6 2M12 5c3-5 8-1 7 3 4 2 3 8-1 8 0 5-6 7-6 2M6 10l3 2M18 10l-3 2",
+  database: "M21 5c0 2-4 3-9 3S3 7 3 5s4-3 9-3 9 1 9 3ZM3 5v14c0 2 4 3 9 3s9-1 9-3V5M3 12c0 2 4 3 9 3s9-1 9-3",
+  activity: "M2 12h4l3-8 6 16 3-8h4",
+  clock: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v5l3 2",
+  copy: "M8 8h13v13H8ZM16 8V3H3v13h5",
+  tune: "M4 3v6M4 15v6M12 3v12M12 19v2M20 3v2M20 11v10M1 9h6M9 15h6M17 5h6",
+  moon: "M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z",
+  info: "M12 11v6M12 7h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
 };
 </script>
 <template>

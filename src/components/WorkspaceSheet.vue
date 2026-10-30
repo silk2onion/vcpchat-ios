@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import type { GroupMode } from "../domain";
+import type { GroupMode, RegexRule } from "../domain";
 import { useLibraryStore } from "../stores/library";
 import { useWorkspaceStore } from "../stores/workspace";
 import { shortDate, useChatNavigation } from "../ui/navigation";
 import AgentAvatar from "./AgentAvatar.vue";
 import AppIcon from "./AppIcon.vue";
 import AppSheet from "./AppSheet.vue";
+import AvatarEditor from "./AvatarEditor.vue";
+import RegexEditor from "./RegexEditor.vue";
+import { useSpeechStore } from "../stores/speech";
 
 const library = useLibraryStore();
 const workspace = useWorkspaceStore();
@@ -16,6 +19,9 @@ const route = useRoute();
 const { openTopic, newChat } = useChatNavigation();
 const name = ref("");
 const avatar = ref("");
+const avatarUrl = ref("");
+const voice = ref(""); const speechSpeed = ref(""); const speechDirector = ref(""); const rules = ref<RegexRule[]>([]);
+const speech = useSpeechStore();
 const description = ref("");
 const prompt = ref("");
 const model = ref("");
@@ -75,6 +81,8 @@ watch(
     const group = selectedGroup.value;
     name.value = agent?.name ?? group?.name ?? selectedTopic.value?.title ?? "";
     avatar.value = agent?.avatar ?? "";
+    avatarUrl.value = agent?.avatarUrl ?? "";
+    voice.value = agent?.voice ?? ""; speechSpeed.value = agent?.speechSpeed == null ? "" : String(agent.speechSpeed); speechDirector.value = agent?.speechDirector ?? ""; rules.value = JSON.parse(JSON.stringify(agent?.regexRules ?? []));
     description.value = agent?.description ?? "";
     prompt.value = agent?.systemPrompt ?? "";
     model.value = agent?.model ?? "";
@@ -123,6 +131,8 @@ async function saveAgent() {
   }
   await run(async () => {
     let agent = selectedAgent.value;
+    const speed = speechSpeed.value.trim() ? Number(speechSpeed.value) : undefined;
+    if (speed != null && (!Number.isFinite(speed) || speed < 0.5 || speed > 2)) throw new Error("语速应在 0.5 到 2 之间");
     if (!agent) {
       await library.createAgent(name.value);
       agent = library.currentAgent ?? undefined;
@@ -132,6 +142,8 @@ async function saveAgent() {
       ...agent,
       name: name.value.trim(),
       avatar: avatar.value.trim(),
+      avatarUrl: avatarUrl.value,
+      voice: voice.value.trim(), speechSpeed: speed, speechDirector: speechDirector.value, regexRules: rules.value,
       description: description.value.trim(),
       systemPrompt: prompt.value,
       model: model.value.trim(),
@@ -177,6 +189,7 @@ async function remove() {
   <AppSheet
     v-if="workspace.sheet"
     :title="title"
+    :closing="workspace.closing"
     :subtitle="
       workspace.sheet.type === 'main-agent'
         ? '主 Agent 是你的固定入口，更换不会移动任何会话。'
@@ -238,7 +251,7 @@ async function remove() {
             : choose('agent', agent.id)
         "
       >
-        <AgentAvatar :name="agent.name" :symbol="agent.avatar" /><span
+        <AgentAvatar :name="agent.name" :symbol="agent.avatar" :image="agent.avatarUrl" /><span
           class="conversation-copy"
         ><strong>{{ agent.name }}</strong><span>{{
           agent.description || agent.model || "使用默认模型"
@@ -268,19 +281,7 @@ async function remove() {
       class="stack form-stack"
       @submit.prevent="saveAgent"
     >
-      <div class="profile-preview">
-        <AgentAvatar
-          :name="name || 'Agent'"
-          :symbol="avatar"
-          :size="68"
-        /><label class="field avatar-field">头像符号<input
-          v-model="avatar"
-          type="text"
-          maxlength="8"
-          placeholder="例如 ✦"
-          aria-label="头像符号"
-        /></label>
-      </div>
+      <AvatarEditor v-model:picture="avatarUrl" v-model:symbol="avatar" :name="name || 'Agent'" />
       <label class="field">名字<input
         v-model="name"
         type="text"
@@ -314,8 +315,10 @@ async function remove() {
       /></label>
       <label v-if="!selectedAgent" class="check"><input v-model="makePrimary" type="checkbox" />创建后设为主
         Agent</label>
+      <details class="agent-advanced"><summary><AppIcon name="speaker" :size="18" />这个 Agent 的声音</summary><div class="stack"><label class="field">音色<input v-model="voice" type="text" list="agent-voice-options" placeholder="留空使用全局音色" /></label><datalist id="agent-voice-options"><option v-for="item in speech.voices" :key="item.voice" :value="item.voice">{{ item.name }}</option></datalist><label class="field">语速<input v-model="speechSpeed" type="number" min="0.5" max="2" step="0.1" placeholder="使用全局语速" /></label><label class="field">导演提示词<textarea v-model="speechDirector" rows="2" placeholder="留空使用全局设置；仅用于 MiMo" /></label><RouterLink to="/settings/speech" class="text-button" @click="workspace.close">设置语音服务<AppIcon name="chevron" :size="15" /></RouterLink></div></details>
+      <details class="agent-advanced"><summary><AppIcon name="regex" :size="18" />Agent 正则<span class="badge">{{ rules.length }}</span></summary><RegexEditor v-model="rules" /></details>
       <button
-        v-else-if="selectedAgent.id !== library.mainAgent?.id"
+        v-if="selectedAgent && selectedAgent.id !== library.mainAgent?.id"
         class="setting-action"
         type="button"
         @click="
@@ -326,7 +329,7 @@ async function remove() {
       >
         <AppIcon name="star" />设为主 Agent<AppIcon name="chevron" :size="18" />
       </button>
-      <span v-else class="badge main-profile-badge"><AppIcon name="star" :size="14" />当前主 Agent</span>
+      <span v-else-if="selectedAgent" class="badge main-profile-badge"><AppIcon name="star" :size="14" />当前主 Agent</span>
       <button
         v-if="selectedAgent"
         class="danger text-button"
@@ -357,6 +360,7 @@ async function remove() {
       <label v-for="agent in library.agents" :key="agent.id" class="choice-row"><AgentAvatar
         :name="agent.name"
         :symbol="agent.avatar"
+        :image="agent.avatarUrl"
         :size="36"
       /><span class="conversation-copy"><strong>{{ agent.name }}</strong></span><input
         v-model="members"

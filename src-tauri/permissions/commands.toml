@@ -32,3 +32,13 @@ commands.allow = ["socket_connect"]
 identifier = "allow-socket-disconnect"
 description = "Close a VCP WebSocket channel."
 commands.allow = ["socket_disconnect"]
+
+[[permission]]
+identifier = "allow-socket-send"
+description = "Send an explicit tool approval response on the connected VCPLog channel."
+commands.allow = ["socket_send"]
+
+[[permission]]
+identifier = "allow-audio-request"
+description = "Fetch bounded binary audio from the configured speech service."
+commands.allow = ["audio_request"]

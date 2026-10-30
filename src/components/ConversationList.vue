@@ -5,6 +5,7 @@ import { useWorkspaceStore } from "../stores/workspace";
 import { shortDate, useChatNavigation } from "../ui/navigation";
 import AgentAvatar from "./AgentAvatar.vue";
 import AppIcon from "./AppIcon.vue";
+import ActivityButton from "./ActivityButton.vue";
 defineProps<{ sidebar?: boolean }>();
 const library = useLibraryStore();
 const workspace = useWorkspaceStore();
@@ -33,14 +34,16 @@ const topics = computed(() =>
         <p class="eyebrow brand">VCPCHAT</p>
         <h1>会话</h1>
       </div>
-      <button
-        class="icon-button accent-button"
-        type="button"
-        aria-label="新建会话"
-        @click="workspace.open({ type: 'new-chat' })"
-      >
-        <AppIcon name="plus" />
-      </button>
+      <div class="page-header-actions">
+        <ActivityButton /><button
+          class="icon-button accent-button"
+          type="button"
+          aria-label="新建会话"
+          @click="workspace.open({ type: 'new-chat' })"
+        >
+          <AppIcon name="plus" />
+        </button>
+      </div>
     </header>
     <div class="panel-scroll">
       <div v-if="library.mainAgent" class="main-agent-card">
@@ -53,6 +56,7 @@ const topics = computed(() =>
           <AgentAvatar
             :name="library.mainAgent.name"
             :symbol="library.mainAgent.avatar"
+            :image="library.mainAgent.avatarUrl"
             :size="50"
           />
           <span class="main-agent-copy"><span class="main-agent-label"><AppIcon name="star" :size="12" /> 主 Agent</span><strong>{{ library.mainAgent.name }}</strong><span>随时回到这里</span></span>
@@ -87,6 +91,7 @@ const topics = computed(() =>
         >
           <AgentAvatar
             :name="owner(topic.ownerType, topic.ownerId)?.name || 'Agent'"
+            :image="topic.ownerType === 'agent' ? library.agents.find((a) => a.id === topic.ownerId)?.avatarUrl : undefined"
             :symbol="
               topic.ownerType === 'agent'
                 ? library.agents.find((a) => a.id === topic.ownerId)?.avatar
