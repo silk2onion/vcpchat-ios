@@ -87,3 +87,8 @@ describe("chat payloads", () => {
     expect(() => attachmentKind({ name: "a.png", type: "image/png", size: 2_000_000 })).toThrow(/1\.5MB/);
   });
 });
+
+test("synced group unified model and group prompt apply to replies without changing one-to-one defaults",()=>{
+ const group={id:"sync:g",name:"桌面群",memberIds:[agent.id],mode:"all" as const,createdAt:1,unifiedModel:"shared-model",systemPrompt:"协同讨论"};
+ expect(JSON.parse(buildRequestBody(settings(),agent,[],group)).model).toBe("shared-model");expect(JSON.parse(buildRequestBody(settings(),agent,[])).model).toBe("demo");expect(toApiMessages({settings:settings(),agent,group,messages:[]})[0].content).toContain("协同讨论");
+});

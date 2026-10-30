@@ -147,3 +147,9 @@ describe("multi-agent workspace", () => {
   });
 
 });
+
+test("importing an older desktop agent does not replace the existing implicit main agent",async()=>{
+ const library=await load(),original=library.mainAgent!.id;
+ await getRepository().saveAgent({id:"sync:fixture:agent:desktop",name:"更早的桌面 Agent",model:"",systemPrompt:"",temperature:null,createdAt:0});
+ await library.load();expect(library.mainAgent!.id).toBe(original);expect(useSettingsStore().settings.mainAgentId).toBe("");
+});

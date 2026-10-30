@@ -119,30 +119,26 @@ README 的“后台保持实时或手动增量”不能替代上述当前控制�
 
 鉴权应分别保存并明确用途：ToolBox `serverKey`、桌面 `MobileSyncToken`、`Image_Key`/`File_Key`、管理员 Basic 身份不能混用。[ToolBox Bearer][t-auth] [同步 Bearer][c-auth] [文件 Key][t-static]
 
-## 7. 本 iOS 应用接入建议
+## 7. 当前应用的接入
 
-### 现状缺口
+入口为“我 → 桌面同步”和“我 → 文件”。保留 IndexedDB、既有数据表和旧记录身份；仅新增文件表与同步元数据。桌面导入使用来源 UUID + owner 类型/ID + topic ID 的复合身份，解决不同 Agent 的相同原始话题/消息 ID 冲突。
 
-- [domain.ts](/Users/zhaoyuanhao/Documents/vchat%20ios/src/domain.ts#L62-L121)：Agent/Group 缺更新时间、墓碑；Topic 缺 unread/墓碑；Message 缺同步更新时间；Attachment 只有 Data URL/文本，没有 CAS hash 或远端 locator。
-- [repository.ts](/Users/zhaoyuanhao/Documents/vchat%20ios/src/storage/repository.ts#L3-L24)：只有本地 CRUD；[indexeddb.ts](/Users/zhaoyuanhao/Documents/vchat%20ios/src/storage/indexeddb.ts#L52-L130) 使用物理删除，没有同步清单/墓碑入口。
-- [messages.ts](/Users/zhaoyuanhao/Documents/vchat%20ios/src/protocol/messages.ts#L73-L113)：附件直接注入聊天上下文，图片 1.5 MB、文本 200 KB、最多 4 个；未接文件服务器上传。
-- [logs.ts](/Users/zhaoyuanhao/Documents/vchat%20ios/src/stores/logs.ts#L136-L162)：WebSocket 入站只保存日志，没有 Topic/ChatMessage 消费者；日记接口不能补上这项能力。
+- `src/sync/`：原版 canonical/hash、Wire 1.5 握手、清单与差分、实体批次、消息 NDJSON、头像二进制与最终 ACK。原版 Mobile 的 SQLite 引擎没有整包搬入；同步 shadow 保存未知 DTO 字段、版本与墓碑，投影到现有 Repository。
+- `src/stores/sync.ts`：默认拉取、显式双向、取消、未完成不应用、原子恢复点。提交时重新检查本机记录；同步期间被编辑会整批拒绝。拉取不会盖掉本机未回写改动。成功后保留原主 Agent 的入口。
+- `src/files/` 与 `FilesView.vue`：本机内容寻址文件库、原文件导出，以及原版 FileOperator 和 ImageFileServer 适配。服务器绝对路径只作为浏览起点，不宣称为服务器权限隔离。
+- 附件原文件与历史同步分开；用户资料和连接设置保留在本机。已缓存原文件按 hash 关联到同步附件；未取回的附件保留“仅桌面”状态。
 
-### 推荐实施顺序
-
-1. **历史同步先接协议和存储适配。** 固定与目标桌面匹配的 DTO/canonical/hash 契约；扩展 Repository 的同步元数据、复合身份、墓碑和原子写入入口。保留当前 IndexedDB 和现有身份，先以导入预览验证手动拉取映射，再开放回写与双向删除；导入模式不冒充完整双向同步完成。
-2. **不整包搬入 Rust 引擎。** 原版 `Phase1Metadata` 直接查询 `SqlitePool` 的 agents/groups/topics，Pull 直接提交 `DbWriteQueue`。工程判断：原样复用需连带它的 SQLite 模型、写队列及领域服务；更适合抽出协议/差分与存储接口，接现有 Repository，而非双库存两份聊天真源。[SQL 耦合][m-manifest] [写队列耦合][m-pull-write]
-3. **文件放“我 → 文件”。** 分为“本机附件”和“服务器文件”：前者是导入/缓存与可用状态，后者调用 `ServerFileOperator`；下载后才把本机附件标为可用。附件原文件按需取回另设通道，不伪装成 MobileSync 已传输。
-4. **自动入站再定义触发。** 前台启动/手动刷新做差分；若要求服务器新话题即时出现，需独立事件消费者或通知后补拉，并在断线/回前台时重新对齐，不能仅复用日志卡片。
-5. **回写前保留原字段并校正日志。** 两端都不得把不认识的上游配置静默删掉；官方调试日志存在直接记录同步 Token 的代码，移植时应脱敏，不照搬。[桌面日志][c-ws] [手机日志][m-secret-log]
+使用说明见 [README](/Users/zhaoyuanhao/Documents/vchat%20ios/README.md)。双向同步的远端操作逐项生效，本机提交是原子的，不能用本机恢复点撤销远端已经确认的写入。断线后手动重试对齐；当前不自动重试写回，也不把前台同步称作 APNs 推送或后台常驻节点。
 
 ## 8. 已取得证据与实际未验项
 
-已核对固定源码、两端传输/持久化调用和官方 iOS 成功 CI 日志；未运行下载的上游脚本，未改应用代码或配置。
+固定源码取证在 `/Users/zhaoyuanhao/CodexArtifacts/vcpchat-upstream-sync-20261030T144200Z/`。
 
-尚未做：真实桌面配对、CDS 就绪检查、双向写入/删除/冲突联调、Group DTO 漂移复现、附件按需下载、iPhone 安装及后台切换验收。下一阶段应先解决目标版本 DTO 与存储契约，再在隔离测试数据上验证这些路径。
+接入与 Mac 验收在 `/Users/zhaoyuanhao/CodexArtifacts/vcpchat-sync-files-20261030T145651Z/`。使用固定版本的原版 VCPMobileSync、FileOperator、ImageFileServer 路由与脚本，运行在仅监听本机的隔离合成数据上；未访问用户真实桌面 AppData。协议回归覆盖原版 golden fixture、复合身份、旧 IndexedDB 升级、并发编辑保护、错误与取消、本机恢复、原文件去重和导出。实际原库联调包含拉取、重复同步、资料/消息写回、新话题创建与删除、文件上传/读取/改名/下载。
 
-取证文件与日志统一位于 `/Users/zhaoyuanhao/CodexArtifacts/vcpchat-upstream-sync-20261030T144200Z/`；本报告为唯一项目内研究产物。
+Mac WKWebView 已实际验证旧会话保留、拉取保护、双向新消息写回与重复同步，以及原文件读取、下载、本机导入去重和同名导出保留。截图与日志在上述归档目录。
+
+尚未接用户真实桌面服务/CDS，也未在 iPhone 上验证本轮改动。当前未接 APNs、服务器主动新话题通知和 iOS 分布式插件常驻执行；按本轮要求不重新打 iOS 包。
 
 [mobile-commit]: https://github.com/MRiecy/VCPMobile/commit/a8482b607df13a74e7f8d63a2b0f751221eaaf1a
 [chat-commit]: https://github.com/lioensky/VCPChat/commit/1fadcf1531151cd7c5070fc1737d944133918dba

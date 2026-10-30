@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRoute } from "vue-router";
 import { ref, watch } from "vue";
+import ConfirmAction from "./components/ConfirmAction.vue";
+import { useConfirmationStore } from "./stores/confirmation";
 import MediaViewer from "./components/MediaViewer.vue";
 import ConversationList from "./components/ConversationList.vue";
 import AppIcon from "./components/AppIcon.vue";
@@ -12,6 +14,7 @@ import SpeechPlayer from "./components/SpeechPlayer.vue";
 import { useSpeechStore } from "./stores/speech";
 import { pageTransition, primaryTabs, tabIsActive } from "./ui/navigation";
 
+const confirmation=useConfirmationStore();
 const route = useRoute();
 const workspace = useWorkspaceStore();
 const speech = useSpeechStore();
@@ -26,7 +29,7 @@ watch(() => route.path, (next, previous) => {
   <div
     class="app-shell"
     :class="{ 'is-chat': route.path.startsWith('/chat'), 'has-speech': speech.active }"
-    :inert="workspace.sheet || workspace.activityOpen ? true : undefined"
+    :inert="workspace.sheet || workspace.activityOpen || confirmation.prompt ? true : undefined"
   >
     <aside class="desktop-sidebar"><ConversationList sidebar /></aside>
     <main class="app-main">
@@ -48,4 +51,5 @@ watch(() => route.path, (next, previous) => {
   <ActivityPanel />
   <SpeechPlayer />
   <MediaViewer />
+  <ConfirmAction />
 </template>

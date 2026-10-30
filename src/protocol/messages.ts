@@ -13,12 +13,13 @@ export interface ApiMessage {
   content: string | ApiContentPart[];
 }
 
-export function resolveModel(agent: Agent, settings: Settings): string {
+export function resolveModel(agent: Agent, settings: Settings, group?: Group | null): string {
+  if (group?.unifiedModel?.trim()) return group.unifiedModel.trim();
   return agent.model.trim() || settings.defaultModel.trim();
 }
 
-export function buildRequestBody(settings: Settings, agent: Agent, messages: ApiMessage[]): string {
-  const model = resolveModel(agent, settings);
+export function buildRequestBody(settings: Settings, agent: Agent, messages: ApiMessage[], group?: Group | null): string {
+  const model = resolveModel(agent, settings, group);
   if (!model) throw new Error("请先在设置或助手里填写模型名");
   const payload: Record<string, unknown> = {
     model,
