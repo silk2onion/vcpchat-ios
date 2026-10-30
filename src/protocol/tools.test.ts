@@ -27,6 +27,24 @@ describe("tool blocks", () => {
     expect(segments.every((segment) => segment.type === "text")).toBe(true);
   });
 
+  test("keeps tilde code fences literal, including incomplete streamed fences", () => {
+    const source = "~~~text\n<<<[TOOL_REQUEST]>>>\ntool_name:「始」LiteralTilde「末」\n<<<[END_TOOL_REQUEST]>>>\n~~~\n正文";
+    for (let end = 0; end <= source.length; end++) {
+      expect(parseSegments(source.slice(0, end)).every((segment) => segment.type === "text")).toBe(true);
+    }
+  });
+
+  test("shorter backtick fences inside a longer fence do not expose tool markers", () => {
+    const source = "````markdown\n```text\n<<<[TOOL_REQUEST]>>>\ntool_name:「始」LiteralNested「末」\n<<<[END_TOOL_REQUEST]>>>\n```\n````\n正文";
+    expect(parseSegments(source).every((segment) => segment.type === "text")).toBe(true);
+  });
+
+  test("recognizes indented CRLF fences and longer closing fences without hiding following tools", () => {
+    const source = "  ~~~text\r\n<<<[TOOL_REQUEST]>>>\r\ntool_name: Hidden\r\n<<<[END_TOOL_REQUEST]>>>\r\n  ~~~~~\r\n<<<[TOOL_REQUEST]>>>tool_name: Visible<<<[END_TOOL_REQUEST]>>>";
+    const tools = parseSegments(source).filter((segment) => segment.type === "tool");
+    expect(tools).toMatchObject([{ type: "tool", name: "Visible", closed: true }]);
+  });
+
   test("nests tool-result markers and keeps think blocks", () => {
     const source = `<think>内部</think>\n[[VCP调用结果信息汇总: 外层 [[VCP调用结果信息汇总: 内层 VCP调用结果结束]] 仍在外层 VCP调用结果结束]]之后`;
     const segments = parseSegments(source);

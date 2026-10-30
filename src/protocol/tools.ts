@@ -49,12 +49,26 @@ interface Fence {
 
 function codeFences(text: string): Fence[] {
   const fences: Fence[] = [];
-  const pattern = /```[\s\S]*?(?:```|$)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text))) {
-    fences.push({ start: match.index, end: match.index + match[0].length });
-    if (match.index === pattern.lastIndex) pattern.lastIndex += 1;
+  let open: { start: number; marker: string; length: number } | null = null;
+  let offset = 0;
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (open) {
+      const close = line.match(/^ {0,3}(`+|~+)[ \t]*$/)?.[1];
+      if (close && close[0] === open.marker && close.length >= open.length) {
+        fences.push({ start: open.start, end: Math.min(text.length, offset + raw.length + 1) });
+        open = null;
+      }
+    } else {
+      const start = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      // CommonMark: backtick fence info strings cannot contain backticks.
+      if (start && !(start[1][0] === "`" && start[2].includes("`"))) {
+        open = { start: offset, marker: start[1][0], length: start[1].length };
+      }
+    }
+    offset += raw.length + 1;
   }
+  if (open) fences.push({ start: open.start, end: text.length });
   return fences;
 }
 
