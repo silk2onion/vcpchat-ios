@@ -11,6 +11,9 @@ jobs:
     name: Checks, simulator app, and unsigned IPA
     runs-on: macos-15
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
     env:
       CARGO_TERM_COLOR: never
     steps:
@@ -32,8 +35,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: ${{ env.SOURCE_ROOT }}/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.99.1
