@@ -12,14 +12,15 @@ public struct VCPAgent: Codable, Sendable, Identifiable, Equatable {
     public var description: String
     public var voice: String
     public var speechSpeed: Double
+    public var speechSpeedInherited: Bool
     public var speechDirector: String
     public var regexRules: [RegexRule]
     public init(id: String = UUID().uuidString, name: String = "新 Agent", systemPrompt: String = "", model: String = "", temperature: Double? = nil) {
         self.id = id; self.name = name; self.systemPrompt = systemPrompt; self.model = model
         self.temperature = temperature; createdAt = Date().timeIntervalSince1970
-        avatar = ""; avatarUrl = ""; description = ""; voice = ""; speechSpeed = 1; speechDirector = ""; regexRules = []
+        avatar = ""; avatarUrl = ""; description = ""; voice = ""; speechSpeed = 1; speechSpeedInherited = true; speechDirector = ""; regexRules = []
     }
-    enum CodingKeys: String, CodingKey { case id, name, systemPrompt, model, temperature, createdAt, avatar, avatarUrl, description, voice, speechSpeed, speechDirector, regexRules }
+    enum CodingKeys: String, CodingKey { case id, name, systemPrompt, model, temperature, createdAt, avatar, avatarUrl, description, voice, speechSpeed, speechSpeedInherited, speechDirector, regexRules }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try c.decode(String.self, forKey: .id), name: try c.decode(String.self, forKey: .name), systemPrompt: try c.decodeIfPresent(String.self, forKey: .systemPrompt) ?? "", model: try c.decodeIfPresent(String.self, forKey: .model) ?? "", temperature: try c.decodeIfPresent(Double.self, forKey: .temperature))
@@ -29,6 +30,7 @@ public struct VCPAgent: Codable, Sendable, Identifiable, Equatable {
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
         voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? ""
         speechSpeed = try c.decodeIfPresent(Double.self, forKey: .speechSpeed) ?? 1
+        speechSpeedInherited = try c.decodeIfPresent(Bool.self, forKey: .speechSpeedInherited) ?? true
         speechDirector = try c.decodeIfPresent(String.self, forKey: .speechDirector) ?? ""
         regexRules = try c.decodeIfPresent([RegexRule].self, forKey: .regexRules) ?? []
     }

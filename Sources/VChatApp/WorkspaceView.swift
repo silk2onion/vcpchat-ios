@@ -111,6 +111,7 @@ struct WorkspaceView: View {
                 }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("我")
             }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)
         }
+        .safeAreaInset(edge: .bottom,spacing: 0) { MiniSpeechPlayer(player: model.speech) }
         .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
         .tint(model.appearance.theme.tint)
         .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
@@ -171,6 +172,12 @@ struct AgentEditor: View {
                     Toggle("独立 Temperature", isOn: Binding(get: { agent.temperature != nil }, set: { agent.temperature = $0 ? model.configuration.temperature : nil }))
                     if let temperature = agent.temperature { LabeledContent("Temperature", value: temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: Binding(get: { agent.temperature ?? 0.8 }, set: { agent.temperature = $0 }), in: 0...2) }
                     Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.caption).foregroundStyle(.secondary)
+                }
+                Section("专属语音") {
+                    TextField("音色 ID（留空继承全局）", text: $agent.voice)
+                    Toggle("继承全局语速",isOn: $agent.speechSpeedInherited)
+                    if !agent.speechSpeedInherited { LabeledContent("语速",value: agent.speechSpeed.formatted(.number.precision(.fractionLength(2)))); Slider(value: $agent.speechSpeed,in: 0.5...2,step: 0.05) }
+                    TextField("导演提示词（留空继承全局）",text: $agent.speechDirector,axis: .vertical).lineLimit(2...4)
                 }
                 Section { Button("专属正则 · \(agent.regexRules.count) 条", systemImage: "text.magnifyingglass") { regex = true } }
                 if existing {

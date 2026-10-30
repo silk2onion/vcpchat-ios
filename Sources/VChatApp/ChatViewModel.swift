@@ -70,6 +70,7 @@ struct TopicDraft: Codable, Sendable {
     var unlockingCredentials = false
     var savingConnection = false
     var loading = true
+    var speech = SpeechPlayback()
     var activity = ActivityCenter()
     var pushStatus: String { activity.statuses[.log] ?? "未连接" }
     var error: String?
