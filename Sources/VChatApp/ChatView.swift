@@ -78,7 +78,7 @@ private struct ChatTimeline: View {
                                     Image(systemName: "sparkle").font(.system(size: 34)).foregroundStyle(.mint)
                                     Text("有什么想聊的？").font(.title2.bold())
                                     Text("连接你的 VCP，开始一段对话。历史保存在本机。").foregroundStyle(.secondary)
-                                    if model.apiKey.isEmpty { Button("连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(.mint) }
+                                    if model.apiKey.isEmpty { Button(model.credentialsLocked ? "解锁已有连接" : "连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(.mint) }
                                 }.padding(.top, 68).padding(.bottom, 30)
                             }
                             ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }

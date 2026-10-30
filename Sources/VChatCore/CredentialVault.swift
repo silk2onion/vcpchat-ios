@@ -1,13 +1,18 @@
 import Foundation
 import Security
+import LocalAuthentication
 
 /// Credentials never enter UserDefaults, the chat database, source code or diagnostic logs.
 public actor CredentialVault {
     private let service: String
     public init(service: String? = nil) { self.service = service ?? Bundle.main.bundleIdentifier ?? "app.vcpchat.native" }
-    public func read(_ name: String) throws -> String {
+    public enum AccessError: Error { case authorizationRequired }
+    public func read(_ name: String, allowingInteraction: Bool = true) throws -> String {
         var value: CFTypeRef?
-        let status = SecItemCopyMatching([kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne] as CFDictionary, &value)
+        let context = LAContext(); context.interactionNotAllowed = !allowingInteraction
+        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne, kSecUseAuthenticationContext: context]
+        let status = SecItemCopyMatching(query as CFDictionary, &value)
+        if !allowingInteraction && [errSecInteractionNotAllowed, errSecAuthFailed].contains(status) { throw AccessError.authorizationRequired }
         if status == errSecItemNotFound { return "" }
         guard status == errSecSuccess, let data = value as? Data, let text = String(data: data, encoding: .utf8) else { throw ClientError.server("无法读取本机钥匙串（\(status)）") }
         return text

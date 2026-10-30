@@ -50,6 +50,8 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var logKey = ""
     var models: [String] = []
     var catalog: ModelCatalog?
+    var credentialsLocked = false
+    var unlockingCredentials = false
     var savingConnection = false
     var loading = true
     var pushStatus = "未连接"
@@ -115,8 +117,8 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             await openTopic(topics.first { $0.id == previous } ?? topics[0])
             await loadCatalog()
             loading = false
-            // Local-first: a system Keychain confirmation must not hide local messages or drafts.
-            apiKey = try await vault.read("chat-api-key"); logKey = try await vault.read("vcp-log-key")
+            // Local-first: startup never requests interactive Keychain authorization.
+            await loadCredentials(allowInteraction: false)
         } catch { self.error = error.localizedDescription }
         loading = false
     }
@@ -224,6 +226,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     }
     func saveConnection() async -> Bool {
         guard !savingConnection else { return false }
+        guard !credentialsLocked else { error = "旧连接密钥尚未解锁。请先点“解锁已有连接”，不会用空值覆盖旧密钥。"; return false }
         let config = configuration, chat = apiKey, log = logKey
         savingConnection = true; error = nil
         defer { savingConnection = false }

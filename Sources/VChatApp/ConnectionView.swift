@@ -17,6 +17,12 @@ struct ConnectionView: View {
                     Button("导入桌面 VCPChat 连接…", systemImage: "square.and.arrow.down") { importing = true }
                     Text("只读取服务器和连接密钥，保存到本机钥匙串。不会改动旧配置和会话。").font(.caption).foregroundStyle(.secondary)
                 }
+                if model.credentialsLocked {
+                    Section {
+                        Button(model.unlockingCredentials ? "正在等待系统确认…" : "解锁已有连接", systemImage: "lock.open") { Task { await model.loadCredentials(allowInteraction: true) } }.disabled(model.unlockingCredentials)
+                        Text("启动时不会弹出密码框；只有主动解锁才请求系统授权。").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Section("VCP 服务器") {
                     TextField("https://agent.sijinworld.com", text: $model.configuration.server)
                     SecureField("聊天 API Key", text: $model.apiKey)
