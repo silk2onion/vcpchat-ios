@@ -118,6 +118,10 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         } catch { self.error = error.localizedDescription }
         loading = false
     }
+    func saveRenderOptions() async {
+        do { try await store?.put(renderOptions, kind: "render-options", id: "display") }
+        catch { self.error = error.localizedDescription }
+    }
     func saveAgent(_ agent: VCPAgent) async -> Bool {
         guard !agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = "给 Agent 起一个名字"; return false }
         do {

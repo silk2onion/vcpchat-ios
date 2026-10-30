@@ -29,7 +29,7 @@ struct WorkspaceView: View {
                                         Label("主 Agent", systemImage: "star.fill").font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                                }.padding(.vertical, 6)
+                                }.padding(.vertical, 6).contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
                     }
@@ -45,7 +45,7 @@ struct WorkspaceView: View {
                                     }
                                     Spacer()
                                     if model.rooms[topic.id]?.busy == true { ProgressView().controlSize(.small) }
-                                }.padding(.vertical, 4)
+                                }.padding(.vertical, 4).contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
                     }
@@ -101,13 +101,13 @@ struct WorkspaceView: View {
                             }
                         }.padding(.vertical, 20) }
                     }
-                    Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape") } }
+                    Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
                 }.navigationTitle("我")
             }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)
         }
         .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
         .sheet(item: $editingGroup) { group in GroupEditor(model: model, group: group) }
-        .sheet(isPresented: $settings) { ConnectionView(model: model) }
+        .sheet(isPresented: $settings) { SettingsView(model: model) }
         .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("好") { model.error = nil } } message: { Text(model.error ?? "") }
     }
     var orderedAgents: [VCPAgent] {
