@@ -8,6 +8,7 @@ import { installRepository } from "../storage";
 import { createMemoryRepository } from "../storage/memory";
 import { useSettingsStore } from "../stores/settings";
 import { useLibraryStore } from "../stores/library";
+import { useWorkspaceStore } from "../stores/workspace";
 import { setChatTransport, type ChatTransport } from "../protocol/transport";
 
 test("the real composer changes Enter behavior immediately and leaves IME/Shift confirmation alone", async () => {
@@ -30,6 +31,20 @@ test("the real composer changes Enter behavior immediately and leaves IME/Shift 
     await fill("换行模式"); expect(key().defaultPrevented).toBe(false); expect(stream).not.toHaveBeenCalled();
     await settings.patch({ enterSends: true }); await nextTick();
     expect(input.getAttribute("enterkeyhint")).toBe("send");
+    const newline = host.querySelector<HTMLButtonElement>('[aria-label="插入换行"]')!;
+    await fill("第一行第二行"); input.focus(); input.setSelectionRange(3,3);
+    const touch = new Event("pointerdown", { bubbles: true, cancelable: true }); newline.dispatchEvent(touch);
+    expect(touch.defaultPrevented).toBe(true);
+    newline.click(); await nextTick();
+    expect(input.value).toBe("第一行\n第二行");
+    expect(useWorkspaceStore().draftFor(library.topicId).text).toBe(input.value);
+    expect(input.selectionStart).toBe(4); expect(document.activeElement).toBe(input);
+    input.setSelectionRange(0,3); newline.click(); await nextTick();
+    expect(input.value).toBe("\n\n第二行"); expect(stream).not.toHaveBeenCalled();
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true })); await nextTick();
+    expect(newline.disabled).toBe(true); newline.click(); expect(input.value).toBe("\n\n第二行");
+    input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })); await nextTick();
+    expect(newline.disabled).toBe(false);
     expect(key({ isComposing: true }).defaultPrevented).toBe(false);
     expect(key({ keyCode: 229 }).defaultPrevented).toBe(false);
     expect(key({ shiftKey: true }).defaultPrevented).toBe(false); expect(stream).not.toHaveBeenCalled();
@@ -37,6 +52,8 @@ test("the real composer changes Enter behavior immediately and leaves IME/Shift 
     await vi.waitFor(() => expect(library.messages.at(-1)?.content).toBe("已收到"));
     expect(stream).toHaveBeenCalledTimes(1);
     await settings.patch({ enterSends: false }); await nextTick(); await fill("快捷键发送");
+    expect(host.querySelector('[aria-label="插入换行"]')).toBeNull();
+    expect(input.getAttribute("enterkeyhint")).toBe("enter");
     expect(key({ ctrlKey: true }).defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
   } finally { app.unmount(); host.remove(); setChatTransport(null); vi.unstubAllGlobals(); }

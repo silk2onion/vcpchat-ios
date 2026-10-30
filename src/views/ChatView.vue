@@ -59,6 +59,7 @@ const attachments = computed(
 const attachError = ref("");
 const scroller = ref<HTMLElement | null>(null);
 const input = ref<HTMLTextAreaElement | null>(null);
+const composing = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const following = ref(true);
 const recipient = computed(() =>
@@ -148,6 +149,14 @@ function onKey(event: KeyboardEvent) {
     event.preventDefault();
     void submit();
   }
+}
+function insertNewline() {
+  const el = input.value;
+  if (!el || composing.value) return;
+  el.setRangeText("\n", el.selectionStart, el.selectionEnd, "end");
+  draft.value = el.value;
+  el.focus({ preventScroll: true });
+  grow();
 }
 async function onFiles(event: Event) {
   const element = event.target as HTMLInputElement;
@@ -432,8 +441,20 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
           aria-label="消息"
           :enterkeyhint="settings.settings.enterSends ? 'send' : 'enter'"
           @keydown="onKey"
+          @compositionstart="composing = true"
+          @compositionend="composing = false"
           @input="grow"
         /><button
+          v-if="settings.settings.enterSends"
+          class="icon-button subtle composer-newline"
+          type="button"
+          aria-label="插入换行"
+          :disabled="composing"
+          @pointerdown.prevent
+          @click="insertNewline"
+        >
+          换行
+        </button><button
           v-if="library.streaming"
           class="send-button stop-button"
           type="button"
@@ -463,3 +484,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
     </div>
   </section>
 </template>
+<style scoped>
+.composer .composer-newline{font-size:14px;font-weight:600;color:var(--accent);min-width:44px;min-height:44px;flex-shrink:0;white-space:nowrap}
+.composer .composer-newline:disabled{color:var(--muted)}
+</style>
