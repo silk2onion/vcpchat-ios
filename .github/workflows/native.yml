@@ -39,11 +39,13 @@ jobs:
           xcrun simctl install "$device" "$app"
           xcrun simctl launch "$device" app.vcpchat.native | tee "$VCHAT_ARTIFACTS/results/simulator-launch.log"
           sleep 3
-          xcrun simctl io "$device" screenshot "$VCHAT_ARTIFACTS/results/native-ios.png"
-      - name: Save native evidence
+          mkdir -p "$VCHAT_ARTIFACTS/products"
+          xcrun simctl io "$device" screenshot "$VCHAT_ARTIFACTS/products/VChat-iOS.png"
+          ditto -c -k --keepParent "$app" "$VCHAT_ARTIFACTS/products/VChat-iOS-simulator.zip"
+      - name: Save simulator app
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: native-build-evidence
-          path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/results/
+          name: VChat-iOS-simulator
+          path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/products/
           if-no-files-found: error
