@@ -12,10 +12,10 @@ struct ConnectionView: View {
         NavigationStack {
             Form {
                 if let error = model.error { Section { Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red) } }
-                if model.savingConnection { Section { ProgressView("正在保存到系统钥匙串…") } }
+                if model.savingConnection { Section { ProgressView(model.credentialsInMemory ? "正在应用本次连接…" : "正在保存到系统钥匙串…") } }
                 Section {
-                    Button("导入桌面 VCPChat 连接…", systemImage: "square.and.arrow.down") { importing = true }
-                    Text("只读取服务器和连接密钥，保存到本机钥匙串。不会改动旧配置和会话。").font(.caption).foregroundStyle(.secondary)
+                    Button("导入桌面 VCPChat 连接…", systemImage: "square.and.arrow.down") { importing = true }.disabled(model.credentialsInMemory)
+                    Text(model.credentialsInMemory ? "会话模式：连接密钥只保留到退出 App，不访问系统钥匙串。" : "只读取服务器和连接密钥，保存到本机钥匙串。不会改动旧配置和会话。").font(.caption).foregroundStyle(.secondary)
                 }
                 if model.credentialsLocked {
                     Section {

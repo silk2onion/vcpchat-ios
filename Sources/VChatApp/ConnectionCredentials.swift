@@ -2,8 +2,8 @@ import Foundation
 import VChatCore
 
 extension ChatViewModel {
-    /// Startup only reads items already authorized for this signed app.
-    /// The interactive path is entered only by the user's explicit unlock action.
+    /// Loading saved credentials is exclusively an explicit user action.
+    /// Session-only stores never call the system Keychain.
     func loadCredentials(allowInteraction: Bool) async {
         guard !unlockingCredentials else { return }
         unlockingCredentials = true

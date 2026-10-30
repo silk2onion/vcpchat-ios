@@ -1,23 +1,29 @@
 import Foundation
 import Security
-import LocalAuthentication
 
 /// Credentials never enter UserDefaults, the chat database, source code or diagnostic logs.
 public actor CredentialVault {
+    public enum Persistence: String, Sendable { case keychain, session }
+    public nonisolated let persistence: Persistence
     private let service: String
-    public init(service: String? = nil) { self.service = service ?? Bundle.main.bundleIdentifier ?? "app.vcpchat.native" }
+    private var sessionValues: [String: String]
+    public init(service: String? = nil, persistence: Persistence = .keychain, sessionValues: [String: String] = [:]) {
+        self.service = service ?? Bundle.main.bundleIdentifier ?? "app.vcpchat.native"
+        self.persistence = persistence; self.sessionValues = sessionValues
+    }
     public enum AccessError: Error { case authorizationRequired }
     public func read(_ name: String, allowingInteraction: Bool = true) throws -> String {
+        if persistence == .session { return sessionValues[name] ?? "" }
+        guard allowingInteraction else { throw AccessError.authorizationRequired }
         var value: CFTypeRef?
-        let context = LAContext(); context.interactionNotAllowed = !allowingInteraction
-        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne, kSecUseAuthenticationContext: context]
+        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne]
         let status = SecItemCopyMatching(query as CFDictionary, &value)
-        if !allowingInteraction && [errSecInteractionNotAllowed, errSecAuthFailed].contains(status) { throw AccessError.authorizationRequired }
         if status == errSecItemNotFound { return "" }
         guard status == errSecSuccess, let data = value as? Data, let text = String(data: data, encoding: .utf8) else { throw ClientError.server("无法读取本机钥匙串（\(status)）") }
         return text
     }
     public func save(_ value: String, name: String) throws {
+        if persistence == .session { if value.isEmpty { sessionValues.removeValue(forKey: name) } else { sessionValues[name] = value }; return }
         let query = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name] as CFDictionary
         if value.isEmpty { let status = SecItemDelete(query); guard [errSecSuccess, errSecItemNotFound].contains(status) else { throw ClientError.server("无法清除钥匙串密钥（\(status)）") }; return }
         let attributes = [kSecValueData: Data(value.utf8)] as CFDictionary

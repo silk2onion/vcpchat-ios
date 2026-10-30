@@ -61,7 +61,8 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var search = ""
     var results: [StoredMessage] = []
     @ObservationIgnored let network = SessionActor()
-    @ObservationIgnored let vault = CredentialVault()
+    @ObservationIgnored let vault: CredentialVault
+    var credentialsInMemory: Bool { vault.persistence == .session }
     @ObservationIgnored var store: ChatStore?
     @ObservationIgnored private var push: Task<Void, Never>?
     @ObservationIgnored private var openingID: UUID?
@@ -87,7 +88,9 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             }
         }
     }
-    init() {
+    init(vault: CredentialVault? = nil) {
+        let storage = CredentialVault.Persistence(rawValue: Bundle.main.object(forInfoDictionaryKey: "VChatCredentialPersistence") as? String ?? "") ?? .keychain
+        self.vault = vault ?? CredentialVault(persistence: storage)
         if let data = UserDefaults.standard.data(forKey: "native.connection"), let saved = try? JSONDecoder().decode(ConnectionConfiguration.self, from: data) { configuration = saved }
         else { configuration = ConnectionConfiguration() }
     }
@@ -118,8 +121,8 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             await openTopic(topics.first { $0.id == previous } ?? topics[0])
             await loadCatalog()
             loading = false
-            // Local-first: startup never requests interactive Keychain authorization.
-            await loadCredentials(allowInteraction: false)
+            // Do not call Security APIs on startup, even with a no-interaction hint.
+            credentialsLocked = !credentialsInMemory && UserDefaults.standard.data(forKey: "native.connection") != nil
         } catch { self.error = error.localizedDescription }
         loading = false
     }
