@@ -12,6 +12,7 @@ public actor SessionActor {
     private var text = "", reasoning = ""
     private var sequence = 0, rawEvents = 0
     private var allParsingOffMain = true
+    private var backgroundPacing = false
     private var socketTask: Task<Void, Never>?
     private var socket: URLSessionWebSocketTask?
     private var socketID: UUID?
@@ -34,17 +35,19 @@ public actor SessionActor {
         continuation.onTermination = { [weak self] _ in Task { await self?.terminate(id) } }
         emit(.connecting)
         chatTask = Task { await self.receiveChat(request, url: url, id: id) }
-        let interval = FramePacer(framesPerSecond: request.configuration.framesPerSecond).interval
+        let foregroundInterval = FramePacer(framesPerSecond: request.configuration.framesPerSecond).interval
         pacingTask = Task {
-            var deadline = ContinuousClock.now + interval
+            var deadline = ContinuousClock.now
             while !Task.isCancelled {
+                let interval: Duration = backgroundPacing ? .milliseconds(500) : foregroundInterval
+                deadline = max(deadline + interval, ContinuousClock.now)
                 do { try await ContinuousClock().sleep(until: deadline) } catch { return }
                 if self.chatID == id && self.state == .streaming && self.rawEvents != self.emittedEvents { self.emit(.streaming) }
-                deadline = max(deadline + interval, ContinuousClock.now)
             }
         }
         return stream
     }
+    public func setBackgroundPacing(_ background: Bool) { backgroundPacing = background; if !background && state == .streaming && rawEvents != emittedEvents { emit(.streaming) } }
     private func terminate(_ id: UUID) { if chatID == id { stop() } }
     public func stop(interrupted: Bool = false) {
         chatTask?.cancel(); chatTask = nil

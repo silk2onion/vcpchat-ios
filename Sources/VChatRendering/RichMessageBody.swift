@@ -42,6 +42,7 @@ public struct RichMessageBody: View {
     @State private var rendering = RenderState()
     @State private var visible = false
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var phase
     public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth }
     private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) }))) }
     public var body: some View {
@@ -52,10 +53,14 @@ public struct RichMessageBody: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth), initial: true) { _, input in
-            if visible && !plain { rendering.update(input) } else { rendering.cancel() }
+            if visible && phase != .background && !plain { rendering.update(input) } else { rendering.cancel() }
         }
-        .onAppear { visible = true; if !plain { rendering.update(.init(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth)) } }
+        .onAppear { visible = true; if phase != .background && !plain { rendering.update(.init(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth)) } }
         .onDisappear { visible = false; rendering.cancel() }
+        .onChange(of: phase) { _, next in
+            if next == .background { rendering.cancel() }
+            else if visible && !plain { rendering.update(.init(source: source,options: options,dark: scheme == .dark,streaming: streaming,rules: rules,role: role,depth: depth)) }
+        }
         .environment(\.openURL, OpenURLAction { url in ["http", "https", "mailto"].contains(url.scheme) ? .systemAction : .discarded })
     }
 }

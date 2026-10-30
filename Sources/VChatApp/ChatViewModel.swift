@@ -70,6 +70,7 @@ struct TopicDraft: Codable, Sendable {
     var unlockingCredentials = false
     var savingConnection = false
     var loading = true
+    var backgrounded = false
     var fileNode = FileNodeController()
     var speech = SpeechPlayback()
     var activity = ActivityCenter()
@@ -352,6 +353,7 @@ struct TopicDraft: Codable, Sendable {
                 for agent in speakers {
                     guard !room.cancelled else { break }
                     let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules)
+                    guard !room.cancelled else { break }
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
                     try await receive(request, into: assistant, room: room, store: store, acceptedUser: accepted ? nil : user.id)
@@ -433,11 +435,31 @@ struct TopicDraft: Codable, Sendable {
         } catch { self.error = error.localizedDescription; return false }
     }
     func stop(background: Bool = false) async { room?.cancelled = true; await room?.session.stop(interrupted: background) }
-    func suspend() async {
-        await flushDraft()
-        for room in rooms.values { room.cancelled = true; await room.session.stop(interrupted: true) }
+    func enterBackground() async {
+        backgrounded = true
+        await flushDraft(); guard !Task.isCancelled else { return }
+        for room in Array(rooms.values) { await room.session.setBackgroundPacing(true) }
         await activity.pause(); await fileNode.pause()
     }
+    func interruptForBackground() async {
+        let targets = Array(rooms.values).filter { $0.busy }
+        for room in targets { room.cancelled = true; await room.session.stop(interrupted: true) }
+        for room in targets {
+            await room.generation?.value
+            for message in room.messages where ["connecting","streaming"].contains(message.status) {
+                message.status = "interrupted"
+                do { try await store?.save(message.record) } catch { room.error = "本机保存失败：\(error.localizedDescription)" }
+            }
+        }
+        await flushDraft()
+    }
+    func enterForeground() async {
+        backgrounded = false
+        for room in Array(rooms.values) { await room.session.setBackgroundPacing(false) }
+        if activity.enabled && !logKey.isEmpty { connectPush() }
+        if fileNode.active,let folders = connectedFolders { await fileNode.start(settings: services.fileNode,key: serviceSecrets[.fileNodeKey] ?? "",folders: folders) }
+    }
+    func suspend() async { await enterBackground(); await interruptForBackground() }
     func searchLocal() async {
         let query = search
         do { let found = try await store?.search(query) ?? []; if search == query { results = found } }
