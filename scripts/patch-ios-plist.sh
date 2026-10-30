@@ -13,7 +13,12 @@ add_or_set() {
   local type="$2"
   local value="$3"
   if ! "$buddy" -c "Add ${key} ${type} ${value}" "$plist" >/dev/null 2>&1; then
-    "$buddy" -c "Set ${key} ${value}" "$plist"
+    if [[ "$type" == "dict" ]]; then
+      # Keep existing dictionaries so repeat builds preserve their entries.
+      "$buddy" -c "Print ${key}" "$plist" >/dev/null
+    else
+      "$buddy" -c "Set ${key} ${value}" "$plist"
+    fi
   fi
 }
 add_or_set ":NSAppTransportSecurity" "dict" ""
