@@ -67,4 +67,14 @@ describe("indexedDB repository", () => {
     expect((await reopened.listAgents())[0]).toMatchObject({ avatarUrl: "data:image/webp;base64,avatar", voice: "red", regexRules: [] });
   });
 
+  test("Enter preference defaults to newline for old data and survives reopening", async () => {
+    const repository = createIndexedDbRepository();
+    const legacy: Record<string, unknown> = { ...defaultSettings(), userName: "丝巾" };
+    delete legacy.enterSends;
+    await repository.saveSettings(legacy as never);
+    expect((await repository.getSettings()).enterSends).toBe(false);
+    await repository.saveSettings({ ...await repository.getSettings(), enterSends: true });
+    expect(await createIndexedDbRepository().getSettings()).toMatchObject({ userName: "丝巾", enterSends: true });
+  });
+
 });

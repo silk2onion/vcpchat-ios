@@ -137,6 +137,7 @@ async function clearKeys() {
           >
             <span class="setting-icon"><AppIcon name="star" /></span><span><strong>主 Agent</strong><small>{{ library.mainAgent?.name }}</small></span><AppIcon name="chevron" :size="18" />
           </button>
+          <label class="settings-row"><span class="setting-icon blue"><AppIcon name="keyboard" /></span><span><strong>Enter 发送消息</strong><small>{{ settings.settings.enterSends ? 'Shift+Enter 换行' : 'Enter 换行；⌘/Ctrl+Enter 发送' }}</small></span><input type="checkbox" role="switch" aria-label="Enter 发送消息" :checked="settings.settings.enterSends" @change="settings.patch({ enterSends: !settings.settings.enterSends })" /></label>
           <RouterLink to="/settings/render" class="settings-row"><span class="setting-icon purple"><AppIcon name="render" /></span><span><strong>高级渲染</strong><small>{{
             settings.settings.richRender ? "已开启" : "轻量模式"
           }}</small></span><AppIcon name="chevron" :size="18" /></RouterLink>

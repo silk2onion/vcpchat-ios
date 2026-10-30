@@ -33,6 +33,7 @@ const paths: Record<string, string> = {
   image: "M3 3h18v18H3ZM3 16l6-6 5 5 3-3 4 4M16 7h.01",
   upload: "M12 16V3m-5 5 5-5 5 5M3 15v6h18v-6",
   download: "M12 3v13m-5-5 5 5 5-5M3 15v6h18v-6",
+  keyboard: "M2 5h20v14H2ZM6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 16h10",
   up: "m6 15 6-6 6 6",
   camera: "M8 4h8l2 3h4v14H2V7h4l2-3ZM16 13a4 4 0 1 0-8 0 4 4 0 0 0 8 0Z",
   speaker: "m11 5-6 4H2v6h3l6 4V5ZM15 8a6 6 0 0 1 0 8M18 4a11 11 0 0 1 0 16",

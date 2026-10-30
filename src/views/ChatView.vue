@@ -16,6 +16,7 @@ import { useSettingsStore } from "../stores/settings";
 import { useWorkspaceStore } from "../stores/workspace";
 import { useSpeechStore } from "../stores/speech";
 import { applyRules, turnDepths } from "../protocol/regex";
+import { shouldSendOnEnter } from "../ui/composer";
 
 const library = useLibraryStore();
 const settings = useSettingsStore();
@@ -141,11 +142,7 @@ async function submit() {
   await library.send(text, files);
 }
 function onKey(event: KeyboardEvent) {
-  if (
-    !event.isComposing &&
-    (event.metaKey || event.ctrlKey) &&
-    event.key === "Enter"
-  ) {
+  if (shouldSendOnEnter(event, settings.settings.enterSends)) {
     event.preventDefault();
     void submit();
   }
@@ -429,6 +426,7 @@ function readFile(file: File, kind: "image" | "text"): Promise<Attachment> {
           rows="1"
           :placeholder="`发消息给 ${recipient?.name || 'Agent'}`"
           aria-label="消息"
+          :enterkeyhint="settings.settings.enterSends ? 'send' : 'enter'"
           @keydown="onKey"
           @input="grow"
         /><button

@@ -43,6 +43,7 @@ export interface Settings {
   renderMotion: boolean;
   renderMedia: boolean;
   mainAgentId: string;
+  enterSends: boolean;
   wallpaper: "forest" | "leaves" | "none" | "custom";
   wallpaperCustom: string;
   wallpaperDim: number;
@@ -166,6 +167,7 @@ export function defaultSettings(): Settings {
     renderMotion: true,
     renderMedia: true,
     mainAgentId: "",
+    enterSends: false,
     wallpaper: "forest",
     wallpaperCustom: "",
     wallpaperDim: 58,
