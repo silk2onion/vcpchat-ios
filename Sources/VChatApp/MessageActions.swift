@@ -14,6 +14,7 @@ struct MessageActions: View {
     @State private var text = ""
     @State private var copied = false
     @State private var deleting = false
+    @State private var displayed: String?
     private var idle: Bool { model.rooms[message.topicID]?.busy != true }
     private var last: Bool { model.rooms[message.topicID]?.messages.last?.id == message.id }
     var body: some View {
@@ -22,7 +23,7 @@ struct MessageActions: View {
             if message.role == "assistant" && last && idle && ["interrupted", "stopped", "failed"].contains(message.status) { Button { model.regenerate(message, continuing: true) } label: { Label("继续写", systemImage: "arrow.forward.circle") } }
             Spacer(minLength: 4)
             Menu {
-                ShareLink(item: message.text) { Label("分享消息", systemImage: "square.and.arrow.up") }
+                ShareLink(item: displayed ?? "") { Label("分享消息", systemImage: "square.and.arrow.up") }.disabled(displayed == nil)
                 Button("编辑文字", systemImage: "pencil") { text = message.text; editing = true }.disabled(!idle)
                 if message.role == "assistant" && last {
                     Button("继续写", systemImage: "arrow.forward.circle") { model.regenerate(message, continuing: true) }.disabled(!idle)
@@ -31,6 +32,7 @@ struct MessageActions: View {
                 Button("移到已删除消息", systemImage: "trash", role: .destructive) { deleting = true }.disabled(!idle)
             } label: { Image(systemName: "ellipsis").frame(minWidth: 32, minHeight: 30) }.menuStyle(.borderlessButton).fixedSize()
         }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+        .task(id: DisplayInput(text: message.text, rules: model.displayRules(for: message), depth: model.rooms[message.topicID]?.depths[message.id] ?? 0)) { do { let value = try await model.displayedText(message); if !Task.isCancelled { displayed = value } } catch { if !Task.isCancelled { model.rooms[message.topicID]?.error = error.localizedDescription } } }
         .sheet(isPresented: $editing) {
             NavigationStack {
                 VStack(spacing: 12) { TextEditor(text: $text).font(.body); if let error = model.rooms[message.topicID]?.error { Text(error).foregroundStyle(.red).font(.caption) } }.padding(16)
@@ -43,13 +45,18 @@ struct MessageActions: View {
         }
         .confirmationDialog("从对话中移除？可以在“已删除消息”中恢复。", isPresented: $deleting, titleVisibility: .visible) { Button("移除消息", role: .destructive) { Task { await model.trashMessage(message) } } }
     }
+    private struct DisplayInput: Equatable { var text: String; var rules: [RegexRule]; var depth: Int }
     private func copy() {
+        Task {
+        do { let text = try await model.displayedText(message)
         #if os(iOS)
-        UIPasteboard.general.string = message.text
+        UIPasteboard.general.string = text
         #else
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(message.text, forType: .string)
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
         #endif
         copied = true
+        } catch { model.rooms[message.topicID]?.error = error.localizedDescription }
+        }
     }
 }
 struct DeletedMessagesView: View {
@@ -76,7 +83,7 @@ struct DeletedMessagesView: View {
     }
 }
 struct TextExportDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.plainText] }
+    static var readableContentTypes: [UTType] { [.plainText, .json] }
     var text: String
     init(text: String = "") { self.text = text }
     init(configuration: ReadConfiguration) throws { text = String(decoding: configuration.file.regularFileContents ?? Data(), as: UTF8.self) }

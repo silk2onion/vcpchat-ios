@@ -144,6 +144,7 @@ struct AgentEditor: View {
     @Bindable var model: ChatViewModel
     @State var agent: VCPAgent
     @State private var choosingModel = false
+    @State private var regex = false
     @State private var avatar = false
     @State private var deleting = false
     @Environment(\.dismiss) private var dismiss
@@ -164,6 +165,7 @@ struct AgentEditor: View {
                     if let temperature = agent.temperature { LabeledContent("Temperature", value: temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: Binding(get: { agent.temperature ?? 0.8 }, set: { agent.temperature = $0 }), in: 0...2) }
                     Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.caption).foregroundStyle(.secondary)
                 }
+                Section { Button("专属正则 · \(agent.regexRules.count) 条", systemImage: "text.magnifyingglass") { regex = true } }
                 if existing {
                     Section {
                         Button(agent.id == model.profile.mainAgentID ? "当前主 Agent" : "设为主 Agent", systemImage: "star") { Task { await model.setMainAgent(agent.id) } }.disabled(agent.id == model.profile.mainAgentID)
@@ -176,6 +178,7 @@ struct AgentEditor: View {
                 ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { if await model.saveAgent(agent) { dismiss() } } }.disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
             .sheet(isPresented: $choosingModel) { ModelPicker(model: model, selection: $agent.model) }
+            .sheet(isPresented: $regex) { RegexRulesView(title: "Agent 正则", rules: $agent.regexRules) {} }
             .sheet(isPresented: $avatar) { AvatarEditor(image: $agent.avatarUrl, name: agent.name) }
             .confirmationDialog("删除这个 Agent？聊天记录将保留。", isPresented: $deleting, titleVisibility: .visible) { Button("删除 Agent", role: .destructive) { Task { await model.removeAgent(agent.id); if model.error == nil { dismiss() } } } }
         }.frame(minWidth: 340, minHeight: 530)

@@ -22,7 +22,8 @@ import VChatRendering
 }
 @MainActor @Observable final class ChatRoom: Identifiable {
     let id: String
-    var messages: [MessageViewModel]
+    var messages: [MessageViewModel] { didSet { depths = TurnDepths.calculate(messages.map(\.record)) } }
+    var depths: [String: Int] = [:]
     var draft = ""
     var busy = false
     var cancelled = false
@@ -33,7 +34,7 @@ import VChatRendering
     @ObservationIgnored let session = SessionActor()
     @ObservationIgnored var generation: Task<Void, Never>?
     @ObservationIgnored var draftSave: Task<Void, Never>?
-    init(id: String, messages: [StoredMessage]) { self.id = id; self.messages = messages.map(MessageViewModel.init) }
+    init(id: String, messages: [StoredMessage]) { self.id = id; self.messages = messages.map(MessageViewModel.init); depths = TurnDepths.calculate(messages) }
 }
 struct TopicDraft: Codable, Sendable { var id: String; var text: String }
 
@@ -44,6 +45,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
     var profile = UserProfile()
     var renderOptions = RenderOptions()
     var inputPreferences = InputPreferences()
+    var regexRules: [RegexRule] = []
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
     var configuration: ConnectionConfiguration
@@ -106,6 +108,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
             agents = try await database.records(VCPAgent.self, kind: "agent")
             groups = try await database.records(VCPGroup.self, kind: "group")
             profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
+            regexRules = try await database.records([RegexRule].self, kind: "regex-global").first ?? []
             inputPreferences = try await database.records(InputPreferences.self, kind: "input-options").first ?? InputPreferences()
             renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
             if agents.isEmpty {
@@ -126,6 +129,16 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         } catch { self.error = error.localizedDescription }
         loading = false
     }
+    func saveRegexRules() async {
+        do { try await store?.put(regexRules, kind: "regex-global", id: "rules") }
+        catch { self.error = error.localizedDescription }
+    }
+    func displayRules(for message: MessageViewModel) -> [RegexRule] {
+        let topic = topics.first { $0.id == message.topicID }
+        let agent = agents.first { $0.id == message.agentID } ?? (topic?.ownerType == "agent" ? agents.first { $0.id == topic?.ownerId } : agents.first { $0.name == message.authorName })
+        return regexRules + (agent?.regexRules ?? [])
+    }
+    func displayedText(_ message: MessageViewModel) async throws -> String { try await RegexEngine.shared.apply(message.text, rules: displayRules(for: message), scope: "frontend", role: message.role, depth: rooms[message.topicID]?.depths[message.id] ?? 0) }
     func saveInputPreferences() async {
         do { try await store?.put(inputPreferences, kind: "input-options", id: "keyboard") }
         catch { self.error = error.localizedDescription }
@@ -289,7 +302,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         let speakers = group.map { GroupRouting.speakers(group: $0, agents: agents, text: content, turn: topic.turnIndex) } ?? activeAgent.map { [$0] } ?? []
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending")
-        let config = configuration, key = apiKey, profile = profile
+        let config = configuration, key = apiKey, profile = profile, rules = regexRules
         room.busy = true; room.cancelled = false; room.error = nil
         room.generation = Task {
             var currentReply: MessageViewModel?
@@ -304,7 +317,7 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
                 let builder = ConversationBuilder()
                 for agent in speakers {
                     guard !room.cancelled else { break }
-                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record))
+                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules)
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
                     try await receive(request, into: assistant, room: room, store: store, acceptedUser: accepted ? nil : user.id)
@@ -346,14 +359,14 @@ struct TopicDraft: Codable, Sendable { var id: String; var text: String }
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         guard let agent = agents.first(where: { $0.id == message.agentID }) ?? agents.first(where: { $0.id == topic.ownerId }) else { room.error = "找不到写这条回复的 Agent"; return }
         let group = groups.first { $0.id == topic.ownerId && topic.ownerType == "group" }
-        let config = configuration, key = apiKey, profile = profile
+        let config = configuration, key = apiKey, profile = profile, rules = regexRules
         let prefix = continuing ? message.text : "", reasoning = continuing ? message.reasoning : ""
         let history = (continuing ? room.messages : Array(room.messages.dropLast())).map(\.record)
         room.busy = true; room.cancelled = false; room.error = nil
         room.generation = Task {
             defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
             do {
-                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history)
+                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules)
                 let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
                 let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing ? [prompt] : []), temperature: built.temperature)
                 var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"

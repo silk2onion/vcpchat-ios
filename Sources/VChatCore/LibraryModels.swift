@@ -13,11 +13,26 @@ public struct VCPAgent: Codable, Sendable, Identifiable, Equatable {
     public var voice: String
     public var speechSpeed: Double
     public var speechDirector: String
+    public var regexRules: [RegexRule]
     public init(id: String = UUID().uuidString, name: String = "新 Agent", systemPrompt: String = "", model: String = "", temperature: Double? = nil) {
         self.id = id; self.name = name; self.systemPrompt = systemPrompt; self.model = model
         self.temperature = temperature; createdAt = Date().timeIntervalSince1970
-        avatar = ""; avatarUrl = ""; description = ""; voice = ""; speechSpeed = 1; speechDirector = ""
+        avatar = ""; avatarUrl = ""; description = ""; voice = ""; speechSpeed = 1; speechDirector = ""; regexRules = []
     }
+    enum CodingKeys: String, CodingKey { case id, name, systemPrompt, model, temperature, createdAt, avatar, avatarUrl, description, voice, speechSpeed, speechDirector, regexRules }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(String.self, forKey: .id), name: try c.decode(String.self, forKey: .name), systemPrompt: try c.decodeIfPresent(String.self, forKey: .systemPrompt) ?? "", model: try c.decodeIfPresent(String.self, forKey: .model) ?? "", temperature: try c.decodeIfPresent(Double.self, forKey: .temperature))
+        createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt) ?? createdAt
+        avatar = try c.decodeIfPresent(String.self, forKey: .avatar) ?? ""
+        avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? ""
+        speechSpeed = try c.decodeIfPresent(Double.self, forKey: .speechSpeed) ?? 1
+        speechDirector = try c.decodeIfPresent(String.self, forKey: .speechDirector) ?? ""
+        regexRules = try c.decodeIfPresent([RegexRule].self, forKey: .regexRules) ?? []
+    }
+
 }
 public struct ChatTopic: Codable, Sendable, Identifiable, Equatable {
     public var id: String

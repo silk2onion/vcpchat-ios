@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import VChatCore
 #if os(iOS)
 import UIKit
 #else
@@ -11,7 +12,7 @@ import AppKit
     @ObservationIgnored private var pending: Input?
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
-    struct Input: Equatable { var source: String; var options: RenderOptions; var dark: Bool; var streaming: Bool }
+    struct Input: Equatable { var source: String; var options: RenderOptions; var dark: Bool; var streaming: Bool; var rules: [RegexRule]; var role: String; var depth: Int }
     func update(_ input: Input) {
         pending = input
         guard worker == nil else { return }
@@ -20,11 +21,11 @@ import AppKit
             while generation == id, let input = pending, !Task.isCancelled {
                 pending = nil
                 do {
-                    let rendered = try await MessageRenderer.shared.render(input.source, options: input.options, dark: input.dark, streaming: input.streaming)
+                    let rendered = try await MessageRenderer.shared.render(input.source, options: input.options, dark: input.dark, streaming: input.streaming, rules: input.rules, role: input.role, depth: input.depth)
                     if !Task.isCancelled && generation == id { blocks = rendered }
                     try await Task.sleep(for: .milliseconds(70))
                 } catch is CancellationError { break }
-                catch { blocks = [.literal(input.source)] }
+                catch { blocks = [.literal("消息渲染失败：" + error.localizedDescription)] }
             }
             if generation == id { worker = nil }
         }
@@ -35,22 +36,25 @@ public struct RichMessageBody: View {
     public var source: String
     public var options: RenderOptions
     public var streaming: Bool
+    public var rules: [RegexRule]
+    public var role: String
+    public var depth: Int
     @State private var rendering = RenderState()
     @State private var visible = false
     @Environment(\.colorScheme) private var scheme
-    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false) { self.source = source; self.options = options; self.streaming = streaming }
-    private var plain: Bool { !options.enabled || (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })) }
+    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth }
+    private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) }))) }
     public var body: some View {
         Group {
             if plain { Text(verbatim: source).textSelection(.enabled) }
-            else if rendering.blocks.isEmpty { Text(verbatim: source).textSelection(.enabled) }
+            else if rendering.blocks.isEmpty { Text(verbatim: rules.isEmpty ? source : "…").textSelection(.enabled) }
             else { NativeBlocks(blocks: rendering.blocks, options: options).equatable() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark, streaming: streaming), initial: true) { _, input in
+        .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth), initial: true) { _, input in
             if visible && !plain { rendering.update(input) } else { rendering.cancel() }
         }
-        .onAppear { visible = true; if !plain { rendering.update(.init(source: source, options: options, dark: scheme == .dark, streaming: streaming)) } }
+        .onAppear { visible = true; if !plain { rendering.update(.init(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth)) } }
         .onDisappear { visible = false; rendering.cancel() }
         .environment(\.openURL, OpenURLAction { url in ["http", "https", "mailto"].contains(url.scheme) ? .systemAction : .discarded })
     }

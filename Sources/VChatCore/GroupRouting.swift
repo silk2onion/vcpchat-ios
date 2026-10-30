@@ -43,7 +43,7 @@ public enum GroupRouting {
 }
 public actor ConversationBuilder {
     public init() {}
-    public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage]) throws -> ChatRequest {
+    public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = []) async throws -> ChatRequest {
         var config = configuration
         let resolved = group?.unifiedModel.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !resolved.isEmpty { config.model = resolved } else if !agent.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { config.model = agent.model }
@@ -57,8 +57,10 @@ public actor ConversationBuilder {
         if !agent.systemPrompt.isEmpty { system.append(agent.systemPrompt) }
         var turns: [ChatTurn] = []
         if !system.isEmpty { turns.append(ChatTurn(role: "system", content: system.joined(separator: "\n\n"))) }
+        let depths = TurnDepths.calculate(messages), allRules = rules + agent.regexRules
         for message in messages.suffix(32) where ["user", "assistant"].contains(message.role) && !message.content.isEmpty {
-            let content = group != nil && message.role == "assistant" && !message.authorName.isEmpty ? "【\(message.authorName)】\n\(message.content)" : message.content
+            let transformed = try await RegexEngine.shared.apply(message.content, rules: allRules, scope: "context", role: message.role, depth: depths[message.id] ?? 0)
+            let content = group != nil && message.role == "assistant" && !message.authorName.isEmpty ? "【\(message.authorName)】\n\(transformed)" : transformed
             turns.append(ChatTurn(role: message.role, content: content))
         }
         return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil)

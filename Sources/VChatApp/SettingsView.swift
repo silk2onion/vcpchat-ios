@@ -5,12 +5,14 @@ struct SettingsView: View {
     @Bindable var model: ChatViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var connection = false
+    @State private var regex = false
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Button { connection = true } label: { Label("服务器与模型", systemImage: "network").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
                     NavigationLink { RenderingSettings(model: model) } label: { Label("消息渲染", systemImage: "text.alignleft") }
+                    Button { regex = true } label: { Label("正则规则", systemImage: "text.magnifyingglass").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
                 }
                 Section("输入") {
                     Toggle("回车键发送消息", isOn: $model.inputPreferences.enterSends)
@@ -20,6 +22,7 @@ struct SettingsView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .onChange(of: model.inputPreferences) { _, _ in Task { await model.saveInputPreferences() } }
             .sheet(isPresented: $connection) { ConnectionView(model: model) }
+            .sheet(isPresented: $regex) { RegexRulesView(title: "全局正则", rules: $model.regexRules) { await model.saveRegexRules() } }
         }.frame(minWidth: 350, minHeight: 540)
     }
 }
