@@ -104,6 +104,7 @@ struct WorkspaceView: View {
                             }
                         }.padding(.vertical, 20) }
                     }
+                    Section { NavigationLink { NotesView(model: model) } label: { Label("笔记", systemImage: "note.text") } }
                     Section { NavigationLink { FileLibraryView(model: model) } label: { Label("文件", systemImage: "folder") } }
                     Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
                 }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("我")

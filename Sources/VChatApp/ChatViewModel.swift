@@ -59,6 +59,8 @@ struct TopicDraft: Codable, Sendable {
     var regexRules: [RegexRule] = []
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
+    var services = ServiceSettings()
+    var serviceSecrets: [ServiceSecret: String] = [:]
     var configuration: ConnectionConfiguration
     var apiKey = ""
     var logKey = ""
@@ -121,6 +123,7 @@ struct TopicDraft: Codable, Sendable {
             profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
             regexRules = try await database.records([RegexRule].self, kind: "regex-global").first ?? []
             inputPreferences = try await database.records(InputPreferences.self, kind: "input-options").first ?? InputPreferences()
+            services = try await database.records(ServiceSettings.self, kind: "services").first ?? ServiceSettings()
             appearance = try await database.records(AppearanceSettings.self, kind: "appearance").first ?? AppearanceSettings()
             renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
             if agents.isEmpty {
@@ -137,9 +140,18 @@ struct TopicDraft: Codable, Sendable {
             await loadCatalog()
             loading = false
             // Do not call Security APIs on startup, even with a no-interaction hint.
-            credentialsLocked = !credentialsInMemory && UserDefaults.standard.data(forKey: "native.connection") != nil
+            credentialsLocked = !credentialsInMemory && (UserDefaults.standard.data(forKey: "native.connection") != nil || UserDefaults.standard.bool(forKey: "native.secrets-exist"))
         } catch { self.error = error.localizedDescription }
         loading = false
+    }
+    func saveServices() async -> Bool {
+        guard !credentialsLocked else { error = "请先在连接设置中解锁已有连接，再保存服务密钥"; return false }
+        do {
+            for name in ServiceSecret.allCases { try await vault.save(serviceSecrets[name] ?? "",name: name.rawValue) }
+            try await store?.put(services,kind: "services",id: "settings")
+            if !credentialsInMemory { UserDefaults.standard.set(true,forKey: "native.secrets-exist") }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     func saveAppearance() async {
         do { try await store?.put(appearance, kind: "appearance", id: "theme") }

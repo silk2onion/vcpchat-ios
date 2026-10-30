@@ -20,6 +20,10 @@ extension ChatViewModel {
             if logKey == previousLog { logKey = value }
         } catch CredentialVault.AccessError.authorizationRequired { locked = true }
         catch { locked = true; if allowInteraction { self.error = error.localizedDescription } }
+        for name in ServiceSecret.allCases {
+            do { serviceSecrets[name] = try await vault.read(name.rawValue, allowingInteraction: allowInteraction) }
+            catch { locked = true; if allowInteraction { self.error = error.localizedDescription } }
+        }
         credentialsLocked = locked
     }
 }
