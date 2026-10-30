@@ -6,6 +6,7 @@ import { router } from "./router";
 import { installRepository } from "./storage";
 import { useLibraryStore } from "./stores/library";
 import { useLogStore } from "./stores/logs";
+import { useFileNodeStore } from "./stores/fileNode";
 import { useNotesStore } from "./stores/notes";
 import { useSyncStore } from "./stores/sync";
 import { useSettingsStore } from "./stores/settings";
@@ -30,10 +31,11 @@ async function boot() {
   await logs.load();
   void logs.sync();
   watchAppLifecycle({
-    hidden: () => { useSyncStore().cancel(); void library.flushStreams(); },
-    visible: (hiddenForMs) => void logs.resume(hiddenForMs),
+    hidden: () => { useFileNodeStore().pause(); useSyncStore().cancel(); void library.flushStreams(); },
+    visible: (hiddenForMs) => { useFileNodeStore().resume(); void logs.resume(hiddenForMs); },
   });
   void library.recoverStreams();
+  useFileNodeStore().install();
   app.mount("#app");
 }
 

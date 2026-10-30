@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useConfirmationStore } from "../stores/confirmation";
+import ConnectedFolders from "../components/ConnectedFolders.vue";
 import AppIcon from "../components/AppIcon.vue";
 import { useSettingsStore } from "../stores/settings";
 import { getRepository } from "../storage";
@@ -17,7 +18,7 @@ import { base64 } from "../files/bytes";
 import { isTauri } from "../protocol/http";
 const confirmation = useConfirmationStore();
 const settings = useSettingsStore(),
-  mode = ref<"local" | "server">("local"),
+  mode = ref<"local" | "server" | "connected">("local"),
   busy = ref(false),
   error = ref(""),
   status = ref(""),
@@ -241,7 +242,8 @@ onMounted(() => {
           @click="mode = 'local'"
         >
           本机附件
-        </button><button
+        </button><button type="button" :aria-pressed="mode === 'connected'" @click="mode = 'connected'">连接文件夹</button>
+        <button
           type="button"
           :aria-pressed="mode === 'server'"
           @click="mode = 'server'"
@@ -444,6 +446,7 @@ onMounted(() => {
           <p>导入文件或收集聊天附件；不会上传到服务器。</p>
         </div>
       </template>
+      <template v-else-if="mode === 'connected'"><ConnectedFolders /></template>
       <template v-else>
         <button class="ghost" type="button" @click="showConfig = !showConfig">
           {{ showConfig ? "收起连接设置" : "连接与目录设置" }}

@@ -51,6 +51,11 @@ export interface Settings {
   fileRoot: string;
   fileShareRoot: string;
   fileKey: string;
+  fileNodeEnabled: boolean;
+  fileNodeUrl: string;
+  fileNodeKey: string;
+  fileNodeName: string;
+  fileNodeId: string;
   modelCatalog: { endpoint: string; ids: string[]; updatedAt: number; recent: string[] } | null;
   wallpaper: "forest" | "leaves" | "none" | "custom";
   wallpaperCustom: string;
@@ -184,6 +189,7 @@ export function defaultSettings(): Settings {
     mainAgentId: "",
     enterSends: false,
     syncHttpUrl: "", syncWsUrl: "", syncToken: "", fileToolName: "ServerFileOperator", fileRoot: "", fileShareRoot: "", fileKey: "",
+    fileNodeEnabled: false, fileNodeUrl: "", fileNodeKey: "", fileNodeName: "VCPChat Mobile", fileNodeId: "",
     modelCatalog: null,
     wallpaper: "forest",
     wallpaperCustom: "",
@@ -201,7 +207,7 @@ export function defaultSettings(): Settings {
 }
 
 export function secretsOf(settings: Settings): string[] {
-  return [settings.apiKey, settings.logKey, settings.adminPassword, settings.ttsKey, settings.syncToken, settings.fileKey].filter(
+  return [settings.apiKey, settings.logKey, settings.adminPassword, settings.ttsKey, settings.syncToken, settings.fileKey, settings.fileNodeKey].filter(
     (value) => value.length >= 4,
   );
 }
