@@ -123,20 +123,17 @@ struct ContactAvatar: View {
     let name: String
     var image = ""
     var size: CGFloat = 44
+    @State private var decodedAvatar: CGImage?
     var body: some View {
         Group {
-            if let comma = image.firstIndex(of: ","), image.hasPrefix("data:image"), let data = Data(base64Encoded: String(image[image.index(after: comma)...])) {
-                #if os(iOS)
-                if let native = UIImage(data: data) { Image(uiImage: native).resizable().scaledToFill() }
+            if image.hasPrefix("data:image") {
+                if let decodedAvatar { Image(decorative: decodedAvatar, scale: 1).resizable().scaledToFill() }
                 else { initials }
-                #else
-                if let native = NSImage(data: data) { Image(nsImage: native).resizable().scaledToFill() }
-                else { initials }
-                #endif
             } else if let url = URL(string: image), ["http", "https"].contains(url.scheme) {
                 AsyncImage(url: url) { phase in if let image = phase.image { image.resizable().scaledToFill() } else { initials } }
             } else { initials }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.27)).accessibilityLabel(name)
+        .task(id: image) { let value = await AvatarImageCache.shared.image(image); if !Task.isCancelled { decodedAvatar = value } }
     }
     var initials: some View { Text(String(name.prefix(1))).font(.system(size: size * 0.4, weight: .semibold)).frame(width: size, height: size).background(.mint.opacity(0.17)).foregroundStyle(.primary) }
 }

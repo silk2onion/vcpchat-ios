@@ -31,15 +31,17 @@ public actor AvatarProcessor {
         let side = Double(min(source.width, source.height)) / min(4, max(1, zoom))
         let left = (Double(source.width) - side) * (min(1, max(-1, x)) + 1) / 2
         let top = (Double(source.height) - side) * (min(1, max(-1, y)) + 1) / 2
+        let alpha = [CGImageAlphaInfo.premultipliedFirst, .premultipliedLast, .first, .last, .alphaOnly].contains(source.alphaInfo)
         guard let cropped = source.cropping(to: CGRect(x: left, y: top, width: side, height: side).integral),
-              let context = CGContext(data: nil, width: 512, height: 512, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { throw ClientError.server("照片裁剪失败") }
+              let context = CGContext(data: nil, width: 512, height: 512, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: (alpha ? CGImageAlphaInfo.premultipliedLast : .noneSkipLast).rawValue) else { throw ClientError.server("照片裁剪失败") }
         context.interpolationQuality = .high
         context.draw(cropped, in: CGRect(x: 0, y: 0, width: 512, height: 512))
         guard let image = context.makeImage() else { throw ClientError.server("照片裁剪失败") }
         let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { throw ClientError.server("照片编码失败") }
+        let type = alpha ? UTType.png : .jpeg
+        guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { throw ClientError.server("照片编码失败") }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw ClientError.server("照片编码失败") }
-        return "data:image/jpeg;base64," + (data as Data).base64EncodedString()
+        return "data:" + (type.preferredMIMEType ?? "image/png") + ";base64," + (data as Data).base64EncodedString()
     }
 }
