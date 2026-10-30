@@ -17,6 +17,7 @@ struct FileLibraryView: View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
             if !notice.isEmpty { Text(notice).foregroundStyle(.secondary) }
+            Section { NavigationLink { ServerFilesView(model: model) } label: { Label("服务器文件",systemImage: "externaldrive.connected.to.line.below") } }
             Section { NavigationLink { ConnectedFoldersView(model: model) } label: { Label("连接文件夹",systemImage: "folder.badge.plus") } }
             Section {
                 Button("导入文件", systemImage: "square.and.arrow.down") { importing = true }.disabled(busy)

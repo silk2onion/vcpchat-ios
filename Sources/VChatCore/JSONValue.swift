@@ -21,7 +21,7 @@ public enum JSONValue: Codable, Sendable, Equatable {
 }
 public actor VCPHTTP {
     private let session: URLSession
-    public init() { let config = URLSessionConfiguration.ephemeral; config.httpShouldSetCookies = false; config.urlCache = nil; config.timeoutIntervalForRequest = 30; session = URLSession(configuration: config) }
+    public init(allowingRedirects: Bool = true) { let config = URLSessionConfiguration.ephemeral; config.httpShouldSetCookies = false; config.urlCache = nil; config.timeoutIntervalForRequest = 30; session = URLSession(configuration: config,delegate: allowingRedirects ? nil : NoRedirectDelegate(),delegateQueue: nil) }
     public func json(_ url: URL, method: String = "GET", authorization: String = "", body: JSONValue? = nil) async throws -> JSONValue {
         var request = URLRequest(url: url); request.httpMethod = method
         if !authorization.isEmpty { request.setValue(authorization,forHTTPHeaderField: "Authorization") }
@@ -33,5 +33,16 @@ public actor VCPHTTP {
         guard data.count <= 20_000_000 else { throw ClientError.server("服务器响应超过 20 MB") }
         if data.isEmpty { return .object([:]) }
         return try JSONDecoder().decode(JSONValue.self,from: data)
+    }
+}
+public struct HTTPDataReply: Sendable { public var data: Data; public var status: Int; public var contentType: String }
+extension VCPHTTP {
+    public func response(_ url: URL,method: String = "GET",headers: [String:String] = [:],body: Data? = nil,limit: Int = 20_000_000) async throws -> HTTPDataReply {
+        var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body
+        for (name,value) in headers { request.setValue(value,forHTTPHeaderField: name) }
+        let (stream,response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
+        var data = Data(); for try await byte in stream { try Task.checkCancellation(); data.append(byte); guard data.count <= limit else { throw ClientError.server("服务器响应超过允许大小") } }
+        return HTTPDataReply(data: data,status: http.statusCode,contentType: http.value(forHTTPHeaderField: "Content-Type") ?? "")
     }
 }
