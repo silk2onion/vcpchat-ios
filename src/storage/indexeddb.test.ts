@@ -28,4 +28,14 @@ describe("indexedDB repository", () => {
     await repository.saveMessage(message);
     expect((await repository.listMessages("t1"))[0].content).toBe("你好");
   });
+
+  test("fills render switches into settings saved by an older build", async () => {
+    const repository = createIndexedDbRepository();
+    const legacy: Record<string, unknown> = { ...defaultSettings(), apiKey: "fixture-key" };
+    for (const key of Object.keys(legacy)) if (key.startsWith("render") || key === "richRender") delete legacy[key];
+    await repository.saveSettings(legacy as never);
+    const loaded = await repository.getSettings();
+    expect(loaded.apiKey).toBe("fixture-key");
+    expect(loaded).toMatchObject({ richRender: true, renderMath: true, renderHtml: true, renderMotion: true });
+  });
 });

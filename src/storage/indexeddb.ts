@@ -36,6 +36,8 @@ async function transaction<T>(storeNames: string[], mode: IDBTransactionMode, ru
     const tx = db.transaction(storeNames, mode);
     const stores = storeNames.map((name) => tx.objectStore(name));
     Promise.resolve(run(stores)).then(resolve, reject);
+    tx.oncomplete = () => db.close();
+    tx.onabort = () => db.close();
     tx.onerror = () => reject(tx.error ?? new Error("本地数据库事务失败"));
   });
 }

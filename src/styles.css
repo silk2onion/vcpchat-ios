@@ -332,6 +332,8 @@ textarea { min-height: 48px; max-height: 160px; resize: vertical; }
   gap: 10px;
 }
 .check { display: flex; gap: 8px; align-items: center; color: var(--ink); }
+.sub-switches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 0; padding: 10px 0 0 22px; border: 0; border-top: 1px solid var(--line); }
+.sub-switches:disabled { opacity: 0.5; }
 .empty { margin: auto; max-width: 360px; display: grid; gap: 8px; }
 .log-list { display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .log-item pre { white-space: pre-wrap; font-family: var(--mono); font-size: 12px; margin: 8px 0 0; }

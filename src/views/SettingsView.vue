@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import type { Settings } from "../domain";
 import { createAppHttp } from "../protocol/http";
 import { listModels } from "../protocol/models";
 import { useLibraryStore } from "../stores/library";
@@ -12,6 +13,14 @@ const logs = useLogStore();
 const showKey = ref(false);
 const modelStatus = ref("");
 const models = ref<string[]>([]);
+const renderSwitches = [
+  { key: "renderCode", label: "代码高亮" },
+  { key: "renderMath", label: "KaTeX 公式" },
+  { key: "renderMermaid", label: "Mermaid 图表" },
+  { key: "renderHtml", label: "HTML 气泡（沙箱运行）" },
+  { key: "renderMedia", label: "图片与视频预览" },
+  { key: "renderMotion", label: "气泡动画" },
+] as const satisfies readonly { key: keyof Settings; label: string }[];
 
 async function refreshModels() {
   modelStatus.value = "正在询问 /v1/models";
@@ -105,6 +114,20 @@ async function clearHistory() {
         <button type="button" :aria-pressed="settings.settings.theme === 'paper'" @click="settings.patch({ theme: 'paper' })">纸色</button>
         <button type="button" :aria-pressed="settings.settings.theme === 'aurora'" @click="settings.patch({ theme: 'aurora' })">极光</button>
       </div>
+    </form>
+    <form class="card">
+      <h2>高级渲染</h2>
+      <label class="check">
+        <input :checked="settings.settings.richRender" type="checkbox" @change="settings.patch({ richRender: !settings.settings.richRender })" />
+        开启高级渲染
+      </label>
+      <p class="hint">关掉更省电：消息只渲染轻量 Markdown，不加载高亮、公式和图表库，HTML 不运行，也没有动画。工具卡片和日记卡片照常显示。切换后已有消息会重新渲染。</p>
+      <fieldset class="sub-switches" :disabled="!settings.settings.richRender">
+        <label v-for="item in renderSwitches" :key="item.key" class="check">
+          <input :checked="settings.settings[item.key]" type="checkbox" @change="settings.patch({ [item.key]: !settings.settings[item.key] })" />
+          {{ item.label }}
+        </label>
+      </fieldset>
     </form>
     <div class="card">
       <h2>本机数据</h2>

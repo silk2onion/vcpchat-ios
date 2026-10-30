@@ -6,7 +6,7 @@ import { assertAttachmentCount, attachmentKind } from "../protocol/messages";
 import { createId } from "../protocol/ids";
 import type { Attachment } from "../domain";
 import { openViewer } from "../render/media";
-import { effectiveOptions, fullRenderOptions, optionsKey } from "../render/options";
+import { optionsKey, renderOptionsFrom } from "../render/options";
 import { useLibraryStore } from "../stores/library";
 import { useSettingsStore } from "../stores/settings";
 
@@ -28,7 +28,7 @@ media.addEventListener("change", () => {
 });
 
 const showDrawer = computed(() => wide.value || drawer.value);
-const renderOptions = computed(() => effectiveOptions(fullRenderOptions()));
+const renderOptions = computed(() => renderOptionsFrom(settings.settings));
 const renderKey = computed(() => optionsKey(renderOptions.value));
 
 watch(

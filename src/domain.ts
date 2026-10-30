@@ -17,6 +17,13 @@ export interface Settings {
   defaultModel: string;
   temperature: number;
   sendTemperature: boolean;
+  richRender: boolean;
+  renderCode: boolean;
+  renderMath: boolean;
+  renderMermaid: boolean;
+  renderHtml: boolean;
+  renderMotion: boolean;
+  renderMedia: boolean;
 }
 
 export interface Agent {
@@ -106,6 +113,13 @@ export function defaultSettings(): Settings {
     defaultModel: "",
     temperature: 0.8,
     sendTemperature: false,
+    richRender: true,
+    renderCode: true,
+    renderMath: true,
+    renderMermaid: true,
+    renderHtml: true,
+    renderMotion: true,
+    renderMedia: true,
   };
 }
 
