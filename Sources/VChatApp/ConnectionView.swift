@@ -34,9 +34,10 @@ struct ConnectionView: View {
                     Button("选择模型 · \(model.models.count) 个", systemImage: "list.bullet") { choosingModel = true }
                 }
                 Section("实时推送") {
+                    TextField("日志地址（留空使用聊天服务器）",text: $model.services.logServer)
                     SecureField("VCPLog Key（与聊天 Key 分开）", text: $model.logKey)
                     Button("连接 WebSocket") { model.connectPush() }
-                    LabeledContent("状态", value: model.pushStatus)
+                    ForEach(PushChannel.allCases,id: \.self) { channel in LabeledContent(channel.title,value: model.activity.statuses[channel] ?? "未连接") }
                 }
                 Section("流式显示") {
                     Picker("流式刷新率", selection: $model.configuration.framesPerSecond) { Text("标准 · 60 Hz").tag(60); Text("高刷新率 · 120 Hz").tag(120) }

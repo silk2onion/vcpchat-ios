@@ -83,6 +83,7 @@ public struct PushUpdate: Sendable {
     public let connected: Bool
     public let kind: String
     public let text: String
+    public var payload: JSONValue = .null
 }
 public enum ClientError: Error, LocalizedError, Equatable, Sendable {
     case invalidConfiguration, missingKey, missingModel, http(Int), invalidResponse, interrupted, tooLarge, server(String), authentication, timeout

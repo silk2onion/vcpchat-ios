@@ -52,7 +52,7 @@ struct ChatView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button { showTopics = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("历史话题")
                     Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索本机消息")
-                    Button { showLog = true } label: { Image(systemName: "waveform.path") }.accessibilityLabel("VCPLog")
+                    Button { showLog = true } label: { Image(systemName: model.activity.unread > 0 ? "bell.badge" : "bell") }.accessibilityLabel("通知与监视")
                     Menu {
                         Button("连接设置", systemImage: "slider.horizontal.3") { showSettings = true }
                         Button("导出这段对话", systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话", messages: model.messages.map(\.record))); exporting = true }
@@ -69,9 +69,7 @@ struct ChatView: View {
             .sheet(isPresented: $showSearch) {
                 NavigationStack { List { TextField("搜索本机消息（至少 3 个字）", text: $model.search).onChange(of: model.search) { _, _ in Task { await model.searchLocal() } }; ForEach(model.results) { Text($0.content).lineLimit(5) } }.navigationTitle("本机搜索").toolbar { Button("完成") { showSearch = false } } }.frame(minWidth: 340, minHeight: 420)
             }
-            .sheet(isPresented: $showLog) {
-                NavigationStack { List { LabeledContent("WebSocket", value: model.pushStatus); ForEach(Array(model.pushEvents.enumerated()), id: \.offset) { _, item in Text(item).font(.caption.monospaced()).textSelection(.enabled) } }.navigationTitle("VCPLog").toolbar { Button("完成") { showLog = false } } }.frame(minWidth: 340, minHeight: 420)
-            }
+            .sheet(isPresented: $showLog) { NavigationStack { ActivityView(model: model).toolbar { Button("完成") { showLog = false } } }.frame(minWidth: 360,minHeight: 530) }
         }
     }
 }

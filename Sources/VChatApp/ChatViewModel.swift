@@ -70,16 +70,16 @@ struct TopicDraft: Codable, Sendable {
     var unlockingCredentials = false
     var savingConnection = false
     var loading = true
-    var pushStatus = "未连接"
+    var activity = ActivityCenter()
+    var pushStatus: String { activity.statuses[.log] ?? "未连接" }
     var error: String?
-    var pushEvents: [String] = []
+    var pushEvents: [String] { activity.entries.map { $0.payload.pretty } }
     var search = ""
     var results: [StoredMessage] = []
     @ObservationIgnored let network = SessionActor()
     @ObservationIgnored let vault: CredentialVault
     var credentialsInMemory: Bool { vault.persistence == .session }
     @ObservationIgnored var store: ChatStore?
-    @ObservationIgnored private var push: Task<Void, Never>?
     @ObservationIgnored private var openingID: UUID?
     var room: ChatRoom? { rooms[activeTopicID] }
     var activeTopic: ChatTopic? { topics.first { $0.id == activeTopicID } }
@@ -137,6 +137,7 @@ struct TopicDraft: Codable, Sendable {
             }
             let previous = UserDefaults.standard.string(forKey: "native.active-topic") ?? "legacy"
             await openTopic(topics.first { $0.id == previous } ?? topics[0])
+            await activity.load(store: database)
             await loadCatalog()
             loading = false
             // Do not call Security APIs on startup, even with a no-interaction hint.
@@ -279,6 +280,7 @@ struct TopicDraft: Codable, Sendable {
             _ = try config.baseURL()
             let data = try JSONEncoder().encode(config)
             try await vault.save(chat, name: "chat-api-key"); try await vault.save(log, name: "vcp-log-key")
+            try await store?.put(services,kind: "services",id: "settings")
             UserDefaults.standard.set(data, forKey: "native.connection")
             return true
         } catch { self.error = error.localizedDescription; return false }
@@ -311,17 +313,9 @@ struct TopicDraft: Codable, Sendable {
         } catch { self.error = error.localizedDescription }
     }
     func connectPush() {
-        push?.cancel(); pushStatus = "正在鉴权"
-        let config = configuration, key = logKey
-        push = Task {
-            do {
-                for try await event in try await network.connectPush(configuration: config, key: key) {
-                    if Task.isCancelled { return }; pushStatus = event.connected ? "已连接" : "未连接"
-                    if event.kind != "connection_ack" { pushEvents.insert(event.text, at: 0); if pushEvents.count > 200 { pushEvents.removeLast() } }
-                }
-                if !Task.isCancelled { pushStatus = "未连接" }
-            } catch { if !Task.isCancelled { pushStatus = error.localizedDescription } }
-        }
+        let server = services.logServer.isEmpty ? configuration.server : services.logServer, key = logKey
+        let secrets = [apiKey,logKey] + Array(serviceSecrets.values)
+        Task { await activity.connect(server: server,key: key,secrets: secrets) }
     }
     func attach(_ items: [ChatAttachment], to topicID: String) async {
         guard let room = rooms[topicID] else { return }
@@ -438,7 +432,7 @@ struct TopicDraft: Codable, Sendable {
     func suspend() async {
         await flushDraft()
         for room in rooms.values { room.cancelled = true; await room.session.stop(interrupted: true) }
-        await network.disconnectPush(); push?.cancel(); pushStatus = "后台暂停"
+        await activity.pause()
     }
     func searchLocal() async {
         let query = search

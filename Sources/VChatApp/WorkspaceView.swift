@@ -104,6 +104,7 @@ struct WorkspaceView: View {
                             }
                         }.padding(.vertical, 20) }
                     }
+                    Section { NavigationLink { ActivityView(model: model) } label: { HStack { Label("通知与监视", systemImage: model.activity.unread > 0 ? "bell.badge" : "bell"); Spacer(); if model.activity.unread > 0 { Text("\(model.activity.unread)").foregroundStyle(.secondary) } } } }
                     Section { NavigationLink { NotesView(model: model) } label: { Label("笔记", systemImage: "note.text") } }
                     Section { NavigationLink { FileLibraryView(model: model) } label: { Label("文件", systemImage: "folder") } }
                     Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }

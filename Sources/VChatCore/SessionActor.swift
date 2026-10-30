@@ -106,17 +106,12 @@ public actor SessionActor {
         struct Catalog: Decodable { struct Model: Decodable { let id: String }; let data: [Model] }
         return try JSONDecoder().decode(Catalog.self, from: data).data.map(\.id)
     }
-    public func connectPush(configuration: ConnectionConfiguration, key: String) throws -> AsyncThrowingStream<PushUpdate, Error> {
+    public func connectPush(configuration: ConnectionConfiguration, key: String, channel: PushChannel = .log, server: String? = nil) throws -> AsyncThrowingStream<PushUpdate, Error> {
         disconnectPush()
         guard !key.isEmpty else { throw ClientError.missingKey }
-        // Upstream compares the raw path key (does not percent-decode): reject unsupported path characters.
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_.~="))
-        guard key.unicodeScalars.allSatisfy(allowed.contains) else { throw ClientError.invalidConfiguration }
-        var parts = URLComponents(url: try configuration.endpoint("VCPlog/VCP_Key=\(key)"), resolvingAgainstBaseURL: false)!
-        parts.scheme = parts.scheme == "https" ? "wss" : "ws"
-        parts.queryItems = [URLQueryItem(name: "deviceName", value: "VChatNative-Phase1")]
+        let url = try SocketEndpoint.url(server: server ?? configuration.endpoint("").absoluteString,key: key,channel: channel)
         let id = UUID(); socketID = id
-        let task = network.webSocketTask(with: parts.url!); task.maximumMessageSize = 1_000_000; socket = task
+        let task = network.webSocketTask(with: url); task.maximumMessageSize = 1_000_000; socket = task
         let (stream, continuation) = AsyncThrowingStream<PushUpdate, Error>.makeStream(bufferingPolicy: .bufferingNewest(100))
         socketContinuation = continuation
         continuation.onTermination = { [weak self] _ in Task { await self?.terminateSocket(id) } }
@@ -124,6 +119,11 @@ public actor SessionActor {
         socketTask = Task { await self.receivePush(task, id: id) }
         Task { try? await Task.sleep(for: .seconds(10)); self.checkSocketTimeout(id) }
         return stream
+    }
+    public func sendPush(_ value: JSONValue) async throws {
+        guard acknowledged, let socket else { throw ClientError.server("VCPLog 未连接，审批尚未发送") }
+        let data = try JSONEncoder().encode(value)
+        try await socket.send(.string(String(decoding: data,as: UTF8.self)))
     }
     private var acknowledged = false
     private func checkSocketTimeout(_ id: UUID) { if socketID == id && !acknowledged { socketContinuation?.finish(throwing: ClientError.timeout); disconnectPush() } }
@@ -140,11 +140,10 @@ public actor SessionActor {
                 let data: Data
                 switch frame { case .data(let value): data = value; case .string(let value): data = Data(value.utf8); @unknown default: throw ClientError.invalidResponse }
                 guard pthread_main_np() == 0 else { throw ClientError.server("WebSocket 解析隔离失败") }
-                struct Event: Decodable { let type: String?; let message: String? }
-                let event = try JSONDecoder().decode(Event.self, from: data)
-                if event.type == "connection_ack" { acknowledged = true }
+                let event = (try? JSONDecoder().decode(JSONValue.self, from: data)) ?? .object(["type": .string("message"),"message": .string(String(decoding: data,as: UTF8.self))])
+                if event["type"].text == "connection_ack" { acknowledged = true }
                 guard acknowledged else { continue }
-                socketContinuation?.yield(PushUpdate(connected: true, kind: event.type ?? "event", text: String((event.message ?? String(decoding: data, as: UTF8.self)).prefix(4000))))
+                socketContinuation?.yield(PushUpdate(connected: true, kind: event["type"].text, text: String(event["message"].text.prefix(4000)),payload: event))
             }
         } catch {
             guard socketID == id else { return }
