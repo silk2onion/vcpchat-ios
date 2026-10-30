@@ -131,7 +131,9 @@ struct ContactAvatar: View {
     @State private var decodedAvatar: CGImage?
     var body: some View {
         Group {
-            if image.hasPrefix("data:image") {
+            if image.hasPrefix("data:image/gif;") {
+                NativeRaster(image)
+            } else if image.hasPrefix("data:image") {
                 if let decodedAvatar { Image(decorative: decodedAvatar, scale: 1).resizable().scaledToFill() }
                 else { initials }
             } else if let url = URL(string: image), ["http", "https"].contains(url.scheme) {

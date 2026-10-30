@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 /// Image decoding and cropping never block the UI actor. Only the small encoded result crosses actors.
 public actor AvatarProcessor {
     private var source: CGImage?
+    private var animated: Data?
+    public var isAnimated: Bool { animated != nil }
     public init() {}
     public func prepare(data: Data) throws {
         guard data.count <= 12_000_000,
@@ -17,6 +19,7 @@ public actor AvatarProcessor {
                 kCGImageSourceShouldCacheImmediately: true
               ] as CFDictionary) else { throw ClientError.server("请选择不超过 12 MB 的照片") }
         self.source = image
+        animated = CGImageSourceGetType(source) as String? == UTType.gif.identifier ? data : nil
     }
     public func prepare(url: URL) throws {
         let access = url.startAccessingSecurityScopedResource()
@@ -27,6 +30,7 @@ public actor AvatarProcessor {
     }
     public func crop(zoom: Double, x: Double, y: Double) throws -> String {
         try Task.checkCancellation()
+        if let animated { return "data:image/gif;base64," + animated.base64EncodedString() }
         guard let source else { throw ClientError.server("请先选择照片") }
         let side = Double(min(source.width, source.height)) / min(4, max(1, zoom))
         let left = (Double(source.width) - side) * (min(1, max(-1, x)) + 1) / 2

@@ -11,6 +11,7 @@ struct AvatarEditor: View {
     @State private var importing = false
     @State private var preview = ""
     @State private var ready = false
+    @State private var animated = false
     @State private var zoom = 1.0
     @State private var x = 0.0
     @State private var y = 0.0
@@ -24,7 +25,8 @@ struct AvatarEditor: View {
                     PhotosPicker(selection: $picker, matching: .images) { Label("照片", systemImage: "photo") }
                     Button("从文件选择", systemImage: "folder") { importing = true }
                 }.buttonStyle(.bordered)
-                if ready {
+                if animated { Text("动态头像保留完整动画，按头像区域居中显示。").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
+                if ready && !animated {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("缩放").font(.caption); Slider(value: $zoom, in: 1...4)
                         Text("左右位置").font(.caption); Slider(value: $x, in: -1...1)
@@ -50,13 +52,14 @@ struct AvatarEditor: View {
                 if case .success(let url) = result { Task { do { try await processor.prepare(url: url); await prepared() } catch { self.error = error.localizedDescription } } }
             }
             .task(id: "\(zoom):\(x):\(y):\(ready)") {
-                guard ready else { return }
+                guard ready && !animated else { return }
                 do { try await Task.sleep(for: .milliseconds(70)); let value = try await processor.crop(zoom: zoom, x: x, y: y); if !Task.isCancelled { preview = value } }
                 catch is CancellationError {} catch { self.error = error.localizedDescription }
             }
         }.frame(minWidth: 340, minHeight: 580)
     }
     func prepared() async {
+        animated = await processor.isAnimated
         zoom = 1; x = 0; y = 0
         do { preview = try await processor.crop(zoom: 1, x: 0, y: 0); ready = true; error = nil }
         catch { self.error = error.localizedDescription }
