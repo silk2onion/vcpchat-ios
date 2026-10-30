@@ -100,7 +100,8 @@ public actor SessionActor {
         var request = URLRequest(url: try configuration.endpoint("v1/models"))
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await network.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw ClientError.authentication }
+        guard let http = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
+        guard http.statusCode == 200 else { throw ClientError.http(http.statusCode) }
         struct Catalog: Decodable { struct Model: Decodable { let id: String }; let data: [Model] }
         return try JSONDecoder().decode(Catalog.self, from: data).data.map(\.id)
     }
@@ -146,7 +147,7 @@ public actor SessionActor {
             }
         } catch {
             guard socketID == id else { return }
-            socketContinuation?.finish(throwing: ClientError.authentication); disconnectPush()
+            socketContinuation?.finish(throwing: acknowledged ? ClientError.server("WebSocket 已断开，请重新连接") : ClientError.authentication); disconnectPush()
         }
     }
 }

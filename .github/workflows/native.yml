@@ -1,0 +1,51 @@
+name: Native SwiftUI Phase 1
+on:
+  pull_request:
+    paths: ['Sources/**', 'Tests/**', 'Configuration/**', 'VChat.xcodeproj/**', 'Package.*', 'scripts/**', '.github/workflows/native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare isolated outputs
+        run: |
+          echo "VCHAT_ARTIFACTS=$HOME/CodexArtifacts/vchat-native-ci-${{ github.run_id }}" >> "$GITHUB_ENV"
+      - name: Native tests and authenticated protocol fixture
+        run: |
+          mkdir -p "$VCHAT_ARTIFACTS/results"
+          set -o pipefail
+          sw_vers | tee "$VCHAT_ARTIFACTS/results/environment.log"
+          xcodebuild -version | tee -a "$VCHAT_ARTIFACTS/results/environment.log"
+          swift -version | tee -a "$VCHAT_ARTIFACTS/results/environment.log"
+          bash scripts/test-native.sh 2>&1 | tee "$VCHAT_ARTIFACTS/results/tests.log"
+      - name: Build iOS simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -project VChat.xcodeproj -scheme VChat -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$VCHAT_ARTIFACTS/tmp/DerivedData" \
+            -clonedSourcePackagesDirPath "$VCHAT_ARTIFACTS/tmp/SourcePackages" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$VCHAT_ARTIFACTS/results/ios-build.log"
+      - name: Launch native app on simulator
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          app="$VCHAT_ARTIFACTS/tmp/DerivedData/Build/Products/Debug-iphonesimulator/VChat.app"
+          xcrun simctl install "$device" "$app"
+          xcrun simctl launch "$device" app.vcpchat.native | tee "$VCHAT_ARTIFACTS/results/simulator-launch.log"
+          sleep 3
+          xcrun simctl io "$device" screenshot "$VCHAT_ARTIFACTS/results/native-ios.png"
+      - name: Save native evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: native-phase1-evidence
+          path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/results/
+          if-no-files-found: error

@@ -118,14 +118,15 @@ import VChatCore
                     guard activeID == assistant.id else { return }
                     assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
                     frames = update.sequence; tokens = update.rawEvents; parsingOffMain = update.parserWasOffMainThread
-                    switch update.state {
-                    case .connecting: connection = "正在连接"
-                    case .streaming: connection = "正在回复"
-                    case .complete: connection = "回复完成"
-                    case .stopped: connection = "已停止"
-                    case .interrupted: connection = "已中断"
-                    case .failed: connection = "连接失败"
+                    let nextStatus: String = switch update.state {
+                    case .connecting: "正在连接"
+                    case .streaming: "正在回复"
+                    case .complete: "回复完成"
+                    case .stopped: "已停止"
+                    case .interrupted: "已中断"
+                    case .failed: "连接失败"
                     }
+                    if connection != nextStatus { connection = nextStatus }
                     if (update.state == .streaming || update.state == .complete) && !accepted { try await store.markSent(user.id); accepted = true; messages.first(where: { $0.id == user.id })?.status = "complete" }
                     if lastSaved.duration(to: .now) >= .milliseconds(500) || update.state != .streaming {
                         try await store.save(assistant.record); lastSaved = .now

@@ -6,7 +6,6 @@ struct ChatView: View {
     @State private var showSettings = false
     @State private var showSearch = false
     @State private var showLog = false
-    @State private var followLatest = true
     @FocusState private var writing: Bool
     var body: some View {
         NavigationStack {
@@ -20,29 +19,7 @@ struct ChatView: View {
                 if let error = model.error {
                     HStack { Text(error).font(.callout); Spacer(); Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.padding(14).background(.red.opacity(0.09)).foregroundStyle(.red)
                 }
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 24) {
-                            if model.messages.isEmpty && !model.loading {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Image(systemName: "sparkle").font(.system(size: 34)).foregroundStyle(.mint)
-                                    Text("有什么想聊的？").font(.title2.bold())
-                                    Text("连接你的 VCP，开始一段对话。历史保存在本机。").foregroundStyle(.secondary)
-                                    if model.apiKey.isEmpty { Button("连接服务器") { showSettings = true }.buttonStyle(.borderedProminent).tint(.mint) }
-                                }.padding(.top, 68).padding(.bottom, 30)
-                            }
-                            ForEach(model.messages) { message in NativeMessageRow(message: message).id(message.id) }
-                            Color.clear.frame(height: 1).id("latest")
-                        }.padding(.horizontal, 20).padding(.vertical, 22)
-                    }
-                    .defaultScrollAnchor(model.messages.isEmpty ? .top : .bottom)
-                    .onChange(of: model.frames) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
-                    .onChange(of: model.messages.count) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
-                    .overlay(alignment: .bottomTrailing) {
-                        Button { followLatest.toggle(); if followLatest { proxy.scrollTo("latest", anchor: .bottom) } } label: { Image(systemName: followLatest ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
-                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(followLatest ? "暂停跟随回复" : "跟随最新回复")
-                    }
-                }
+                ChatTimeline(model: model)
                 if model.pendingCount > 0 { Text("\(model.pendingCount) 条本机待确认消息；不会自动重复发送").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
                 HStack(alignment: .bottom, spacing: 12) {
                     TextField("发消息", text: $model.draft, axis: .vertical).lineLimit(1...6).textFieldStyle(.plain).focused($writing).padding(.vertical, 10)
@@ -71,6 +48,40 @@ struct ChatView: View {
         }
     }
 }
+
+/// The high-frequency scroll trigger is isolated from navigation and the composer.
+private struct ChatTimeline: View {
+    let model: ChatViewModel
+    @State private var followLatest = true
+    @State private var openSettings = false
+    var body: some View {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 24) {
+                            if model.messages.isEmpty && !model.loading {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Image(systemName: "sparkle").font(.system(size: 34)).foregroundStyle(.mint)
+                                    Text("有什么想聊的？").font(.title2.bold())
+                                    Text("连接你的 VCP，开始一段对话。历史保存在本机。").foregroundStyle(.secondary)
+                                    if model.apiKey.isEmpty { Button("连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(.mint) }
+                                }.padding(.top, 68).padding(.bottom, 30)
+                            }
+                            ForEach(model.messages) { message in NativeMessageRow(message: message).id(message.id) }
+                            Color.clear.frame(height: 1).id("latest")
+                        }.padding(.horizontal, 20).padding(.vertical, 22)
+                    }
+                    .defaultScrollAnchor(model.messages.isEmpty ? .top : .bottom)
+                    .onChange(of: model.frames) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
+                    .onChange(of: model.messages.count) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
+                    .overlay(alignment: .bottomTrailing) {
+                        Button { followLatest.toggle(); if followLatest { proxy.scrollTo("latest", anchor: .bottom) } } label: { Image(systemName: followLatest ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(followLatest ? "暂停跟随回复" : "跟随最新回复")
+                    }
+                }
+            .sheet(isPresented: $openSettings) { ConnectionView(model: model) }
+    }
+}
+
 private struct NativeMessageRow: View {
     let message: MessageViewModel
     var body: some View {

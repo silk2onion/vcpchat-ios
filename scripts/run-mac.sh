@@ -11,6 +11,7 @@ bin="$TMPDIR/build/debug"
 app="$VCHAT_ARTIFACTS/products/VChat Native.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/VChatMac" "$app/Contents/MacOS/VChatMac"
+chmod -R u+w "$app/Contents/Resources"
 cp -R "$bin/GRDB_GRDB.bundle" "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
