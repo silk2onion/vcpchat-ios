@@ -15,7 +15,7 @@ struct AvatarEditor: View {
     @State private var x = 0.0
     @State private var y = 0.0
     @State private var error: String?
-    private let processor = AvatarProcessor()
+    @State private var processor = AvatarProcessor()
     var body: some View {
         NavigationStack {
             VStack(spacing: 22) {
