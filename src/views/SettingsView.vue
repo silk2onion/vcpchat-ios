@@ -112,7 +112,7 @@ async function clearKeys() {
         <div class="settings-intro">
           <div class="app-mark"><AppIcon name="render" :size="30" /></div>
           <div><strong>VCPChat</strong><span>你的 Agent，随身同行。</span></div>
-          <span class="version-label">0.2.0</span>
+          <span class="version-label">0.2.1</span>
         </div>
         <h2 class="settings-label">连接</h2>
         <div class="settings-group">
@@ -378,7 +378,7 @@ async function clearKeys() {
       <div v-else-if="section === 'about'" class="about-app">
         <div class="app-mark"><AppIcon name="render" :size="36" /></div>
         <h2>VCPChat</h2>
-        <p class="hint">0.2.0 · 随身的 Agent 工作空间</p>
+        <p class="hint">0.2.1 · 随身的 Agent 工作空间</p>
         <div class="card">
           <p>
             连接你自己的 VCPToolBox。界面与协议分层参考
