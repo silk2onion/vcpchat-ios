@@ -1,6 +1,7 @@
 mod background;
 mod net;
 mod files;
+mod folders;
 #[cfg(target_os = "ios")]
 mod ios_webview;
 
@@ -121,7 +122,7 @@ pub fn run() {
             socket_send,
             audio_request,
             socket_disconnect,
-            sync_http_request, binary_request, export_file, show_exports
+            sync_http_request, binary_request, export_file, show_exports, folders::folder_request, folders::folder_tool
         ])
         .run(tauri::generate_context!())
         .expect("VCPChat 启动失败");

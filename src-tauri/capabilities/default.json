@@ -27,6 +27,7 @@
     "allow-sync-http-request",
     "allow-binary-request",
     "allow-export-file",
-    "allow-show-exports"
+    "allow-show-exports",
+    "allow-connected-folders"
   ]
 }

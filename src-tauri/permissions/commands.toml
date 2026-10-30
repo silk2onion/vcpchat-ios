@@ -59,3 +59,8 @@ commands.allow = ["export_file"]
 identifier = "allow-show-exports"
 description = "Show the app-owned export directory."
 commands.allow = ["show_exports"]
+
+[[permission]]
+identifier = "allow-connected-folders"
+description = "Manage user-picked folders through scoped native access with pre-change backups."
+commands.allow = ["folder_request", "folder_tool"]
