@@ -1,7 +1,7 @@
 name: Native iOS Build
 on:
   pull_request:
-    paths: ['Sources/**', 'Configuration/**', 'VChat.xcodeproj/**', 'Package.*', '.github/workflows/native.yml']
+    paths: ['Sources/**', 'Vendor/**', 'Configuration/**', 'VChat.xcodeproj/**', 'Package.*', '.github/workflows/native.yml']
   workflow_dispatch:
 permissions:
   contents: read

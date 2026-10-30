@@ -145,4 +145,4 @@ Markdown 解析采用 [swift-markdown](https://github.com/swiftlang/swift-markdo
 
 原生动态图片使用 [SDWebImage](https://github.com/SDWebImage/SDWebImage)（MIT）；壁纸沿用原 iOS 客户端的林间夜游与雨后绿叶素材。
 
-原生 Mermaid 图表使用 [swift-mermaid 0.3.0](https://github.com/Australware/swift-mermaid)（MIT，Copyright 2026 Australware LLC），布局组件包含 lukilabs/dagre-swift（MIT）。
+原生 Mermaid 图表使用 [swift-mermaid 0.3.0](https://github.com/Australware/swift-mermaid)（MIT，Copyright 2026 Australware LLC），布局组件包含 lukilabs/dagre-swift（MIT）。对应源码固定于 `ee4b50bc`，仅拆开时序图布局的一条复杂表达式，以兼容 Xcode 16 的编译器；完整许可随组件资源保留。
