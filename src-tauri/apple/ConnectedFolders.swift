@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import CryptoKit
 #if os(macOS)
 import AppKit
@@ -34,16 +35,26 @@ final class ConnectedFolderEngine {
     let storage: URL
     private let fm = FileManager.default
     private var registry: Registry
+    private var persisted: Registry
     init(storage: URL) throws {
         self.storage = storage.standardizedFileURL
         try fm.createDirectory(at: storage, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let index = storage.appendingPathComponent("registry.json")
-        registry = fm.fileExists(atPath: index.path) ? try JSONDecoder().decode(Registry.self, from: Data(contentsOf: index)) : Registry()
+        let initial = fm.fileExists(atPath: index.path) ? try JSONDecoder().decode(Registry.self, from: Data(contentsOf: index)) : Registry()
+        registry = initial; persisted = initial
     }
     private func save() throws {
-        let data = try JSONEncoder().encode(registry), index = storage.appendingPathComponent("registry.json")
-        try data.write(to: index, options: .atomic)
-        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: index.path)
+        let temporary = storage.appendingPathComponent(".registry-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: temporary) }
+        do {
+            let data = try JSONEncoder().encode(registry), index = storage.appendingPathComponent("registry.json")
+            try data.write(to: temporary, options: .withoutOverwriting)
+            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+            let handle = try FileHandle(forWritingTo: temporary); try handle.synchronize(); try handle.close()
+            let renamed = temporary.path.withCString { source in index.path.withCString { target in Darwin.rename(source, target) } }
+            guard renamed == 0 else { throw NSError(domain:NSPOSIXErrorDomain, code:Int(errno)) }
+            persisted = registry
+        } catch { registry = persisted; throw error }
     }
     private func bookmark(_ url: URL) throws -> Data {
         #if os(macOS)
@@ -64,7 +75,7 @@ final class ConnectedFolderEngine {
     private func scoped<T>(_ id: String, agent: Bool, writing: Bool = false, _ body: (URL) throws -> T) throws -> T {
         guard let index = registry.folders.firstIndex(where: { $0.id == id && $0.connected }) else { throw failure("NOT_CONNECTED", "文件夹已断开，请重新连接") }
         let folder = registry.folders[index]
-        if agent && (folder.agentAccess == "off" || (writing && folder.agentAccess != "write")) { throw failure("NOT_AUTHORIZED", "此文件夹未授权 Agent 执行这项操作") }
+        if agent && (!["read","write"].contains(folder.agentAccess) || (writing && folder.agentAccess != "write")) { throw failure("NOT_AUTHORIZED", "此文件夹未授权 Agent 执行这项操作") }
         let (url, stale): (URL, Bool)
         do { (url, stale) = try resolve(folder) } catch { throw failure("AUTH_EXPIRED", "文件夹授权不可用，请重新连接") }
         let granted = url.startAccessingSecurityScopedResource()
@@ -76,13 +87,22 @@ final class ConnectedFolderEngine {
         if stale { registry.folders[index].bookmark = try bookmark(url); try save() }
         return try body(url.standardizedFileURL)
     }
-    private func coordinate<T>(_ url: URL, write: Bool, destination: URL? = nil, _ body: (URL, URL?) throws -> T) throws -> T {
+    private func coordinate<T>(_ url: URL, write: Bool, destination: URL? = nil, command: String = "", _ body: (URL, URL?) throws -> T) throws -> T {
         var coordinationError: NSError?, outcome: Result<T, Error>?
         let coordinator = NSFileCoordinator(filePresenter: nil)
+        let moving = command == "MoveFile" || command == "RenameFile"
+        let options: NSFileCoordinator.WritingOptions = moving ? .forMoving : command == "DeleteFile" ? .forDeleting : []
         if let destination = destination {
-            coordinator.coordinate(writingItemAt: url, options: [], writingItemAt: destination, options: [], error: &coordinationError) { a,b in outcome = Result { try body(a,b) } }
+            coordinator.coordinate(writingItemAt: url, options: options, writingItemAt: destination, options: [], error: &coordinationError) { a,b in
+                #if os(macOS)
+                if moving && ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil { coordinator.item(at:a, willMoveTo:b) }
+                #endif
+                let result = Result { try body(a,b) }
+                if moving { if case .success = result { coordinator.item(at:a, didMoveTo:b) } else { coordinator.item(at:a, didMoveTo:a) } }
+                outcome = result
+            }
         } else if write {
-            coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { a in outcome = Result { try body(a,nil) } }
+            coordinator.coordinate(writingItemAt: url, options: options, error: &coordinationError) { a in outcome = Result { try body(a,nil) } }
         } else {
             coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { a in outcome = Result { try body(a,nil) } }
         }
@@ -156,8 +176,11 @@ final class ConnectedFolderEngine {
         return ["name":url.lastPathComponent,"path":relative,"type":v.isSymbolicLink == true ? "symlink" : v.isDirectory == true ? "directory" : "file", "size":v.fileSize ?? 0,"modified":Int64((v.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000),"version":v.isSymbolicLink == true ? "blocked" : try version(url)]
     }
     func connect(_ url: URL) throws -> [String: Any] {
-        guard (try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true, !inside(storage, url), !inside(url, storage) else { throw failure("INVALID_FOLDER", "请选择独立的工作文件夹，不要包含应用内部备份目录") }
         let granted = url.startAccessingSecurityScopedResource(); defer { if granted { url.stopAccessingSecurityScopedResource() } }
+        #if os(iOS)
+        guard granted else { throw failure("AUTH_EXPIRED", "文件夹授权已失效，请重新连接") }
+        #endif
+        guard (try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true, !inside(storage, url), !inside(url, storage) else { throw failure("INVALID_FOLDER", "请选择独立的工作文件夹，不要包含应用内部备份目录") }
         let bytes = try bookmark(url)
         if let i = registry.folders.firstIndex(where: { (try? resolve($0).0.standardizedFileURL) == url.standardizedFileURL }) {
             registry.folders[i].bookmark = bytes; registry.folders[i].connected = true; registry.folders[i].name = url.lastPathComponent; try save(); return folderInfo(registry.folders[i])
@@ -198,7 +221,7 @@ final class ConnectedFolderEngine {
         let args = request["args"] as? [String:Any] ?? [:], agent = request["agent"] as? Bool ?? false
         let command = args["command"] as? String ?? ""
         if command == "ListAllowedDirectories" {
-            return ["folders":registry.folders.filter {  $0.connected && (!agent || $0.agentAccess != "off") }.map(folderInfo)]
+            return ["folders":registry.folders.filter {  $0.connected && (!agent || ["read","write"].contains($0.agentAccess)) }.map(folderInfo)]
         }
         let writes = ["WriteFile","AppendFile","EditFile","CopyFile","MoveFile","RenameFile","DeleteFile","CreateDirectory"]
         return try scoped(id, agent: agent, writing: writes.contains(command)) { root in
@@ -215,11 +238,12 @@ final class ConnectedFolderEngine {
                 }
                 registry.receipts[operationId] = Receipt(signature: signature, result: nil, at: now()); try save()
                 let result: [String:Any]
-                do { result = try coordinate(target, write: true, destination: dest) { current,destination in try mutate(command, args: args, root: root, target: current, destination: destination, folder: id, relative: relative) } }
+                do { result = try coordinate(target, write: true, destination: dest, command: command) { current,destination in try mutate(command, args: args, root: root, target: current, destination: destination, folder: id, relative: relative) } }
                 catch { registry.receipts[operationId]?.error = error.localizedDescription; try? save(); throw error }
                 registry.receipts[operationId]?.result = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]); try save(); return result
             }
             return try coordinate(target, write: false) { current,_ in
+                _ = try path(relative, root: root, allowRoot: ["ListDirectory","FileInfo"].contains(command))
                 switch command {
                 case "ListDirectory":
                     let children = try fm.contentsOfDirectory(at: current, includingPropertiesForKeys: [.isDirectoryKey,.fileSizeKey,.isSymbolicLinkKey])

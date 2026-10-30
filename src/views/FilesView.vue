@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeRouteLeave } from "vue-router";
 import { computed, onMounted, ref } from "vue";
 import { useConfirmationStore } from "../stores/confirmation";
 import ConnectedFolders from "../components/ConnectedFolders.vue";
@@ -39,6 +40,22 @@ const selected = ref<RemoteFile | null>(null),
   create = ref(false),
   createType = ref("file"),
   loaded = ref(false);
+const connectedView = ref<InstanceType<typeof ConnectedFolders> | null>(null);
+async function chooseMode(next: "local" | "server" | "connected") {
+  if (
+    mode.value === "connected" &&
+    connectedView.value &&
+    !(await connectedView.value.canLeave())
+  )
+    return;
+  mode.value = next;
+}
+onBeforeRouteLeave(
+  async () =>
+    mode.value !== "connected" ||
+    !connectedView.value ||
+    (await connectedView.value.canLeave()),
+);
 const encode = (text: string) => new TextEncoder().encode(text);
 const canGoUp = computed(() => {
   try {
@@ -239,14 +256,20 @@ onMounted(() => {
         <button
           type="button"
           :aria-pressed="mode === 'local'"
-          @click="mode = 'local'"
+          @click="chooseMode('local')"
         >
           本机附件
-        </button><button type="button" :aria-pressed="mode === 'connected'" @click="mode = 'connected'">连接文件夹</button>
+        </button><button
+          type="button"
+          :aria-pressed="mode === 'connected'"
+          @click="chooseMode('connected')"
+        >
+          连接文件夹
+        </button>
         <button
           type="button"
           :aria-pressed="mode === 'server'"
-          @click="mode = 'server'"
+          @click="chooseMode('server')"
         >
           服务器文件
         </button>
@@ -446,7 +469,9 @@ onMounted(() => {
           <p>导入文件或收集聊天附件；不会上传到服务器。</p>
         </div>
       </template>
-      <template v-else-if="mode === 'connected'"><ConnectedFolders /></template>
+      <template v-else-if="mode === 'connected'">
+        <ConnectedFolders ref="connectedView" />
+      </template>
       <template v-else>
         <button class="ghost" type="button" @click="showConfig = !showConfig">
           {{ showConfig ? "收起连接设置" : "连接与目录设置" }}

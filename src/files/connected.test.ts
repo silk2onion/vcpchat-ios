@@ -1,4 +1,4 @@
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { ConnectedFiles, folderJoin, mobileFileManifest } from "./connected";
 import type { NativeRequest } from "./connected";
 import { defaultSettings, secretsOf } from "../domain";

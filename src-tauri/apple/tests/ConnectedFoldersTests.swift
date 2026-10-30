@@ -59,6 +59,28 @@ import Foundation
         _=try reopened.handle(["action":"disconnect","folderId":id]);try fails("NOT_CONNECTED"){try reopened.handle(["action":"execute","folderId":id,"args":["command":"ListDirectory","directoryPath":""]])}
         let reconnected=try reopened.connect(root);try assert(reconnected["id"] as? String == id,"Reconnect retained backup identity");try assert(reconnected["agentAccess"] as? String == "off","Disconnect revoked tool access")
         try assert((try reopened.handle(["action":"backups","folderId":id]) as! [[String:Any]]).count>=4,"Backups survived disconnect")
+        // Coordinated directory moves/deletes must preserve the complete tree, not just its root.
+        _=try call(["command":"CreateDirectory","directoryPath":"tree"])
+        _=try call(["command":"WriteFile","filePath":"tree/note.txt","content":"one unique phrase"])
+        let note=try call(["command":"ReadFile","filePath":"tree/note.txt"])
+        let edited=try call(["command":"EditFile","filePath":"tree/note.txt","oldText":"unique","content":"updated","expectedVersion":note["version"]!])
+        try assert(try String(contentsOf:root.appendingPathComponent("tree/note.txt"),encoding:.utf8)=="one updated phrase","EditFile replaces exactly one match")
+        try fails("AMBIGUOUS_EDIT"){try call(["command":"EditFile","filePath":"tree/note.txt","oldText":"missing","content":"bad","expectedVersion":edited["version"]!])}
+        let tree=try call(["command":"FileInfo","filePath":"tree"])
+        let movedTree=try call(["command":"MoveFile","sourcePath":"tree","destinationPath":"moved-tree","expectedVersion":tree["version"]!])
+        try assert(try String(contentsOf:root.appendingPathComponent("moved-tree/note.txt"),encoding:.utf8)=="one updated phrase","Move directory retained child bytes")
+        try assert(try String(contentsOf:state.appendingPathComponent("backups/\(movedTree["backupId"]!)/original/note.txt"),encoding:.utf8)=="one updated phrase","Move directory backed up its children")
+        let deletedTree=try call(["command":"DeleteFile","filePath":"moved-tree","expectedVersion":movedTree["version"]!])
+        try assert(!fm.fileExists(atPath:root.appendingPathComponent("moved-tree").path),"Delete directory removed original tree")
+        _=try engine.handle(["action":"restore","folderId":id,"backupId":deletedTree["backupId"]!,"expectedVersion":"missing"])
+        try assert(try String(contentsOf:root.appendingPathComponent("moved-tree/note.txt"),encoding:.utf8)=="one updated phrase","Restore directory retained child bytes")
+        // Failed persistence must not leave an effective Agent grant behind in memory.
+        let index=state.appendingPathComponent("registry.json"),savedIndex=state.appendingPathComponent("saved-registry.json")
+        try fm.moveItem(at:index,to:savedIndex);try fm.createDirectory(at:index,withIntermediateDirectories:false)
+        do { _=try reopened.handle(["action":"grant","folderId":id,"access":"write"]);throw NSError(domain:"NativeRegression",code:3) } catch { }
+        let noGrant=try reopened.handle(["action":"execute","agent":true,"args":["command":"ListAllowedDirectories"]]) as! [String:Any]
+        try assert((noGrant["folders"] as! [[String:Any]]).isEmpty,"Failed persistence must not authorize Agent access")
+        try fm.removeItem(at:index);try fm.moveItem(at:savedIndex,to:index)
         print("PASS: \(checks) native assertions. Fixture: \(base.path)")
     }
 }

@@ -174,6 +174,9 @@ async function inspectFolder(file: FolderEntry) {
     operation.value = "RenameFile";
   });
 }
+async function reload() {
+  if (selected.value && (await discard())) await open(selected.value);
+}
 async function save() {
   if (!folder.value || !selected.value || !dirty.value) return;
   const f = folder.value,
@@ -198,6 +201,7 @@ async function save() {
 }
 async function move() {
   if (!folder.value || !selected.value) return;
+  if (!(await discard())) return;
   const f = folder.value,
     file = selected.value,
     target = destination.value,
@@ -223,6 +227,7 @@ async function move() {
 }
 async function remove() {
   if (!folder.value || !selected.value) return;
+  if (!(await discard())) return;
   const f = folder.value,
     file = selected.value;
   if (
@@ -270,10 +275,7 @@ async function restore(b: FolderBackup) {
     status.value = "已恢复到原路径，当前内容也已保留备份";
   });
 }
-async function grant(root: ConnectedFolder, event: Event) {
-  const select = event.target as HTMLSelectElement,
-    next = select.value as FolderAccess;
-  select.value = root.agentAccess;
+async function grant(root: ConnectedFolder, next: FolderAccess) {
   if (
     next !== "off" &&
     !(await confirmation.ask({
@@ -372,6 +374,7 @@ async function enableNode(event: Event) {
     });
   });
 }
+defineExpose({ canLeave: discard });
 onMounted(() => void task(load));
 </script>
 <template>
@@ -435,11 +438,19 @@ onMounted(() => void task(load));
           }}
           · {{ selected.path }}
         </p>
+        <button
+          class="text-button"
+          type="button"
+          :disabled="busy"
+          @click="reload"
+        >
+          重新读取
+        </button>
         <template v-if="selected.text !== undefined">
           <label class="field">文件内容<textarea
             v-model="text"
             aria-label="编辑连接文件"
-            rows="14"
+            rows="8"
             spellcheck="false"
             :disabled="busy"
           /></label><button
@@ -605,7 +616,7 @@ onMounted(() => void task(load));
       </template>
     </template>
     <template v-else>
-      <div class="card form-stack">
+      <div v-if="!roots.length" class="card form-stack">
         <h2>连接你的工作文件夹</h2>
         <p class="hint">
           从系统文件选择器授权一个目录，直接读写原文件；每次修改前自动备份。断开不会删除原文件或备份。
@@ -619,6 +630,15 @@ onMounted(() => void task(load));
           <AppIcon name="folder" :size="18" />连接文件夹
         </button>
       </div>
+      <button
+        v-if="roots.length"
+        class="ghost"
+        type="button"
+        :disabled="busy || !isTauri()"
+        @click="connect"
+      >
+        <AppIcon name="plus" :size="18" />连接文件夹
+      </button>
       <div v-for="root in roots" :key="root.id" class="card form-stack">
         <button
           class="settings-row root-open"
@@ -627,16 +647,28 @@ onMounted(() => void task(load));
           @click="enter(root)"
         >
           <span class="setting-icon"><AppIcon name="folder" /></span><strong>{{ root.name }}</strong><AppIcon name="chevron" :size="18" />
-        </button><label class="field">Agent 权限<select
-          :value="root.agentAccess"
-          :aria-label="`${root.name} Agent权限`"
-          :disabled="busy"
-          @change="grant(root, $event)"
-        >
-          <option value="off">不允许 Agent 访问</option>
-          <option value="read">允许 Agent 读取</option>
-          <option value="write">允许 Agent 读写（修改前备份）</option>
-        </select></label>
+        </button>
+        <fieldset class="folder-permissions">
+          <legend>Agent 权限</legend>
+          <div class="permission-choices">
+            <button
+              v-for="choice in [
+                { value: 'off', label: '关闭' },
+                { value: 'read', label: '只读' },
+                { value: 'write', label: '读写' },
+              ] as const"
+              :key="choice.value"
+              class="ghost"
+              type="button"
+              :aria-pressed="root.agentAccess === choice.value"
+              :aria-label="`${root.name} Agent${choice.label}`"
+              :disabled="busy"
+              @click="grant(root, choice.value)"
+            >
+              {{ choice.label }}
+            </button>
+          </div>
+        </fieldset>
         <div class="folder-actions">
           <button
             class="text-button"
@@ -696,6 +728,29 @@ onMounted(() => void task(load));
   </div>
 </template>
 <style scoped>
+.folder-permissions {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.folder-permissions legend {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.permission-choices {
+  display: flex;
+  gap: 8px;
+}
+.permission-choices > button {
+  flex: 1;
+  min-height: 42px;
+}
+.permission-choices > button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--glass-soft);
+}
 .connected-folders {
   display: flex;
   flex-direction: column;

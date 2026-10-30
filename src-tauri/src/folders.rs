@@ -91,7 +91,10 @@ async fn request(app: &tauri::AppHandle, mut value: Value) -> Result<Value, Stri
 
 #[tauri::command]
 pub async fn folder_request(app: tauri::AppHandle, mut request: Value) -> Result<Value, String> {
-    request["agent"] = json!(false);
+    request
+        .as_object_mut()
+        .ok_or("文件请求无效")?
+        .insert("agent".into(), json!(false));
     self::request(&app, request).await
 }
 #[tauri::command]
