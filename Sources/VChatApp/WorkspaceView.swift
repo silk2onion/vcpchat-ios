@@ -18,7 +18,7 @@ struct WorkspaceView: View {
     @State private var tab = Tab.chats
     @State private var chatPath: [String] = []
     @State private var contactPath: [String] = []
-    @State private var mePath: [MeScreen] = []
+    @State private var mePath = NavigationPath()
     @State private var searching = false
     @State private var chatQuery = ""
     @State private var search = ""
@@ -68,7 +68,7 @@ struct WorkspaceView: View {
     private var bottomTabs: some View {
         HStack(spacing: 4) {
             ForEach(Tab.allCases,id: \.self) { item in
-                Button { searching = false; withAnimation(motion ? .easeInOut(duration: 0.14) : nil) { chatQuery = ""; search = ""; if item == .me { mePath = [] }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } } label: {
+                Button { searching = false; withAnimation(motion ? .easeInOut(duration: 0.14) : nil) { chatQuery = ""; search = ""; if item == .me { mePath = NavigationPath() }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } } label: {
                     VStack(spacing: 4) {
                         WorkspaceGlyph(item.icon,size: 22).overlay(alignment: .topTrailing) { if item == .discover,(model.activity.unread > 0 || !model.activity.pending.isEmpty) { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) } }
                         Text(item.title).font(.system(size: 11,weight: .semibold))
@@ -91,7 +91,7 @@ struct WorkspaceView: View {
     }
     private var me: some View {
         NavigationStack(path: $mePath) {
-            MeHome(model: model,navigate: { screen in move { mePath.append(screen) } },avatar: { avatar = true },activity: { openActivity(0,.all) },settings: { move { mePath.append(.settings) } })
+            MeHome(model: model,navigate: { screen in move { mePath.append(screen) } },avatar: { avatar = true },activity: { openActivity(0,.all) },settings: { move { mePath.append(MeScreen.settings) } })
                 .navigationDestination(for: MeScreen.self) { screen in if screen == .settings || screen == .profile { meScreen(screen) } else { meScreen(screen).workspaceDetailNavigation() } }
         }
     }

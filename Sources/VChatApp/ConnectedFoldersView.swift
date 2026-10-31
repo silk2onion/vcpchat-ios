@@ -3,6 +3,11 @@ import UniformTypeIdentifiers
 import VChatCore
 import VChatRendering
 private struct FolderItem: Identifiable { var value: JSONValue; var id: String { value["id"].text }; var name: String { value["name"].text } }
+enum ConnectedFolderRoute: Hashable {
+    case node
+    case folder(id: String,name: String,path: String)
+    case backups(id: String)
+}
 struct ConnectedFoldersView: View {
     let model: ChatViewModel
     @State private var folders: [FolderItem] = []
@@ -11,11 +16,18 @@ struct ConnectedFoldersView: View {
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
-            Section { NavigationLink { FileNodeView(model: model) } label: { Label("移动版 FileOperator",systemImage: "point.3.connected.trianglepath.dotted") } }
+            Section { NavigationLink(value: ConnectedFolderRoute.node) { Label("移动版 FileOperator",systemImage: "point.3.connected.trianglepath.dotted") } }
             Section { Button("连接文件夹…",systemImage: "folder.badge.plus") { selecting = true }; Text("通过系统选择器连接一个工作文件夹。App 可直接读写，修改前保留备份；Agent 默认没有权限。").font(.caption).foregroundStyle(.secondary) }
-            ForEach(folders) { folder in NavigationLink { ConnectedFolderBrowser(model: model,folderID: folder.id,name: folder.name) } label: { Label(folder.name,systemImage: "folder") } }
+            ForEach(folders) { folder in NavigationLink(value: ConnectedFolderRoute.folder(id: folder.id,name: folder.name,path: "")) { Label(folder.name,systemImage: "folder") } }
             if folders.isEmpty { ContentUnavailableView("尚未连接文件夹",systemImage: "folder.badge.plus") }
         }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("连接文件夹").task { await refresh() }
+        .navigationDestination(for: ConnectedFolderRoute.self) { route in
+            switch route {
+            case .node: FileNodeView(model: model)
+            case let .folder(id,name,path): ConnectedFolderBrowser(model: model,folderID: id,name: name,path: path)
+            case let .backups(id): ConnectedBackupsView(model: model,folderID: id)
+            }
+        }
         .fileImporter(isPresented: $selecting,allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { Task { do { guard let engine = model.connectedFolders else { throw ClientError.server("本机文件引擎尚未就绪") }; _ = try await engine.connect(url); await refresh() } catch { self.error = error.localizedDescription } } }
         }
@@ -47,13 +59,13 @@ struct ConnectedFolderBrowser: View {
             if let error { Text(error).foregroundStyle(.red) }
             if path.isEmpty { Section {
                 Menu("Agent 权限：" + (currentAccess == "write" ? "可读写" : currentAccess == "read" ? "只读" : "未授权")) { Button("不授权") { grant("off") }; Button("只读") { permission = "read"; granting = true }; Button("可读写（保留备份）") { permission = "write"; granting = true } }
-                NavigationLink { ConnectedBackupsView(model: model,folderID: folderID) } label: { Label("修改备份与恢复",systemImage: "clock.arrow.circlepath") }
+                NavigationLink(value: ConnectedFolderRoute.backups(id: folderID)) { Label("修改备份与恢复",systemImage: "clock.arrow.circlepath") }
                 Button("断开此文件夹",role: .destructive) { Task { do { _ = try await engine?.request(.object(["action": .string("disconnect"),"folderId": .string(folderID)])); dismiss() } catch { self.error = error.localizedDescription } } }
             } }
             if truncated { Label("条目超过 2000 个，仅列出前 2000 项",systemImage: "info.circle").font(.caption) }
             ForEach(entries) { entry in
                 HStack {
-                    if entry.directory { NavigationLink { ConnectedFolderBrowser(model: model,folderID: folderID,name: name,path: entry.id) } label: { Label(entry.name,systemImage: "folder") } }
+                    if entry.directory { NavigationLink(value: ConnectedFolderRoute.folder(id: folderID,name: name,path: entry.id)) { Label(entry.name,systemImage: "folder") } }
                     else { Button { open(entry) } label: { Label(entry.name,systemImage: entry.value["type"].text == "symlink" ? "link" : "doc").frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }.buttonStyle(.plain).disabled(entry.value["type"].text == "symlink") }
                     Menu { Button("改名") { modify("RenameFile",entry: entry) }; Button("复制到…") { modify("CopyFile",entry: entry) }; Button("移动到…") { modify("MoveFile",entry: entry) }; Button("删除（保留备份）",role: .destructive) { deleting = entry } } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
                 }
