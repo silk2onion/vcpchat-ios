@@ -137,7 +137,9 @@ iPhone 节点在前台提供服务，后台时暂停；需要持续运行时使�
 
 ## 安装
 
-目前通过源码运行：使用完整版 **Xcode 16 或更新版本** 打开 `VChat.xcodeproj`，选择 **VChat** 和 iPhone 模拟器后运行。
+可在 GitHub Actions 的 **Native iOS Build** 手动触发构建，或向 PR 提交原生代码后自动构建。产物包含 `VChat-iOS-simulator`（模拟器 App 与启动截图）、`VChat-iOS-unsigned`（`VChat-unsigned.ipa`）及构建日志。IPA 未签名，需要使用自己的签名工具安装；不包含个人连接、密钥或聊天数据。
+
+源码运行：使用完整版 **Xcode 16 或更新版本** 打开 `VChat.xcodeproj`，选择 **VChat** 和 iPhone 模拟器后运行。
 安装到自己的 iPhone 时，在签名设置中选择开发团队，并启用手机的开发者模式。
 
 同一套原生代码也支持 macOS 14+。使用 Swift 6 构建根目录的 Swift Package 可运行 Mac 客户端。

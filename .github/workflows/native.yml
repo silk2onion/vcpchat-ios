@@ -8,7 +8,7 @@ permissions:
 jobs:
   native:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -42,10 +42,43 @@ jobs:
           mkdir -p "$VCHAT_ARTIFACTS/products"
           xcrun simctl io "$device" screenshot "$VCHAT_ARTIFACTS/products/VChat-iOS.png"
           ditto -c -k --keepParent "$app" "$VCHAT_ARTIFACTS/products/VChat-iOS-simulator.zip"
+      - name: Build unsigned iPhone app
+        run: |
+          set -o pipefail
+          xcodebuild -project VChat.xcodeproj -scheme VChat -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$VCHAT_ARTIFACTS/tmp/DeviceDerivedData" \
+            -clonedSourcePackagesDirPath "$VCHAT_ARTIFACTS/tmp/SourcePackages" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$VCHAT_ARTIFACTS/results/iphone-build.log"
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          app="$VCHAT_ARTIFACTS/tmp/DeviceDerivedData/Build/Products/Release-iphoneos/VChat.app"
+          test -f "$app/VChat"
+          mkdir -p "$VCHAT_ARTIFACTS/tmp/ipa/Payload" "$VCHAT_ARTIFACTS/products"
+          ditto "$app" "$VCHAT_ARTIFACTS/tmp/ipa/Payload/VChat.app"
+          (cd "$VCHAT_ARTIFACTS/tmp/ipa" && zip -qry "$VCHAT_ARTIFACTS/products/VChat-unsigned.ipa" Payload)
+          unzip -t "$VCHAT_ARTIFACTS/products/VChat-unsigned.ipa"
       - name: Save simulator app
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
           name: VChat-iOS-simulator
-          path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/products/
+          path: |
+            ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/products/VChat-iOS-simulator.zip
+            ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/products/VChat-iOS.png
           if-no-files-found: error
+      - name: Save unsigned IPA
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: VChat-iOS-unsigned
+          path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/products/VChat-unsigned.ipa
+          if-no-files-found: error
+      - name: Save build logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: VChat-build-logs
+          path: ~/CodexArtifacts/vchat-native-ci-${{ github.run_id }}/results/
+          if-no-files-found: warn
