@@ -1,4 +1,5 @@
 import SwiftUI
+import VChatRendering
 
 struct MeHome: View {
     let model: ChatViewModel
@@ -35,7 +36,7 @@ struct MeHome: View {
                     Button(action: settings) { WorkspaceMenuRow(title: "设置",icon: "settings",color: palette.accent,subtitle: "连接、外观与使用习惯") }.workspaceGlass(palette)
                 }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
-        }.buttonStyle(WorkspacePress()).workspaceRootNavigation()
+        }.buttonStyle(WorkspacePress()).workspaceRootNavigation().background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
     }
     private func row(_ title: String,icon: String,color: Color,subtitle: String,screen: WorkspaceView.MeScreen) -> some View { Button { navigate(screen) } label: { WorkspaceMenuRow(title: title,icon: icon,color: color,subtitle: subtitle) } }
 }

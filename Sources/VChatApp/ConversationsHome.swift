@@ -1,4 +1,5 @@
 import SwiftUI
+import VChatRendering
 import VChatCore
 
 struct ConversationsHome: View {
@@ -57,7 +58,7 @@ struct ConversationsHome: View {
                     if let error { Text(error).font(.caption).foregroundStyle(.red) }
                 }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
-        }.buttonStyle(WorkspacePress()).workspaceRootNavigation()
+        }.buttonStyle(WorkspacePress()).workspaceRootNavigation().background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         .task(id: model.topics) { do { let rows = try await model.store?.conversationSummaries() ?? []; summaries = Dictionary(uniqueKeysWithValues: rows.map { ($0.topicID,$0) }); error = nil } catch { self.error = error.localizedDescription } }
     }
     private func name(_ topic: ChatTopic) -> String { model.agents.first { $0.id == topic.ownerId }?.name ?? model.groups.first { $0.id == topic.ownerId }?.name ?? "已删除的联系人" }

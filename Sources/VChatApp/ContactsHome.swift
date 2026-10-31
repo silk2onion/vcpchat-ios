@@ -1,4 +1,5 @@
 import SwiftUI
+import VChatRendering
 import VChatCore
 
 struct ContactsHome: View {
@@ -51,6 +52,6 @@ struct ContactsHome: View {
                     }.workspaceGlass(palette) }
                 }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
-        }.buttonStyle(WorkspacePress()).workspaceRootNavigation()
+        }.buttonStyle(WorkspacePress()).workspaceRootNavigation().background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
     }
 }

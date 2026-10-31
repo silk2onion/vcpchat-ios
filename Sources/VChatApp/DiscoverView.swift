@@ -1,4 +1,5 @@
 import SwiftUI
+import VChatRendering
 import VChatCore
 
 struct DiscoverView: View {
@@ -24,7 +25,7 @@ struct DiscoverView: View {
                         }.workspaceGlass(palette)
                     }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
                 }
-            }.buttonStyle(WorkspacePress()).workspaceRootNavigation()
+            }.buttonStyle(WorkspacePress()).workspaceRootNavigation().background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         }
     }
     private func row(_ title: String,icon: String,color: Color,subtitle: String,section: Int,filter: ActivityKind = .all) -> some View { Button { activity(section,filter) } label: { WorkspaceMenuRow(title: title,icon: icon,color: color,subtitle: subtitle) } }
