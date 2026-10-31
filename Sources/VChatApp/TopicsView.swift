@@ -47,6 +47,7 @@ struct TopicActions<Content: View>: View {
             content
             if showsMenu {
                 Menu { menuItems } label: { Image(systemName: "ellipsis").frame(width: 44,height: 44) }
+                    .menuStyle(.borderlessButton).fixedSize()
                     .accessibilityLabel("会话操作")
             }
         }
