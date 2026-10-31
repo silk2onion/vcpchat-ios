@@ -100,7 +100,7 @@ struct ChatView: View {
 /// The high-frequency scroll trigger is isolated from navigation and the composer.
 private struct ChatTimeline: View {
     let model: ChatViewModel
-    @State private var followLatest = true
+    @State private var following = TranscriptFollowing()
     @State private var openSettings = false
     @State private var viewport = CGRect.zero
     var body: some View {
@@ -118,19 +118,31 @@ private struct ChatTimeline: View {
                             ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }
                             Color.clear.frame(height: 1).id("latest")
                         }.padding(.horizontal, 20).padding(.vertical, 22)
+                            .background {
+                                TranscriptScrollObserver { event in
+                                    switch event {
+                                    case .began: following.beginInteraction()
+                                    case .ended(let atLatest): following.endInteraction(atLatest: atLatest)
+                                    }
+                                }
+                            }
                             .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { _ in
-                                if followLatest { scrollToLatest(proxy) }
+                                if following.canScrollToLatest { scrollToLatest(proxy) }
                             }
                     }
                     .environment(\.messageViewport, viewport)
                     .coordinateSpace(name: "vcp-message-viewport")
                     .onGeometryChange(for: CGSize.self,of: { $0.size }) { viewport = CGRect(origin: .zero,size: $0) }
-                    .defaultScrollAnchor(model.messages.isEmpty ? .top : .bottom)
-                    .onChange(of: model.frames) { _, _ in if followLatest { scrollToLatest(proxy) } }
-                    .onChange(of: model.messages.count) { _, _ in if followLatest { scrollToLatest(proxy) } }
+                    .defaultScrollAnchor(model.messages.isEmpty ? .top : (following.canScrollToLatest ? .bottom : nil))
+                    .onChange(of: model.frames) { _, _ in if following.canScrollToLatest { scrollToLatest(proxy) } }
+                    .onChange(of: model.messages.count) { _, _ in if following.canScrollToLatest { scrollToLatest(proxy) } }
+                    .onChange(of: model.activeTopicID) { _, _ in following.reset(); scrollToLatest(proxy) }
                     .overlay(alignment: .bottomTrailing) {
-                        Button { followLatest.toggle(); if followLatest { scrollToLatest(proxy) } } label: { Image(systemName: followLatest ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
-                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(followLatest ? "暂停跟随回复" : "跟随最新回复")
+                        Button {
+                            if following.mode == .following { following.pause() }
+                            else { following.resume(); scrollToLatest(proxy) }
+                        } label: { Image(systemName: following.mode == .following ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(following.mode == .following ? "暂停跟随回复" : "回到最新")
                     }
                 }
             .sheet(isPresented: $openSettings) { ConnectionView(model: model) }
