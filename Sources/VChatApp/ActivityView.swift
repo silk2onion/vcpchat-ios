@@ -3,11 +3,12 @@ import VChatCore
 import VChatRendering
 struct ActivityView: View {
     let model: ChatViewModel
+    var close: (() -> Void)?
     @State private var section = 0
     @State private var filter = ActivityKind.all
     @State private var clearing = false
-    init(model: ChatViewModel,initialSection: Int = 0,initialFilter: ActivityKind = .all) {
-        self.model = model; _section = State(initialValue: initialSection); _filter = State(initialValue: initialFilter)
+    init(model: ChatViewModel,initialSection: Int = 0,initialFilter: ActivityKind = .all,close: (() -> Void)? = nil) {
+        self.model = model; self.close = close; _section = State(initialValue: initialSection); _filter = State(initialValue: initialFilter)
     }
     private let ragKinds: Set<ActivityKind> = [.rag,.thinking,.agent,.memory,.dream]
     var filters: [ActivityKind] { section == 2 ? [.all,.rag,.thinking,.agent,.memory,.dream] : [.all,.approval,.notification,.error,.handled] }
@@ -22,6 +23,7 @@ struct ActivityView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
+            if let close { HStack { Text("通知中心").font(.system(size: 23,weight: .bold)); Spacer(); Button(action: close) { WorkspaceGlyph("close",size: 20).frame(width: 44,height: 44) }.accessibilityLabel("关闭通知中心") }.padding(.horizontal,20).padding(.top,12).padding(.bottom,10) }
             HStack { ForEach(PushChannel.allCases,id: \.self) { channel in Label(channel.title + " · " + (model.activity.statuses[channel] ?? "未连接"),systemImage: "circle.fill").font(.caption).foregroundStyle(model.activity.statuses[channel] == "已连接" ? .green : .secondary).accessibilityLabel(channel.title + " · " + (model.activity.statuses[channel] ?? "未连接")) } }.padding(14)
             Picker("分区",selection: $section) { Text("通知 \(model.activity.pending.count)").tag(0); Text("VCPLog").tag(1); Text("RAG 监视器").tag(2) }.pickerStyle(.segmented).labelsHidden().padding(.horizontal,16).padding(.bottom,8).onChange(of: section) { _, _ in filter = .all }
             if section != 1 { ScrollView(.horizontal) { HStack { ForEach(filters,id: \.self) { kind in Button { filter = kind } label: { Text(kind.title + (kind == .approval ? " \(model.activity.pending.count)" : "")).font(.callout.weight(.medium)).padding(.horizontal,14).frame(minHeight: 40).background(filter == kind ? model.appearance.theme.tint.opacity(0.2) : .clear,in: Capsule()) }.buttonStyle(.plain) } }.padding(.horizontal,16) }.padding(.bottom,8) }
@@ -30,7 +32,7 @@ struct ActivityView: View {
                 if entries.isEmpty { ContentUnavailableView("暂无\(filter == .all ? "事件" : filter.title)",systemImage: filter.icon) }
                 ForEach(entries) { ActivityCard(entry: $0,model: model) }
             }.padding(16) }
-        }.background(ThemeWallpaper(model.appearance).ignoresSafeArea()).navigationTitle("通知与监视")
+        }.background { if close != nil { WorkspacePalette(theme: model.appearance.theme).solid.ignoresSafeArea() } else { ThemeWallpaper(model.appearance).ignoresSafeArea() } }.navigationTitle("通知与监视")
         .toolbar { Button { model.connectPush() } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("重新连接通知"); Menu { Button("全部标为已读") { Task { await model.activity.markRead() } }; Button("清理已处理日志",role: .destructive) { clearing = true }; Button("断开连接") { Task { await model.activity.disconnect() } } } label: { Image(systemName: "ellipsis") } }
         .task { await model.activity.markRead() }
         .confirmationDialog("清理已处理的日志？待审批和等待回执的项目会保留。",isPresented: $clearing,titleVisibility: .visible) { Button("清理日志",role: .destructive) { Task { await model.activity.clear() } } }

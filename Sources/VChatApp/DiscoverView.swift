@@ -2,47 +2,30 @@ import SwiftUI
 import VChatCore
 
 struct DiscoverView: View {
-    enum Screen: Hashable { case notifications,log,rag,memory }
     let model: ChatViewModel
-    @Binding var atRoot: Bool
-    @State private var path: [Screen] = []
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var palette: WorkspacePalette { WorkspacePalette(theme: model.appearance.theme) }
+    var activity: (Int,ActivityKind) -> Void
+    private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack {
             VStack(spacing: 0) {
-                WorkspaceHeader(title: "发现",palette: palette) { EmptyView() }
+                WorkspaceHeader(title: "发现",subtitle: "VCP 信息与记忆",palette: palette) { WorkspaceActivityButton(model: model) { activity(0,.all) } }
                 ScrollView {
-                    VStack(spacing: 8) {
-                        WorkspaceMenuRow(title: "VCP 论坛",icon: "bubble.left.and.bubble.right",color: .orange,detail: "后续接入",chevron: false).background(palette.surface)
+                    VStack(spacing: 22) {
+                        WorkspaceMenuRow(title: "VCP 论坛",icon: "chat",color: palette.accent,subtitle: "社区与 Agent 的交流空间",detail: "后续接入",chevron: false).workspaceGlass(palette)
                         VStack(spacing: 0) {
-                            row("VCP 记忆",icon: "brain.head.profile",color: .purple,screen: .memory)
-                            WorkspaceSeparator(palette: palette,inset: 60)
-                            row("RAG 监视器",icon: "cylinder.split.1x2",color: .blue,screen: .rag)
-                        }.background(palette.surface)
+                            row("VCP 记忆",icon: "brain",color: Color(rgb: 0xad93db),subtitle: "记忆检索动态",section: 2,filter: .memory)
+                            WorkspaceSeparator(palette: palette)
+                            row("RAG 监视器",icon: "database",color: Color(rgb: 0x71a8d5),subtitle: "知识库、元思考与 Agent 事件",section: 2)
+                        }.workspaceGlass(palette)
                         VStack(spacing: 0) {
-                            row("通知与审批",icon: "bell",color: .orange,detail: model.activity.unread > 0 ? "\(model.activity.unread)" : "",screen: .notifications)
-                            WorkspaceSeparator(palette: palette,inset: 60)
-                            row("VCPLog",icon: "waveform.path",color: palette.accent,screen: .log)
-                        }.background(palette.surface)
-                        Text("记忆入口当前展示 VCP 推送的检索动态。").font(.system(size: 13)).foregroundStyle(.tertiary).frame(maxWidth: .infinity,alignment: .leading).padding(.horizontal,18).padding(.top,6)
-                    }.padding(.top,8)
+                            row("通知与审批",icon: "bell",color: Color(rgb: 0xad93db),subtitle: "需要你决定的工具调用",section: 0)
+                            WorkspaceSeparator(palette: palette)
+                            row("VCPLog",icon: "logs",color: palette.accent,subtitle: "实时日志与连接状态",section: 1)
+                        }.workspaceGlass(palette)
+                    }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
                 }
-            }.background(palette.canvas.ignoresSafeArea()).workspaceRootNavigation()
-            .navigationDestination(for: Screen.self) { screen in
-                Group {
-                    switch screen {
-                    case .notifications: ActivityView(model: model)
-                    case .log: ActivityView(model: model,initialSection: 1)
-                    case .rag: ActivityView(model: model,initialSection: 2)
-                    case .memory: ActivityView(model: model,initialSection: 2,initialFilter: .memory)
-                    }
-                }.workspaceDetailNavigation()
-            }
-        }.onChange(of: path) { _,value in atRoot = value.isEmpty }
-        .onAppear { atRoot = path.isEmpty }
+            }.buttonStyle(WorkspacePress()).workspaceRootNavigation()
+        }
     }
-    private func row(_ title: String,icon: String,color: Color,detail: String = "",screen: Screen) -> some View {
-        Button { withAnimation(model.renderOptions.motion && !reduceMotion ? .easeInOut(duration: 0.22) : nil) { path.append(screen) } } label: { WorkspaceMenuRow(title: title,icon: icon,color: color,detail: detail) }.buttonStyle(.plain)
-    }
+    private func row(_ title: String,icon: String,color: Color,subtitle: String,section: Int,filter: ActivityKind = .all) -> some View { Button { activity(section,filter) } label: { WorkspaceMenuRow(title: title,icon: icon,color: color,subtitle: subtitle) } }
 }

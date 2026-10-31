@@ -3,11 +3,15 @@ import VChatRendering
 
 struct SettingsView: View {
     @Bindable var model: ChatViewModel
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
     @State private var connection = false
     @State private var regex = false
     var body: some View {
-        NavigationStack {
+        Group { if embedded { content } else { NavigationStack { content } } }
+    }
+    private var content: some View {
+        Group {
             Form {
                 Section {
                     Button { connection = true } label: { Label("服务器与模型", systemImage: "network").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }

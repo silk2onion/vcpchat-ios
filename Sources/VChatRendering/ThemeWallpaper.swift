@@ -21,11 +21,18 @@ public struct ThemeWallpaper: View {
                 case .none: Color.clear
                 }
             }.frame(width: geometry.size.width + 36, height: geometry.size.height + 36).offset(x: -18, y: -18).blur(radius: min(16, max(0, settings.wallpaperBlur)))
-            if settings.wallpaper != .none { (settings.theme == .paper ? Color(red: 242/255, green: 248/255, blue: 243/255) : settings.theme.background).opacity(min(90, max(15, settings.wallpaperDim)) / 100) }
+            if settings.wallpaper != .none { scrim.opacity(min(90, max(15, settings.wallpaperDim)) / 100) }
         }.clipped().allowsHitTesting(false).accessibilityHidden(true)
         .task(id: settings.wallpaper) {
             let value = await BundledWallpapers.shared.image(settings.wallpaper)
             if !Task.isCancelled { image = value }
+        }
+    }
+    private var scrim: Color {
+        switch settings.theme {
+        case .paper: Color(red: 242/255,green: 248/255,blue: 243/255)
+        case .ink: Color(red: 8/255,green: 18/255,blue: 28/255)
+        case .aurora: Color(red: 6/255,green: 25/255,blue: 38/255)
         }
     }
 }
