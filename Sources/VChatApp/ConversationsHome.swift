@@ -42,16 +42,18 @@ struct ConversationsHome: View {
                     WorkspaceSearch(query: $query,showing: $searching,prompt: "搜索会话或 Agent",palette: palette)
                     WorkspaceSection(title: query.isEmpty ? "最近会话" : "搜索结果",palette: palette) { Text("\(topics.count)").font(.system(size: 12)) }
                     ForEach(topics) { topic in
-                        Button { openTopic(topic) } label: {
-                            HStack(spacing: 12) {
-                                ContactAvatar(name: name(topic),image: image(topic),symbol: symbol(topic),kind: topic.ownerType == "group" ? .group : .agent,size: 44)
-                                VStack(alignment: .leading,spacing: 4) {
-                                    Text(topic.title).font(.system(size: 15,weight: .semibold)).foregroundStyle(palette.ink).lineLimit(1)
-                                    Text(name(topic) + (model.rooms[topic.id]?.busy == true ? " · 正在回复" : "")).font(.system(size: 13)).foregroundStyle(palette.muted).lineLimit(1)
-                                }
-                                Spacer(minLength: 4)
-                                VStack(alignment: .trailing,spacing: 9) { Text(date(topic)).font(.system(size: 11)).foregroundStyle(palette.muted); if model.rooms[topic.id]?.busy == true { Circle().fill(palette.accent).frame(width: 6,height: 6).accessibilityLabel("正在回复") } }
-                            }.padding(13).contentShape(RoundedRectangle(cornerRadius: 15))
+                        TopicActions(topic: topic,model: model) {
+                            Button { openTopic(topic) } label: {
+                                HStack(spacing: 12) {
+                                    ContactAvatar(name: name(topic),image: image(topic),symbol: symbol(topic),kind: topic.ownerType == "group" ? .group : .agent,size: 44)
+                                    VStack(alignment: .leading,spacing: 4) {
+                                        Text(topic.title).font(.system(size: 15,weight: .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+                                        Text(name(topic) + (model.rooms[topic.id]?.busy == true ? " · 正在回复" : "")).font(.system(size: 13)).foregroundStyle(palette.muted).lineLimit(1)
+                                    }
+                                    Spacer(minLength: 4)
+                                    VStack(alignment: .trailing,spacing: 9) { Text(date(topic)).font(.system(size: 11)).foregroundStyle(palette.muted); if model.rooms[topic.id]?.busy == true { Circle().fill(palette.accent).frame(width: 6,height: 6).accessibilityLabel("正在回复") } }
+                                }.padding(13).contentShape(RoundedRectangle(cornerRadius: 15))
+                            }
                         }.workspaceGlass(palette,radius: 15,soft: true).padding(.bottom,8)
                     }
                     if topics.isEmpty { ContentUnavailableView(query.isEmpty ? "开始一段新对话" : "没有找到会话",systemImage: "magnifyingglass",description: Text(query.isEmpty ? "选择一个 Agent，聊聊你正在想的事。" : "试试 Agent 名字或会话标题")) }

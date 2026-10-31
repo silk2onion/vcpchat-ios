@@ -146,15 +146,17 @@ private struct NativeMessageRow: View {
                     let author = model.authorAgent(for: message),name = message.authorName.isEmpty ? author?.name ?? "助手" : message.authorName
                     HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",symbol: author?.avatar ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
                 }
-                VStack(alignment: .leading,spacing: 12) {
-                    if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
-                    if let notice = message.syncNotice { Label(notice,systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(palette.muted) }
-                    if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(palette.muted).textSelection(.enabled) } }
-                    RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user").font(.system(size: 16)).lineSpacing(5)
-                }.padding(.horizontal,message.role == "user" ? 16 : 17).padding(.vertical,message.role == "user" ? 10 : 15)
+                MessageActions(message: message,model: model) {
+                    VStack(alignment: .leading,spacing: 12) {
+                        if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
+                        if let notice = message.syncNotice { Label(notice,systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(palette.muted) }
+                        if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(palette.muted).textSelection(.disabled) } }
+                        RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user").font(.system(size: 16)).lineSpacing(5)
+                    }.environment(\.messageTextSelectionEnabled,false)
+                    .padding(.horizontal,message.role == "user" ? 16 : 17).padding(.vertical,message.role == "user" ? 10 : 15)
                     .background(message.role == "user" ? palette.glass : palette.soft,in: UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20))
                     .overlay(UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20).stroke(glowing ? palette.accent.opacity(0.45) : palette.line,lineWidth: 0.7))
-                if !streaming { MessageActions(message: message,model: model).fixedSize(horizontal: message.role == "user",vertical: false) }
+                }
             }
         }.frame(maxWidth: .infinity,alignment: message.role == "user" ? .trailing : .leading)
         .opacity(motion && !entered ? 0 : 1).offset(y: motion && !entered ? 10 : 0).scaleEffect(motion && !entered ? 0.985 : 1)

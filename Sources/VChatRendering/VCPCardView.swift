@@ -10,11 +10,11 @@ struct VCPCardView: View {
         case .think(let title, let text, let closed):
             FoldedCard(title: title, icon: "sparkles", subtitle: closed ? "" : "进行中", initiallyOpen: !closed,motion: options.motion) { RichMessageBody(text, options: options) }
         case .tool(let name, let command, let body, let closed):
-            FoldedCard(title: name, icon: "wrench.and.screwdriver", subtitle: closed ? command : "输入中 · " + command, initiallyOpen: !closed,motion: options.motion) { Text(verbatim: body).font(.callout.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+            FoldedCard(title: name, icon: "wrench.and.screwdriver", subtitle: closed ? command : "输入中 · " + command, initiallyOpen: !closed,motion: options.motion) { Text(verbatim: body).font(.callout.monospaced()).modifier(MessageTextSelection()).frame(maxWidth: .infinity, alignment: .leading) }
         case .result(let result, let closed):
             FoldedCard(title: result.tool.isEmpty ? "工具结果" : result.tool, icon: result.ok == false ? "exclamationmark.triangle" : "checkmark.circle", subtitle: closed ? result.status : "接收中", initiallyOpen: !closed, failed: result.ok == false,motion: options.motion) {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(result.fields.enumerated()), id: \.offset) { _, field in VStack(alignment: .leading, spacing: 3) { Text(field.key).font(.caption).foregroundStyle(.secondary); Text(verbatim: field.value).textSelection(.enabled) } }
+                    ForEach(Array(result.fields.enumerated()), id: \.offset) { _, field in VStack(alignment: .leading, spacing: 3) { Text(field.key).font(.caption).foregroundStyle(.secondary); Text(verbatim: field.value).modifier(MessageTextSelection()) } }
                     if !result.content.isEmpty { RichMessageBody(result.content, options: options) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -33,7 +33,7 @@ struct VCPCardView: View {
         case .divider(let role, let end):
             HStack { Divider(); Text((role == "user" ? "用户" : role == "system" ? "系统" : "助手") + " · " + (end ? "结束" : "开始")).font(.caption).foregroundStyle(.secondary).fixedSize(); Divider() }
         case .push(let text, let closed):
-            FoldedCard(title: "桌面推送", icon: "desktopcomputer", subtitle: closed ? "仅展示，不执行" : "接收中", initiallyOpen: false,motion: options.motion) { Text(verbatim: text).font(.callout.monospaced()).textSelection(.enabled) }
+            FoldedCard(title: "桌面推送", icon: "desktopcomputer", subtitle: closed ? "仅展示，不执行" : "接收中", initiallyOpen: false,motion: options.motion) { Text(verbatim: text).font(.callout.monospaced()).modifier(MessageTextSelection()) }
         }
     }
 }

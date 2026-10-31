@@ -140,11 +140,12 @@ struct HTMLIsland: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var phase
+    @Environment(\.messageLongPressAction) private var showMessageActions
     private var visible: Bool { appeared && phase == .active && (viewport?.intersects(bounds) ?? true) }
     private var document: String { HTMLIslandPolicy.document(source, motion: options.motion && !reduceMotion, media: options.media, dark: scheme == .dark) }
     var body: some View {
         Group {
-            if let view = controller.view { IslandNativeView(view: view).frame(height: controller.height) }
+            if let view = controller.view { IslandNativeView(view: view,showActions: showMessageActions).frame(height: controller.height) }
             else if controller.failed { Label("气泡已暂停，重新进入可加载", systemImage: "arrow.clockwise").font(.callout).frame(height: controller.height) }
             else { Label(visible ? "等待加载视觉气泡" : "视觉气泡已暂停", systemImage: "rectangle.inset.filled").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).frame(height: controller.height) }
         }
@@ -157,16 +158,48 @@ struct HTMLIsland: View {
     }
     private func refresh() { if visible { controller.mount(document, media: options.media) } else { controller.unmount() } }
 }
+// WebKit consumes SwiftUI ancestor gestures. Keep the recognizer native and
+// remove only this host's recognizer when the pooled view is released.
 #if os(iOS)
 private struct IslandNativeView: UIViewRepresentable {
     var view: WKWebView
-    func makeUIView(context: Context) -> WKWebView { view }
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    var showActions: (@MainActor @Sendable () -> Void)?
+    func makeCoordinator() -> IslandPressHandler { IslandPressHandler() }
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.attach(to: view); return view }
+    func updateUIView(_ uiView: WKWebView, context: Context) { context.coordinator.showActions = showActions; context.coordinator.gesture?.isEnabled = showActions != nil }
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: IslandPressHandler) { coordinator.detach(from: uiView) }
+}
+@MainActor private final class IslandPressHandler: NSObject, UIGestureRecognizerDelegate {
+    var showActions: (@MainActor @Sendable () -> Void)?
+    var gesture: UILongPressGestureRecognizer?
+    func attach(to view: WKWebView) {
+        let press = UILongPressGestureRecognizer(target: self,action: #selector(pressed(_:)))
+        press.minimumPressDuration = 0.5; press.allowableMovement = 10; press.delegate = self
+        gesture = press; view.addGestureRecognizer(press)
+    }
+    func detach(from view: WKWebView) { if let gesture { view.removeGestureRecognizer(gesture) }; gesture = nil; showActions = nil }
+    @objc private func pressed(_ gesture: UILongPressGestureRecognizer) { if gesture.state == .began { showActions?() } }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 }
 #else
 private struct IslandNativeView: NSViewRepresentable {
     var view: WKWebView
-    func makeNSView(context: Context) -> WKWebView { view }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
+    var showActions: (@MainActor @Sendable () -> Void)?
+    func makeCoordinator() -> IslandPressHandler { IslandPressHandler() }
+    func makeNSView(context: Context) -> WKWebView { context.coordinator.attach(to: view); return view }
+    func updateNSView(_ nsView: WKWebView, context: Context) { context.coordinator.showActions = showActions; context.coordinator.gesture?.isEnabled = showActions != nil }
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: IslandPressHandler) { coordinator.detach(from: nsView) }
+}
+@MainActor private final class IslandPressHandler: NSObject, NSGestureRecognizerDelegate {
+    var showActions: (@MainActor @Sendable () -> Void)?
+    var gesture: NSPressGestureRecognizer?
+    func attach(to view: WKWebView) {
+        let press = NSPressGestureRecognizer(target: self,action: #selector(pressed(_:)))
+        press.minimumPressDuration = 0.5; press.allowableMovement = 10; press.delegate = self
+        gesture = press; view.addGestureRecognizer(press)
+    }
+    func detach(from view: WKWebView) { if let gesture { view.removeGestureRecognizer(gesture) }; gesture = nil; showActions = nil }
+    @objc private func pressed(_ gesture: NSPressGestureRecognizer) { if gesture.state == .began { showActions?() } }
+    func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSGestureRecognizer) -> Bool { true }
 }
 #endif

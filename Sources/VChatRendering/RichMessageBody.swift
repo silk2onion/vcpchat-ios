@@ -48,7 +48,7 @@ public struct RichMessageBody: View {
     private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.contains("http://") && !source.contains("https://") && !(source.contains("@") && source.contains(".")) && (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })))) }
     public var body: some View {
         Group {
-            if plain { Text(verbatim: source).textSelection(.enabled) }
+            if plain { Text(verbatim: source).modifier(MessageTextSelection()) }
             else if rendering.blocks.isEmpty { Text("正在排版…").font(.caption).foregroundStyle(.secondary).frame(minHeight: 44) }
             else { NativeBlocks(blocks: rendering.blocks, options: options).equatable() }
         }
@@ -78,7 +78,7 @@ private struct NativeBlocks: View, Equatable {
         case .html(let source): HTMLIsland(source: source, options: options)
         case .diagram(let source,let raster): VStack(alignment: .leading,spacing: 8) { NativeDiagram(source: source,raster: raster); DisclosureGroup("图表源码") { NativeCode(language: "mermaid",source: source,spans: []) } }
         case .vcp(let segment): VCPCardView(segment: segment, options: options)
-        case .literal(let text): Text(verbatim: text).textSelection(.enabled)
+        case .literal(let text): Text(verbatim: text).modifier(MessageTextSelection())
         case .paragraph(let runs): InlineBody(runs: runs,animations: options.motion)
         case .heading(let level, let text): InlineBody(runs: text,animations: options.motion).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
         case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
@@ -117,7 +117,7 @@ private struct NativeCode: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack { Text(language.isEmpty ? "代码" : language).font(.caption); Spacer(); CopyCode(source: source) }.foregroundStyle(.secondary).padding(11)
             Divider()
-            ScrollView(.horizontal) { Text(text).font(.system(.callout, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: true, vertical: false).padding(12) }
+            ScrollView(.horizontal) { Text(text).font(.system(.callout, design: .monospaced)).modifier(MessageTextSelection()).fixedSize(horizontal: true, vertical: false).padding(12) }
         }.background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.secondary.opacity(0.12)))
     }
 }
@@ -158,13 +158,13 @@ private struct InlineBody: View {
     var body: some View {
         if runs.contains(where: { if case .media = $0 { true } else { false } }) {
             VStack(alignment: .leading,spacing: 10) { ForEach(Array(runs.enumerated()),id: \.offset) { _,run in
-                switch run { case .text(let value): Text(value).textSelection(.enabled).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+                switch run { case .text(let value): Text(value).modifier(MessageTextSelection()).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
             } }
-        } else if !hasMath { Text(text).textSelection(.enabled).lineSpacing(4) }
+        } else if !hasMath { Text(text).modifier(MessageTextSelection()).lineSpacing(4) }
         else {
             InlineFlow {
                 ForEach(Array(pieces.enumerated()), id: \.offset) { _, part in
-                    switch part { case .text(let value): Text(value).textSelection(.enabled); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+                    switch part { case .text(let value): Text(value).modifier(MessageTextSelection()); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
                 }
             }
         }
