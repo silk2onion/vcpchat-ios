@@ -66,19 +66,19 @@ struct ChatView: View {
             HStack(spacing: 8) {
                 ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",symbol: model.activeAgent?.avatar ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 28)
                 VStack(alignment: .leading,spacing: 2) { Text(model.ownerName).font(.headline).lineLimit(1); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }.frame(maxWidth: 150,alignment: .leading)
-            }
+            }.frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("编辑 " + model.ownerName)
     }
     private var headerActions: some View {
         Group {
-            Button { showTopics = true } label: { WorkspaceGlyph("history").frame(width: 36,height: 44) }.accessibilityLabel("历史话题")
-            Button { if let activity { activity() } else { showLog = true } } label: { WorkspaceGlyph("bell").frame(width: 36,height: 44) }.accessibilityLabel("通知与监视")
+            Button { showTopics = true } label: { WorkspaceGlyph("history").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("历史话题")
+            Button { if let activity { activity() } else { showLog = true } } label: { WorkspaceGlyph("bell").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("通知与监视")
             Menu {
                 Button("搜索本机消息",systemImage: "magnifyingglass") { showSearch = true }
                 Button("连接设置",systemImage: "slider.horizontal.3") { showSettings = true }
                 Button("导出这段对话",systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话",messages: model.messages.map(\.record))); exporting = true }
                 Button("已删除消息",systemImage: "trash") { showDeleted = true }
-            } label: { Image(systemName: "ellipsis").frame(width: 36,height: 44) }.accessibilityLabel("对话菜单")
+            } label: { Image(systemName: "ellipsis").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("对话菜单")
         }
     }
 
