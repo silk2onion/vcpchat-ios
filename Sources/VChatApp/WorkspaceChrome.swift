@@ -31,7 +31,8 @@ struct WorkspacePress: ButtonStyle {
     @Environment(\.workspaceMotion) private var motion
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.82 : 1)
+        // Include the label's padded frame, not only the visible glyph, in hit testing.
+        configuration.label.contentShape(Rectangle()).opacity(configuration.isPressed ? 0.82 : 1)
             .scaleEffect(configuration.isPressed && motion && !reduceMotion ? 0.985 : 1)
             .animation(motion && !reduceMotion ? .easeOut(duration: 0.18) : nil,value: configuration.isPressed)
     }
