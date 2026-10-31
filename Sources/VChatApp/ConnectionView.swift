@@ -16,7 +16,7 @@ struct ConnectionView: View {
     var body: some View { Group { if embedded { content } else { NavigationStack { content } } }.frame(minWidth: 350,minHeight: 560) }
     private var content: some View {
         VStack(spacing: 0) {
-            WorkspaceDetailHeader(title: focusLogs ? "日志通道" : "服务器与模型",palette: palette,note: "本机保存") { EmptyView() }
+            WorkspaceDetailHeader(title: focusLogs ? "日志通道" : "服务器与模型",palette: palette,note: "本机保存",back: { dismiss() }) { EmptyView() }
             ScrollView {
                 VStack(alignment: .leading,spacing: 22) {
                     if let error = model.error { Text(error).font(.system(size: 14)).foregroundStyle(.red).textSelection(.enabled) }

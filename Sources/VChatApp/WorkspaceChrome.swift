@@ -162,11 +162,12 @@ extension View {
 struct WorkspaceDetailHeader<Actions: View>: View {
     let title: String; let palette: WorkspacePalette
     var note = ""
+    var back: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         HStack(spacing: 12) {
-            WorkspaceIconButton(icon: "back",label: "返回",action: { dismiss() })
+            WorkspaceIconButton(icon: "back",label: "返回",action: { if let back { back() } else { dismiss() } })
             Text(title).font(.system(size: 22,weight: .bold)).foregroundStyle(palette.ink).lineLimit(1)
             Spacer(minLength: 4)
             if !note.isEmpty { Text(note).font(.system(size: 11)).foregroundStyle(palette.muted) }

@@ -11,7 +11,7 @@ struct SettingsView: View {
     var body: some View { Group { if embedded { content } else { NavigationStack { content } } }.frame(minWidth: 350,minHeight: 540) }
     private var content: some View {
         VStack(spacing: 0) {
-            WorkspaceDetailHeader(title: "设置",palette: palette) { EmptyView() }
+            WorkspaceDetailHeader(title: "设置",palette: palette,back: { dismiss() }) { EmptyView() }
             ScrollView {
                 VStack(alignment: .leading,spacing: 0) {
                     HStack(spacing: 14) { WorkspaceGlyph("render",size: 30).foregroundStyle(palette.accentInk).frame(width: 58,height: 58).background(palette.accent,in: RoundedRectangle(cornerRadius: 19)); VStack(alignment: .leading,spacing: 5) { Text("VCPChat").font(.system(size: 22,weight: .bold)); Text("你的 Agent，随身同行。").font(.system(size: 13)).foregroundStyle(palette.muted) }; Spacer(); Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.0").font(.system(size: 11)).foregroundStyle(palette.muted) }.padding(.vertical,10)
