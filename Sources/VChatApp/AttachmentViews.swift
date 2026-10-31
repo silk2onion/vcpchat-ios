@@ -29,12 +29,15 @@ struct AttachmentComposer: View {
             Button("相机", systemImage: "camera") { beginCamera() }
             #endif
         } label: { Image(systemName: loading ? "hourglass" : "plus").frame(width: 44, height: 44).contentShape(Rectangle()) }
-        .buttonStyle(.plain).disabled(loading || model.busy).accessibilityLabel("添加附件")
+        .buttonStyle(.plain).disabled(loading || model.busy).accessibilityLabel(loading ? "正在处理附件" : "添加附件")
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: max(1, 4 - (model.room?.attachments.count ?? 0)), matching: .images)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .text, .json, .xml, .data], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result {
+            switch result {
+            case .success(let urls):
                 let topic = importTopic; loading = true
                 Task { defer { loading = false }; do { try AttachmentImporter.assertCount(model.rooms[topic]?.attachments.count ?? 0, adding: urls.count); var items: [ChatAttachment] = []; let reader = AttachmentImporter(); for url in urls { items.append(try await reader.read(url)) }; await model.attach(items, to: topic) } catch { model.rooms[topic]?.error = error.localizedDescription } }
+            case .failure(let error):
+                if (error as? CocoaError)?.code != .userCancelled { model.rooms[importTopic]?.error = error.localizedDescription }
             }
         }
         .onChange(of: photos) { _, selection in
@@ -201,7 +204,7 @@ struct AttachmentPreview: View {
                 else { ContentUnavailableView("原文件尚未下载", systemImage: "icloud.and.arrow.down", description: Text("在文件库导入对应原文件后可重新关联。")) }
             }.safeAreaInset(edge: .bottom) { if let error { Text(error).foregroundStyle(.red).padding() } }.navigationTitle(item.name).toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("导出原文件", systemImage: "square.and.arrow.up") { exporting = true }.disabled(item.bytes == nil) }
+                ToolbarItem(placement: .confirmationAction) { Button("导出附件", systemImage: "square.and.arrow.up") { exporting = true }.disabled(item.bytes == nil) }
             }
         }.frame(minWidth: 360, minHeight: 450)
         .fileExporter(isPresented: $exporting, document: BinaryExportDocument(data: item.bytes ?? Data()), contentType: UTType(mimeType: item.mime) ?? .data, defaultFilename: item.name) { result in if case .failure(let failure) = result, (failure as? CocoaError)?.code != .userCancelled { error = failure.localizedDescription } }

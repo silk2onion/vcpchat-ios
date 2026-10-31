@@ -334,7 +334,7 @@ struct TopicDraft: Codable, Sendable {
     }
     func attach(_ items: [ChatAttachment], to topicID: String) async {
         guard let room = rooms[topicID] else { return }
-        do { try AttachmentImporter.assertCount(room.attachments.count, adding: items.count); room.attachments += items; room.draftSave?.cancel(); try await store?.put(TopicDraft(id: room.id, text: room.draft, attachments: room.attachments), kind: "draft", id: room.id) }
+        do { try AttachmentImporter.assertCount(room.attachments.count, adding: items.count); room.attachments += items; room.draftSave?.cancel(); try await store?.put(TopicDraft(id: room.id, text: room.draft, attachments: room.attachments), kind: "draft", id: room.id); room.error = nil }
         catch { room.error = error.localizedDescription }
     }
     func detach(_ id: String) async {
