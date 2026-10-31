@@ -4,23 +4,56 @@ import Observation
 
 public enum HTMLIslandPolicy {
     public static let root = "<div id=\"vcp-root\">"
-    public static func accepts(_ source: String) -> Bool { source.hasPrefix(root) }
+    public static func accepts(_ source: String) -> Bool {
+        // Read just the first opening tag. Attribute order and CSS do not change
+        // a root's identity; attribute text containing a fake id does not count.
+        let prefix = String(source.prefix(8192))
+        let scanner = Scanner(string: prefix)
+        scanner.charactersToBeSkipped = nil; scanner.caseSensitive = false
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        _ = scanner.scanCharacters(from: whitespace.union(CharacterSet(charactersIn: "\u{FEFF}")))
+        let indentation = prefix[..<scanner.currentIndex].components(separatedBy: .newlines).last ?? ""
+        guard !indentation.contains("\t"),indentation.filter({ $0 != "\u{FEFF}" }).count < 4,
+              scanner.scanString("<") != nil,scanner.scanString("div") != nil else { return false }
+        let names = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:-.")
+        let unquoted = whitespace.union(CharacterSet(charactersIn: "\"'`=<>")).inverted
+        var rootID: String?
+        while !scanner.isAtEnd {
+            let separator = scanner.scanCharacters(from: whitespace)
+            if scanner.scanString(">") != nil { return rootID == "vcp-root" }
+            guard separator != nil,let name = scanner.scanCharacters(from: names) else { return false }
+            let afterName = scanner.currentIndex
+            _ = scanner.scanCharacters(from: whitespace)
+            var value: String?
+            if scanner.scanString("=") != nil {
+                _ = scanner.scanCharacters(from: whitespace)
+                if let quote = scanner.scanString("\"") ?? scanner.scanString("'") {
+                    value = scanner.scanUpToString(quote) ?? ""
+                    guard scanner.scanString(quote) != nil else { return false }
+                } else {
+                    guard let raw = scanner.scanCharacters(from: unquoted) else { return false }
+                    value = raw
+                }
+            } else { scanner.currentIndex = afterName }
+            if name.lowercased() == "id" {
+                guard rootID == nil,let value else { return false }
+                rootID = value
+            }
+        }
+        return false
+    }
     public static func document(_ source: String, motion: Bool, media: Bool, dark: Bool) -> String {
         let color = dark ? "dark" : "light"
         let image = media ? "https: data:" : "'none'"
         let noMotion = motion ? "" : "*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}"
         return """
-        <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src \(image); media-src \(image); font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>:root{color-scheme:\(color)}html,body{margin:0;padding:0;font:16px -apple-system;overflow-wrap:anywhere}#vcp-root{max-width:100%;box-sizing:border-box}img,video,svg,canvas{max-width:100%}pre{white-space:pre-wrap}\(noMotion)</style></head><body>\(source)</body></html>
+        <!doctype html><html data-vcp-host-theme="\(color)"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src \(image); media-src \(image); font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>:root{color-scheme:light}html,body{background:Canvas;color:CanvasText;margin:0;padding:0;font:16px -apple-system;overflow-wrap:anywhere}#vcp-root{max-width:100%;box-sizing:border-box}img,video,svg,canvas{max-width:100%}pre{white-space:pre-wrap}\(noMotion)</style></head><body>\(source)</body></html>
         """
     }
 }
 
 private struct ViewportKey: EnvironmentKey { static let defaultValue: CGRect? = nil }
 extension EnvironmentValues { public var messageViewport: CGRect? { get { self[ViewportKey.self] } set { self[ViewportKey.self] = newValue } } }
-private struct IslandBounds: PreferenceKey {
-    static let defaultValue = CGRect.zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
-}
 @MainActor @Observable private final class IslandPool {
     static let shared = IslandPool()
     private var idle: [WKWebView] = []
@@ -116,8 +149,7 @@ struct HTMLIsland: View {
             else { Label(visible ? "等待加载视觉气泡" : "视觉气泡已暂停", systemImage: "rectangle.inset.filled").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).frame(height: controller.height) }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .background(GeometryReader { proxy in Color.clear.preference(key: IslandBounds.self, value: proxy.frame(in: .global)) })
-        .onPreferenceChange(IslandBounds.self) { value in Task { @MainActor in bounds = value } }
+        .onGeometryChange(for: CGRect.self,of: { $0.frame(in: .named("vcp-message-viewport")) }) { bounds = $0 }
         .onAppear { appeared = true; refresh() }.onDisappear { appeared = false; controller.unmount() }
         .onChange(of: visible) { _, _ in refresh() }
         .onChange(of: document) { _, _ in refresh() }

@@ -105,19 +105,26 @@ private struct ChatTimeline: View {
                             ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }
                             Color.clear.frame(height: 1).id("latest")
                         }.padding(.horizontal, 20).padding(.vertical, 22)
+                            .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { _ in
+                                if followLatest { scrollToLatest(proxy) }
+                            }
                     }
                     .environment(\.messageViewport, viewport)
-                    .background(GeometryReader { geometry in Color.clear.preference(key: ChatViewport.self, value: geometry.frame(in: .global)) })
-                    .onPreferenceChange(ChatViewport.self) { value in Task { @MainActor in viewport = value } }
+                    .coordinateSpace(name: "vcp-message-viewport")
+                    .onGeometryChange(for: CGSize.self,of: { $0.size }) { viewport = CGRect(origin: .zero,size: $0) }
                     .defaultScrollAnchor(model.messages.isEmpty ? .top : .bottom)
-                    .onChange(of: model.frames) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
-                    .onChange(of: model.messages.count) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
+                    .onChange(of: model.frames) { _, _ in if followLatest { scrollToLatest(proxy) } }
+                    .onChange(of: model.messages.count) { _, _ in if followLatest { scrollToLatest(proxy) } }
                     .overlay(alignment: .bottomTrailing) {
-                        Button { followLatest.toggle(); if followLatest { proxy.scrollTo("latest", anchor: .bottom) } } label: { Image(systemName: followLatest ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
+                        Button { followLatest.toggle(); if followLatest { scrollToLatest(proxy) } } label: { Image(systemName: followLatest ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
                             .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(followLatest ? "暂停跟随回复" : "跟随最新回复")
                     }
                 }
             .sheet(isPresented: $openSettings) { ConnectionView(model: model) }
+    }
+    private func scrollToLatest(_ proxy: ScrollViewProxy) {
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction) { proxy.scrollTo(model.messages.last?.id ?? "latest",anchor: .bottom) }
     }
 }
 
@@ -156,5 +163,3 @@ private struct NativeMessageRow: View {
     }
     private func updateGlow() { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { glowing = false }; if streaming && motion { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glowing = true } } }
 }
-
-private struct ChatViewport: PreferenceKey { static let defaultValue = CGRect.zero; static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() } }

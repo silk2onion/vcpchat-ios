@@ -49,7 +49,7 @@ public struct RichMessageBody: View {
     public var body: some View {
         Group {
             if plain { Text(verbatim: source).textSelection(.enabled) }
-            else if rendering.blocks.isEmpty { Text(verbatim: rules.isEmpty ? source : "…").textSelection(.enabled) }
+            else if rendering.blocks.isEmpty { Text("正在排版…").font(.caption).foregroundStyle(.secondary).frame(minHeight: 44) }
             else { NativeBlocks(blocks: rendering.blocks, options: options).equatable() }
         }
         .frame(maxWidth: expandsToFill ? .infinity : nil, alignment: .leading)

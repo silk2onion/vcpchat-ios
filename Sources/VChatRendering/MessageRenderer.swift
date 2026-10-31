@@ -22,16 +22,22 @@ public actor MessageRenderer {
         try Task.checkCancellation()
         let source = rules.isEmpty ? source : try await RegexEngine.shared.apply(source, rules: rules, scope: "frontend", role: role, depth: depth)
         guard options.enabled else { return [.literal(source)] }
-        if HTMLIslandPolicy.accepts(source) { return options.html ? (streaming ? [.literal("视觉气泡生成中…")] : [.html(source)]) : [.literal(source)] }
+        if let island = island(source,options: options,streaming: streaming) { return [island] }
         self.streaming = streaming
         var output: [RenderBlock] = []
         for segment in VCPMarkup.parse(source) {
             switch segment {
-            case .text(let prose): output += try markdown(prose, options: options, dark: dark)
+            case .text(let prose):
+                if let island = island(prose,options: options,streaming: streaming) { output.append(island) }
+                else { output += try markdown(prose, options: options, dark: dark) }
             default: output.append(.vcp(segment))
             }
         }
         return output
+    }
+    private func island(_ source: String,options: RenderOptions,streaming: Bool) -> RenderBlock? {
+        guard HTMLIslandPolicy.accepts(source) else { return nil }
+        return options.html ? (streaming ? .literal("视觉气泡生成中…") : .html(source)) : .literal(source)
     }
     private func markdown(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
         self.dark = dark
