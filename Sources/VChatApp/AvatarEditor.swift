@@ -68,14 +68,16 @@ struct ProfileEditor: View {
     private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
     var body: some View {
         VStack(spacing: 0) {
+            #if os(macOS)
             WorkspaceDetailHeader(title: "个人资料",palette: palette,note: "本机保存") { EmptyView() }
+            #endif
             ScrollView { VStack(alignment: .leading,spacing: 24) {
                 Button { avatar = true } label: { HStack(spacing: 18) { ContactAvatar(name: "我",image: profile.avatar,kind: .personal,size: 88); VStack(alignment: .leading,spacing: 6) { Text("编辑我的头像").font(.system(size: 16,weight: .semibold)); Text("选择照片或图片，自由调整裁剪").font(.system(size: 13)).foregroundStyle(palette.muted) }; Spacer(); WorkspaceGlyph("chevron",size: 18) }.padding(.vertical,8).contentShape(Rectangle()) }
                 WorkspaceField(title: "你的名字",palette: palette) { TextField("你的名字",text: $profile.name) }
                 Button("保存") { Task { if await model.saveProfile(profile) { dismiss() } } }.workspaceAction(palette,primary: true)
                 NavigationLink { RemoteNotesView(model: model).workspaceDetailNavigation() } label: { WorkspaceMenuRow(title: "服务器日记账号",icon: "notes",color: palette.accent,subtitle: "管理员连接与服务器日记") }.workspaceGlass(palette)
             }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity) }
-        }.workspaceRootNavigation().buttonStyle(WorkspacePress()).background(VChatRendering.ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
+        }.workspacePageNavigation(title: "个人资料",palette: palette,note: "本机保存").buttonStyle(WorkspacePress()).background(VChatRendering.ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         .sheet(isPresented: $avatar) { AvatarEditor(image: $profile.avatar,name: profile.name.isEmpty ? "我" : profile.name) }
     }
 }

@@ -16,7 +16,9 @@ struct ConnectionView: View {
     var body: some View { Group { if embedded { content } else { NavigationStack { content } } }.frame(minWidth: 350,minHeight: 560) }
     private var content: some View {
         VStack(spacing: 0) {
+            #if os(macOS)
             WorkspaceDetailHeader(title: focusLogs ? "日志通道" : "服务器与模型",palette: palette,note: "本机保存",back: { dismiss() }) { EmptyView() }
+            #endif
             ScrollView {
                 VStack(alignment: .leading,spacing: 22) {
                     if let error = model.error { Text(error).font(.system(size: 14)).foregroundStyle(.red).textSelection(.enabled) }
@@ -57,7 +59,7 @@ struct ConnectionView: View {
                 }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
             Button(model.savingConnection ? "保存中…" : "保存连接") { Task { if await model.saveConnection() { dismiss() } } }.workspaceAction(palette,primary: true).disabled(model.savingConnection).padding(.horizontal,20).padding(.vertical,12).background(palette.glass)
-        }.buttonStyle(WorkspacePress()).workspaceRootNavigation().foregroundStyle(palette.ink).tint(palette.accent)
+        }.buttonStyle(WorkspacePress()).workspacePageNavigation(title: focusLogs ? "日志通道" : "服务器与模型",palette: palette,note: "本机保存",close: embedded ? nil : { dismiss() }).foregroundStyle(palette.ink).tint(palette.accent)
         .background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         .onChange(of: model.configuration.server) { _,_ in Task { await model.loadCatalog() } }
         .fileImporter(isPresented: $importing,allowedContentTypes: [.json]) { result in if case .success(let url) = result { Task { await model.importConnection(from: url) } } }

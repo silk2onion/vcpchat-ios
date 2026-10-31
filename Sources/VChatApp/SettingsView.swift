@@ -11,15 +11,17 @@ struct SettingsView: View {
     var body: some View { Group { if embedded { content } else { NavigationStack { content } } }.frame(minWidth: 350,minHeight: 540) }
     private var content: some View {
         VStack(spacing: 0) {
+            #if os(macOS)
             WorkspaceDetailHeader(title: "设置",palette: palette,back: { dismiss() }) { EmptyView() }
+            #endif
             ScrollView {
                 VStack(alignment: .leading,spacing: 0) {
                     HStack(spacing: 14) { WorkspaceGlyph("render",size: 30).foregroundStyle(palette.accentInk).frame(width: 58,height: 58).background(palette.accent,in: RoundedRectangle(cornerRadius: 19)); VStack(alignment: .leading,spacing: 5) { Text("VCPChat").font(.system(size: 22,weight: .bold)); Text("你的 Agent，随身同行。").font(.system(size: 13)).foregroundStyle(palette.muted) }; Spacer(); Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.0").font(.system(size: 11)).foregroundStyle(palette.muted) }.padding(.vertical,10)
                     label("连接")
                     VStack(spacing: 0) {
-                        NavigationLink { ConnectionView(model: model,embedded: true).workspaceRootNavigation() } label: { row("服务器与模型","server",model.configuration.model.isEmpty ? "连接你的 VCPToolBox" : model.configuration.model) }
+                        NavigationLink { ConnectionView(model: model,embedded: true) } label: { row("服务器与模型","server",model.configuration.model.isEmpty ? "连接你的 VCPToolBox" : model.configuration.model) }
                         WorkspaceSeparator(palette: palette)
-                        NavigationLink { ConnectionView(model: model,embedded: true,focusLogs: true).workspaceRootNavigation() } label: { row("日志通道","logs","VCPLog 与 VCPInfo",blue: true) }
+                        NavigationLink { ConnectionView(model: model,embedded: true,focusLogs: true) } label: { row("日志通道","logs","VCPLog 与 VCPInfo",blue: true) }
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { ActivityView(model: model).workspaceDetailNavigation() } label: { row("查看实时日志","history",model.activity.statuses[.log] ?? "未连接",blue: true) }
                     }.workspaceGlass(palette)
@@ -47,7 +49,7 @@ struct SettingsView: View {
                     }.workspaceGlass(palette)
                 }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
-        }.workspaceRootNavigation().buttonStyle(WorkspacePress()).foregroundStyle(palette.ink)
+        }.workspacePageNavigation(title: "设置",palette: palette,close: embedded ? nil : { dismiss() }).buttonStyle(WorkspacePress()).foregroundStyle(palette.ink)
         .background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         .onChange(of: model.inputPreferences) { _,_ in Task { await model.saveInputPreferences() } }
         .sheet(isPresented: $regex) { RegexRulesView(title: "全局正则",rules: $model.regexRules) { await model.saveRegexRules() } }
