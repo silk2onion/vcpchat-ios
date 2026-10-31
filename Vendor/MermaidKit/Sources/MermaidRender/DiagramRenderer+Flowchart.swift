@@ -1,0 +1,182 @@
+#if canImport(AppKit) || canImport(UIKit) || canImport(SilicaCairo)
+import Foundation
+import MermaidLayout
+
+#if os(macOS)
+import CoreGraphics
+import CoreText
+import AppKit
+#elseif canImport(UIKit)
+import CoreGraphics
+import CoreText
+import UIKit
+#endif
+
+extension DiagramRenderer {
+
+    static func draw(_ layout: FlowchartLayout, theme: DiagramTheme, in context: CGContext) {
+        let stroke = theme.ink.withAlphaComponent(0.35)
+        let fill = theme.accent.withAlphaComponent(0.06)
+
+        // Subgraph group boxes first — backdrops behind every wire and node.
+        // A deeper box is tinted a touch stronger so nested groups read apart.
+        for container in layout.containers.sorted(by: { $0.depth < $1.depth }) {
+            let boxFill = theme.ink.withAlphaComponent(0.04 + 0.03 * CGFloat(min(container.depth, 3)))
+            let boxStroke = theme.ink.withAlphaComponent(0.28)
+            let path = CGPath(roundedRect: container.frame, cornerWidth: 6, cornerHeight: 6, transform: nil)
+            context.saveGState()
+            context.addPath(path)
+            context.setFillColor(resolvedCGColor(boxFill))
+            context.fillPath()
+            context.addPath(path)
+            context.setStrokeColor(resolvedCGColor(boxStroke))
+            context.setLineWidth(1)
+            context.strokePath()
+            context.restoreGState()
+            if !container.label.isEmpty {
+                drawText(container.label,
+                         center: CGPoint(x: container.frame.midX,
+                                         y: container.frame.minY + DiagramLayoutEngine.clusterHeader(layoutMeasure) / 2),
+                         size: 11, weight: .semibold,
+                         color: theme.ink.withAlphaComponent(0.75), in: context)
+            }
+        }
+
+        // Batch edge shafts by dash style and stroke each group in a single
+        // pass, so crossing edges composite as one region instead of stacking
+        // their translucent strokes into darker seams. Arrowheads and labels
+        // draw on top afterward. Thick links (`==>`) are a batch of their own;
+        // invisible ones (`~~~`) draw nothing.
+        var shafts: [(points: [CGPoint], dashed: Bool)] = []
+        var thickShafts: [(points: [CGPoint], dashed: Bool)] = []
+        var arrows: [(tip: CGPoint, from: CGPoint)] = []
+        var marks: [(head: Flowchart.Edge.Head, tip: CGPoint, from: CGPoint)] = []
+        for edge in layout.edges where !edge.invisible {
+            // Leave a small gap between an arrowhead and the box it points at.
+            var points = edge.points
+            let approach = points.count > 1 ? points[points.count - 2] : edge.start
+            if edge.hasArrow, points.count >= 2 {
+                let end = points[points.count - 1]
+                if edge.head == .arrow {
+                    let dx = end.x - approach.x, dy = end.y - approach.y
+                    let len = max(hypot(dx, dy), 0.001)
+                    let gap: CGFloat = 3
+                    points[points.count - 1] = CGPoint(x: end.x - dx / len * gap, y: end.y - dy / len * gap)
+                    arrows.append((points[points.count - 1], approach))
+                } else {
+                    // A circle or cross: the line stops where the mark begins.
+                    marks.append((edge.head, end, approach))
+                    points[points.count - 1] = drawEndMark(
+                        edge.head, at: end, from: approach, color: stroke, canvas: theme.canvas, in: nil)
+                }
+            }
+            if edge.backArrow, points.count >= 2 {
+                // Bidirectional: a second head at the start, pointing back.
+                if edge.head == .arrow {
+                    arrows.append((points[0], points[1]))
+                } else {
+                    marks.append((edge.head, points[0], points[1]))
+                    points[0] = drawEndMark(
+                        edge.head, at: points[0], from: points[1], color: stroke, canvas: theme.canvas, in: nil)
+                }
+            }
+            if edge.thick { thickShafts.append((points, edge.dashed)) } else { shafts.append((points, edge.dashed)) }
+        }
+
+        strokeEdgeShafts(shafts, color: stroke, in: context)
+        strokeEdgeShafts(thickShafts, color: stroke, lineWidth: 2, in: context)
+
+        for arrow in arrows {
+            drawArrowhead(at: arrow.tip, from: arrow.from, color: stroke, canvas: theme.canvas, in: context)
+        }
+        for mark in marks {
+            drawEndMark(mark.head, at: mark.tip, from: mark.from, color: stroke, canvas: theme.canvas, in: context)
+        }
+        for edge in layout.edges where !edge.invisible {
+            guard let label = edge.label, !label.isEmpty else { continue }
+            let point = edge.labelPoint ?? polylineMidpoint(edge.points)
+            drawEdgeLabel(label, at: point, theme: theme, in: context)
+        }
+
+        for node in layout.nodes {
+            context.saveGState()
+            context.setFillColor(resolvedCGColor(fill))
+            context.setStrokeColor(resolvedCGColor(stroke))
+            context.setLineWidth(1)
+
+            // State-diagram terminals draw specially: a filled dot and a
+            // ringed dot, in ink rather than the accent tint.
+            if node.shape == .stateStart {
+                drawStartTerminal(node.frame, color: theme.ink.withAlphaComponent(0.75), in: context)
+                context.restoreGState()
+                continue
+            }
+            if node.shape == .stateEnd {
+                drawEndTerminal(node.frame, color: theme.ink.withAlphaComponent(0.75), in: context)
+                context.restoreGState()
+                continue
+            }
+            if node.shape == .cylinder {
+                context.restoreGState()
+                let capH = drawCylinder(node.frame, fill: fill, stroke: stroke, in: context)
+                // Center the label in the body, below the top cap.
+                drawText(node.label, center: CGPoint(x: node.frame.midX, y: node.frame.midY + capH / 2),
+                         size: 12, weight: .medium, color: theme.ink, in: context)
+                continue
+            }
+
+            let path: CGPath
+            switch node.shape {
+            case .rectangle:
+                path = CGPath(roundedRect: node.frame, cornerWidth: 4, cornerHeight: 4, transform: nil)
+            case .rounded:
+                path = CGPath(roundedRect: node.frame, cornerWidth: 8, cornerHeight: 8, transform: nil)
+            case .stadium:
+                let r = node.frame.height / 2
+                path = CGPath(roundedRect: node.frame, cornerWidth: r, cornerHeight: r, transform: nil)
+            case .circle, .doubleCircle, .stateStart, .stateEnd: // terminals handled above
+                path = CGPath(ellipseIn: node.frame, transform: nil)
+            case .diamond:
+                path = diamondPath(node.frame)
+            case .hexagon:
+                path = hexagonPath(node.frame)
+            case .parallelogram, .parallelogramAlt, .trapezoid, .trapezoidAlt, .asymmetric:
+                path = slantedPath(node.shape, in: node.frame)
+            case .subroutine:
+                path = CGPath(roundedRect: node.frame, cornerWidth: 4, cornerHeight: 4, transform: nil)
+            case .cylinder: // handled above with a continue; keep exhaustive
+                path = CGPath(roundedRect: node.frame, cornerWidth: 4, cornerHeight: 4, transform: nil)
+            }
+            context.restoreGState()
+            fillStrokeShape(path, fill: fill, stroke: stroke, in: context)
+
+            // Subroutine: the twin inner rails that make a `[[ … ]]` box.
+            if node.shape == .subroutine {
+                let inset: CGFloat = min(6, node.frame.width / 4)
+                context.saveGState()
+                context.setStrokeColor(resolvedCGColor(stroke))
+                context.setLineWidth(1)
+                for x in [node.frame.minX + inset, node.frame.maxX - inset] {
+                    context.move(to: CGPoint(x: x, y: node.frame.minY))
+                    context.addLine(to: CGPoint(x: x, y: node.frame.maxY))
+                }
+                context.strokePath()
+                context.restoreGState()
+            }
+            // Double circle: the inner ring (`DiagramLayoutEngine.doubleCircleGap` in).
+            if node.shape == .doubleCircle {
+                context.saveGState()
+                context.setStrokeColor(resolvedCGColor(stroke))
+                context.setLineWidth(1)
+                context.strokeEllipse(in: node.frame.insetBy(dx: 4, dy: 4))
+                context.restoreGState()
+            }
+
+            // A flag's label centers on the part right of its notch.
+            let notch = node.shape == .asymmetric ? min(node.frame.width * 0.22, node.frame.height / 2) : 0
+            drawText(node.label, center: CGPoint(x: node.frame.midX + notch / 2, y: node.frame.midY),
+                     size: 12, weight: .medium, color: theme.ink, in: context)
+        }
+    }
+}
+#endif

@@ -1,6 +1,6 @@
 import SwiftUI
 import CoreGraphics
-import Mermaid
+import MermaidRender
 import VChatCore
 public struct DiagramRaster: Sendable,Equatable {
     public let image: CGImage?
@@ -18,11 +18,7 @@ struct DiagramCache {
         let result: DiagramRaster
         do {
             guard source.utf8.count <= 50_000,source.split(separator: "\n").count <= 500 else { throw ClientError.server("图表过大，请拆成较小的图") }
-            let scene = try Mermaid.render(source,theme: dark ? .dark : .default,layout: .dagre)
-            let w = scene.size.width,h = scene.size.height
-            guard w.isFinite,h.isFinite,w > 0,h > 0,w <= 20_000,h <= 20_000,scene.elements.count <= 2000 else { throw ClientError.server("图表尺寸过大") }
-            let scale = min(2,4096/max(w,h),sqrt(4_000_000/(w*h)))
-            guard let image = scene.cgImage(scale: scale) else { throw ClientError.server("无法绘制图表") }
+            guard let image = MermaidRenderer.boundedCGImage(source: source,dark: dark) else { throw ClientError.server("无法绘制图表") }
             result = DiagramRaster(image: image,issue: nil)
         } catch { result = DiagramRaster(image: nil,issue: "此图表暂不能原生绘制，源码完整保留") }
         let cost = result.image.map { $0.bytesPerRow*$0.height } ?? 0
