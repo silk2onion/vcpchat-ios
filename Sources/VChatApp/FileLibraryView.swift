@@ -41,12 +41,13 @@ struct FileLibraryView: View {
                         else if files.isEmpty { VStack(spacing: 12) { WorkspaceGlyph("folder",size: 36).foregroundStyle(palette.muted); Text(removed ? "没有已移除文件" : "把文件带在身边").font(.system(size: 19,weight: .semibold)); Text("导入文件或收集聊天附件；不会上传到服务器。").font(.system(size: 14)).foregroundStyle(palette.muted).multilineTextAlignment(.center) }.frame(maxWidth: .infinity).padding(.vertical,100) }
                     }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
                 }.scrollDismissesKeyboard(.interactively)
+                // Each file mode owns its importer; an outer importer masks child presenters.
+                .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+                    if case .success(let urls) = result { work { let reader = LocalFileImporter(); for url in urls { let (name,mime,data) = try await reader.read(url); try await model.store?.addFile(name: name,mime: mime,bytes: data) }; await model.refreshAttachmentMetadata(); notice = "文件已保存在本机" } }
+                }
             }
         }.navigationTitle("文件").buttonStyle(WorkspacePress()).foregroundStyle(palette.ink).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         .task { await refresh() }.onChange(of: removed) { _, _ in Task { await refresh() } }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { work { let reader = LocalFileImporter(); for url in urls { let (name,mime,data) = try await reader.read(url); try await model.store?.addFile(name: name,mime: mime,bytes: data) }; await model.refreshAttachmentMetadata(); notice = "文件已保存在本机" } }
-        }
         .sheet(item: $selected, onDismiss: { Task { await refresh() } }) { LocalFileDetail(model: model, file: $0) }
     }
     func refresh() async { do { files = try await model.store?.localFiles(removed: removed) ?? [] } catch { self.error = error.localizedDescription } }
