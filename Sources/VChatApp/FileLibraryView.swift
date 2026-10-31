@@ -17,8 +17,8 @@ struct FileLibraryView: View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
             if !notice.isEmpty { Text(notice).foregroundStyle(.secondary) }
-            Section { NavigationLink { ServerFilesView(model: model) } label: { Label("服务器文件",systemImage: "externaldrive.connected.to.line.below") } }
-            Section { NavigationLink { ConnectedFoldersView(model: model) } label: { Label("连接文件夹",systemImage: "folder.badge.plus") } }
+            Section { NavigationLink { ServerFilesView(model: model).onDisappear { Task { await refresh() } } } label: { Label("服务器文件",systemImage: "externaldrive.connected.to.line.below") } }
+            Section { NavigationLink { ConnectedFoldersView(model: model).onDisappear { Task { await refresh() } } } label: { Label("连接文件夹",systemImage: "folder.badge.plus") } }
             Section {
                 Button("导入文件", systemImage: "square.and.arrow.down") { importing = true }.disabled(busy)
                 Button("收集聊天附件副本", systemImage: "bubble.left.and.text.bubble.right") { work { let count = try await model.store?.collectAttachmentFiles() ?? 0; await model.refreshAttachmentMetadata(); notice = "已收集 \(count) 个附件，重复内容只保存一份" } }.disabled(busy || model.synchronizing)
