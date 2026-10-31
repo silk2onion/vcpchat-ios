@@ -16,6 +16,7 @@ struct ChatView: View {
     @State private var exporting = false
     @State private var exportDocument = TextExportDocument()
     @State private var newlineRequest = 0
+    @State private var creatingTopic = false
     var body: some View {
         Group {
             VStack(spacing: 0) {
@@ -45,8 +46,8 @@ struct ChatView: View {
             #endif
             .toolbar {
                 #if os(iOS)
-                ToolbarItem(placement: .principal) { titleButton }
-                ToolbarItemGroup(placement: .primaryAction) { headerActions }
+                ToolbarItem(placement: .principal) { titleButton.frame(maxWidth: 120) }
+                ToolbarItem(placement: .primaryAction) { HStack(spacing: 0) { headerActions } }
                 #endif
             }
             .sheet(isPresented: $showDeleted) { DeletedMessagesView(model: model, topicID: model.activeTopicID) }
@@ -71,6 +72,10 @@ struct ChatView: View {
     }
     private var headerActions: some View {
         Group {
+            Button(action: startNewTopic) { Image(systemName: "square.and.pencil").font(.system(size: 22)).frame(width: 44,height: 44).contentShape(Rectangle()) }
+                .disabled(model.loading || model.synchronizing || model.activeTopic == nil || creatingTopic)
+                .accessibilityLabel("新话题").accessibilityHint("为当前联系人开启独立话题，保留原话题和草稿")
+                .help("新话题")
             Button { showTopics = true } label: { WorkspaceGlyph("history").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("历史话题")
             Button { if let activity { activity() } else { showLog = true } } label: { WorkspaceGlyph("bell").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("通知与监视")
             Menu {
@@ -79,6 +84,14 @@ struct ChatView: View {
                 Button("导出这段对话",systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话",messages: model.messages.map(\.record))); exporting = true }
                 Button("已删除消息",systemImage: "trash") { showDeleted = true }
             } label: { Image(systemName: "ellipsis").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("对话菜单")
+        }
+    }
+    private func startNewTopic() {
+        guard !creatingTopic,let topic = model.activeTopic else { return }
+        creatingTopic = true
+        Task {
+            await model.createTopic(ownerID: topic.ownerId,ownerType: topic.ownerType)
+            creatingTopic = false
         }
     }
 
