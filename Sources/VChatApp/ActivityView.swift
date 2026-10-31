@@ -6,6 +6,9 @@ struct ActivityView: View {
     @State private var section = 0
     @State private var filter = ActivityKind.all
     @State private var clearing = false
+    init(model: ChatViewModel,initialSection: Int = 0,initialFilter: ActivityKind = .all) {
+        self.model = model; _section = State(initialValue: initialSection); _filter = State(initialValue: initialFilter)
+    }
     private let ragKinds: Set<ActivityKind> = [.rag,.thinking,.agent,.memory,.dream]
     var filters: [ActivityKind] { section == 2 ? [.all,.rag,.thinking,.agent,.memory,.dream] : [.all,.approval,.notification,.error,.handled] }
     var entries: [ActivityEntry] {

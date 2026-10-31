@@ -8,7 +8,11 @@ import AppKit
 #endif
 
 struct WorkspaceView: View {
-    enum Tab { case chats, contacts, me }
+    enum Tab: CaseIterable {
+        case chats, contacts, discover, me
+        var title: String { switch self { case .chats: "会话"; case .contacts: "通讯录"; case .discover: "发现"; case .me: "我" } }
+        var icon: String { switch self { case .chats: "bubble.left.and.bubble.right"; case .contacts: "person.2"; case .discover: "safari"; case .me: "person.crop.circle" } }
+    }
     enum MeScreen: Hashable { case profile,activity,notes,sync,files }
     @Bindable var model: ChatViewModel
     @State private var tab = Tab.chats
@@ -18,8 +22,51 @@ struct WorkspaceView: View {
     @State private var editing: VCPAgent?
     @State private var search = ""
     @State private var settings = false
+    @State private var discoverAtRoot = true
     var body: some View {
-        TabView(selection: $tab) {
+        ZStack {
+            switch tab {
+            case .chats: chats
+            case .contacts: contacts
+            case .discover: DiscoverView(model: model,atRoot: $discoverAtRoot)
+            case .me: me
+            }
+        }
+        .safeAreaInset(edge: .bottom,spacing: 0) {
+            VStack(spacing: 0) {
+                MiniSpeechPlayer(player: model.speech)
+                if showTabBar { bottomTabs }
+            }
+        }
+        .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
+        .tint(model.appearance.theme.tint)
+        .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
+        .sheet(item: $editingGroup) { group in GroupEditor(model: model, group: group) }
+        .sheet(isPresented: $settings) { SettingsView(model: model) }
+        .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("好") { model.error = nil } } message: { Text(model.error ?? "") }
+    }
+    private var showTabBar: Bool {
+        switch tab { case .chats: chatPath.isEmpty; case .contacts: true; case .discover: discoverAtRoot; case .me: mePath.isEmpty }
+    }
+    private var bottomTabs: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases,id: \.self) { item in
+                Button { tab = item } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: item.icon + (tab == item ? ".fill" : ""))
+                            .font(.system(size: 23,weight: .regular)).frame(height: 27)
+                            .overlay(alignment: .topTrailing) {
+                                if item == .discover,model.activity.unread > 0 { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) }
+                            }
+                        Text(item.title).font(.system(size: 11,weight: tab == item ? .medium : .regular))
+                    }.foregroundStyle(tab == item ? model.appearance.theme.tint : .secondary)
+                        .frame(maxWidth: .infinity).frame(minHeight: 55).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel(item.title)
+                    .accessibilityAddTraits(tab == item ? [.isSelected] : [])
+            }
+        }.padding(.horizontal,10).background(.regularMaterial).overlay(alignment: .top) { Divider() }
+    }
+    private var chats: some View {
             NavigationStack(path: $chatPath) {
                 List {
                     if let main = model.mainAgent {
@@ -57,7 +104,9 @@ struct WorkspaceView: View {
                 .scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
                 .navigationTitle("会话")
                 .navigationDestination(for: String.self) { _ in ChatView(model: model) }
-            }.tabItem { Label("会话", systemImage: "bubble.left.and.bubble.right") }.tag(Tab.chats)
+            }
+    }
+    private var contacts: some View {
             NavigationStack {
                 List {
                     ForEach(orderedAgents) { agent in
@@ -95,7 +144,9 @@ struct WorkspaceView: View {
                 .searchable(text: $search, prompt: "搜索 Agent")
                 .navigationTitle("通讯录")
                 .toolbar { Button { editing = VCPAgent() } label: { Image(systemName: "plus") }.accessibilityLabel("添加 Agent") }
-            }.tabItem { Label("通讯录", systemImage: "person.2") }.tag(Tab.contacts)
+            }
+    }
+    private var me: some View {
             NavigationStack(path: $mePath) {
                 List {
                     Section {
@@ -116,15 +167,7 @@ struct WorkspaceView: View {
                 .navigationDestination(for: MeScreen.self) { screen in
                     meScreen(screen)
                 }
-            }.tabItem { Label("我", systemImage: "person.crop.circle") }.tag(Tab.me)
-        }
-        .safeAreaInset(edge: .bottom,spacing: 0) { MiniSpeechPlayer(player: model.speech) }
-        .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
-        .tint(model.appearance.theme.tint)
-        .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
-        .sheet(item: $editingGroup) { group in GroupEditor(model: model, group: group) }
-        .sheet(isPresented: $settings) { SettingsView(model: model) }
-        .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("好") { model.error = nil } } message: { Text(model.error ?? "") }
+            }
     }
     var orderedAgents: [VCPAgent] {
         model.agents.filter { search.isEmpty || ($0.name + $0.description).localizedCaseInsensitiveContains(search) }.sorted {
