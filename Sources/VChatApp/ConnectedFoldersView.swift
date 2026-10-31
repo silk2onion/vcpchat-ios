@@ -15,7 +15,7 @@ struct ConnectedFoldersView: View {
             Section { Button("连接文件夹…",systemImage: "folder.badge.plus") { selecting = true }; Text("通过系统选择器连接一个工作文件夹。App 可直接读写，修改前保留备份；Agent 默认没有权限。").font(.caption).foregroundStyle(.secondary) }
             ForEach(folders) { folder in NavigationLink { ConnectedFolderBrowser(model: model,folderID: folder.id,name: folder.name) } label: { Label(folder.name,systemImage: "folder") } }
             if folders.isEmpty { ContentUnavailableView("尚未连接文件夹",systemImage: "folder.badge.plus") }
-        }.navigationTitle("连接文件夹").task { await refresh() }
+        }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("连接文件夹").task { await refresh() }
         .fileImporter(isPresented: $selecting,allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { Task { do { guard let engine = model.connectedFolders else { throw ClientError.server("本机文件引擎尚未就绪") }; _ = try await engine.connect(url); await refresh() } catch { self.error = error.localizedDescription } } }
         }

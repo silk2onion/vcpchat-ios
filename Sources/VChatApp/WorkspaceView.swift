@@ -99,9 +99,9 @@ struct WorkspaceView: View {
         switch screen {
         case .profile: ProfileEditor(model: model,profile: model.profile)
         case .activity: ActivityView(model: model)
-        case .notes: NotesView(model: model)
+        case .notes: NotesView(model: model,searching: $searching)
         case .sync: SyncView(model: model)
-        case .files: FileLibraryView(model: model)
+        case .files: FileLibraryView(model: model,searching: $searching)
         case .settings: SettingsView(model: model,embedded: true)
         }
     }

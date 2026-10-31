@@ -1,5 +1,6 @@
 import SwiftUI
 import VChatCore
+import VChatRendering
 
 struct DataManagementView: View {
     let model: ChatViewModel
@@ -35,7 +36,7 @@ struct DataManagementView: View {
                 }
             }
             if working { ProgressView("正在处理本机数据…") }
-        }.formStyle(.grouped).navigationTitle("数据与连接")
+        }.formStyle(.grouped).scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("数据与连接")
         .task { await refresh() }
         .confirmationDialog("先保留完整备份，再清空聊天记录？",isPresented: $clearing,titleVisibility: .visible) {
             Button("备份并清空",role: .destructive) { work { try await model.clearHistory(); notice = "已保存本机备份，聊天记录已清空" } }

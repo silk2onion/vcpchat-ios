@@ -5,6 +5,8 @@ import VChatRendering
 
 struct FileLibraryView: View {
     let model: ChatViewModel
+    @Binding var searching: Bool
+    @State private var mode = 0
     @State private var files: [LocalFile] = []
     @State private var importing = false
     @State private var removed = false
@@ -13,24 +15,34 @@ struct FileLibraryView: View {
     @State private var busy = false
     @State private var error: String?
     @State private var notice = ""
+    init(model: ChatViewModel,searching: Binding<Bool> = .constant(false)) { self.model = model; _searching = searching }
+    private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
+    private var visibleFiles: [LocalFile] { files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) } }
     var body: some View {
-        List {
-            if let error { Text(error).foregroundStyle(.red) }
-            if !notice.isEmpty { Text(notice).foregroundStyle(.secondary) }
-            Section { NavigationLink { ServerFilesView(model: model).onDisappear { Task { await refresh() } } } label: { Label("服务器文件",systemImage: "externaldrive.connected.to.line.below") } }
-            Section { NavigationLink { ConnectedFoldersView(model: model).onDisappear { Task { await refresh() } } } label: { Label("连接文件夹",systemImage: "folder.badge.plus") } }
-            Section {
-                Button("导入文件", systemImage: "square.and.arrow.down") { importing = true }.disabled(busy)
-                Button("收集聊天附件副本", systemImage: "bubble.left.and.text.bubble.right") { work { let count = try await model.store?.collectAttachmentFiles() ?? 0; await model.refreshAttachmentMetadata(); notice = "已收集 \(count) 个附件，重复内容只保存一份" } }.disabled(busy || model.synchronizing)
-                Toggle("查看已移除文件", isOn: $removed)
+        VStack(spacing: 0) {
+            WorkspaceSegments(titles: ["本机附件","连接文件夹","服务器文件"],selection: $mode,palette: palette).padding(.horizontal,20).padding(.vertical,12)
+            if mode == 1 { ConnectedFoldersView(model: model).onDisappear { Task { await refresh() } } }
+            else if mode == 2 { ServerFilesView(model: model).onDisappear { Task { await refresh() } } }
+            else {
+                ScrollView {
+                    LazyVStack(alignment: .leading,spacing: 16) {
+                        HStack(spacing: 10) {
+                            Button("导入文件") { importing = true }.workspaceAction(palette,primary: true).disabled(busy)
+                            Button("收集已有聊天附件") { work { let count = try await model.store?.collectAttachmentFiles() ?? 0; await model.refreshAttachmentMetadata(); notice = "已收集 \(count) 个附件，重复内容只保存一份" } }.workspaceAction(palette).disabled(busy || model.synchronizing)
+                        }
+                        WorkspaceSearch(query: $query,showing: $searching,prompt: "搜索文件名",palette: palette)
+                        Toggle("查看已移除文件",isOn: $removed).font(.system(size: 13)).toggleStyle(.switch).foregroundStyle(palette.muted)
+                        if let error { Text(error).foregroundStyle(.red) }
+                        if !notice.isEmpty { Text(notice).font(.system(size: 13)).foregroundStyle(palette.muted) }
+                        ForEach(visibleFiles) { file in
+                            Button { selected = file } label: { HStack(spacing: 12) { WorkspaceGlyph(file.mime.hasPrefix("image/") ? "image" : "notes",size: 25).foregroundStyle(palette.accent); VStack(alignment: .leading,spacing: 5) { Text(file.name).font(.system(size: 15,weight: .semibold)).foregroundStyle(palette.ink).lineLimit(2); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size),countStyle: .file) + " · " + file.source).font(.system(size: 12)).foregroundStyle(palette.muted) }; Spacer(); WorkspaceGlyph("chevron",size: 18).foregroundStyle(palette.muted) }.padding(15).frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }.workspaceGlass(palette)
+                        }
+                        if !query.isEmpty && visibleFiles.isEmpty { ContentUnavailableView("没有匹配的文件",systemImage: "magnifyingglass") }
+                        else if files.isEmpty { VStack(spacing: 12) { WorkspaceGlyph("folder",size: 36).foregroundStyle(palette.muted); Text(removed ? "没有已移除文件" : "把文件带在身边").font(.system(size: 19,weight: .semibold)); Text("导入文件或收集聊天附件；不会上传到服务器。").font(.system(size: 14)).foregroundStyle(palette.muted).multilineTextAlignment(.center) }.frame(maxWidth: .infinity).padding(.vertical,100) }
+                    }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
+                }.scrollDismissesKeyboard(.interactively)
             }
-            ForEach(files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { file in
-                Button { selected = file } label: {
-                    HStack(spacing: 12) { Image(systemName: file.mime.hasPrefix("image/") ? "photo" : "doc").font(.title3); VStack(alignment: .leading, spacing: 5) { Text(file.name).foregroundStyle(.primary); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file) + " · " + file.source).font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) }.padding(.vertical, 5).contentShape(Rectangle())
-                }.buttonStyle(.plain)
-            }
-            if files.isEmpty { ContentUnavailableView(removed ? "没有已移除文件" : "文件库为空", systemImage: "folder") }
-        }.navigationTitle("文件").searchable(text: $query, prompt: "搜索文件名")
+        }.navigationTitle("文件").buttonStyle(WorkspacePress()).foregroundStyle(palette.ink).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
         .task { await refresh() }.onChange(of: removed) { _, _ in Task { await refresh() } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { work { let reader = LocalFileImporter(); for url in urls { let (name,mime,data) = try await reader.read(url); try await model.store?.addFile(name: name,mime: mime,bytes: data) }; await model.refreshAttachmentMetadata(); notice = "文件已保存在本机" } }

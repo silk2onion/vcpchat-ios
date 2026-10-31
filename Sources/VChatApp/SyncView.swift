@@ -1,5 +1,6 @@
 import SwiftUI
 import VChatCore
+import VChatRendering
 struct SyncView: View {
     @Bindable var model: ChatViewModel
     @State private var profiles: [SyncProfile] = []
@@ -12,30 +13,33 @@ struct SyncView: View {
     @Environment(\.scenePhase) private var phase
     private let engine = MobileSync()
     private var selected: SyncProfile? { guard let endpoint = try? MobileSyncSettings.endpoint(model.services.sync.httpURL).absoluteString else { return nil }; return profiles.first { $0.endpoint == endpoint } }
+    private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
     var body: some View {
-        Form {
-            Section("桌面同步连接") {
-                TextField("同步 HTTP 地址",text: $model.services.sync.httpURL,prompt: Text("http://桌面:5974")).autocorrectionDisabled()
-                TextField("同步 WebSocket 地址",text: $model.services.sync.socketURL,prompt: Text("ws://桌面:5975/")).autocorrectionDisabled()
-                SecureField("桌面同步 Token",text: Binding(get: { model.serviceSecrets[.syncToken] ?? "" },set: { model.serviceSecrets[.syncToken] = $0 }))
-                Text("沿用原库 MobileSync Wire 1.5。不是聊天 API 或 VCPLog 连接。原有本机数据保留，导入内容按来源隔离。").font(.caption).foregroundStyle(.secondary)
-                if model.credentialsLocked { Label("连接尚未解锁，请先在服务器设置中主动解锁",systemImage: "lock").font(.caption); NavigationLink("打开连接设置") { ConnectionView(model: model) } }
-            }.disabled(model.synchronizing)
-            Section {
-                Button("只拉取桌面内容",systemImage: "arrow.down") { start(.pull) }.disabled(unavailable)
-                Button("双向同步",systemImage: "arrow.up.arrow.down") { confirmWrite = true }.disabled(unavailable)
-                if model.synchronizing { HStack { ProgressView().controlSize(.small); Text(progress) }; Button("取消同步",role: .cancel) { task?.cancel() } }
-                else if !progress.isEmpty { Label(progress,systemImage: "checkmark.circle").foregroundStyle(.secondary) }
-                if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-                if let selected,selected.lastSync > 0 { LabeledContent("上次完成",value: Date(timeIntervalSince1970: selected.lastSync/1000).formatted(date: .abbreviated,time: .shortened)); Text("\(selected.entities.values.filter { $0.identity.entityType == "owner" && $0.identity.ownerType == "agent" && $0.deletedAt == nil }.count) 位 Agent · \(selected.entities.values.filter { $0.identity.entityType == "topic" && $0.deletedAt == nil }.count) 个话题").font(.caption).foregroundStyle(.secondary) }
-            }
-            Section("本机恢复点") {
-                if matching.isEmpty { Text("首次同步完成后会保存原状与结果；恢复仅影响此同步来源。").foregroundStyle(.secondary) }
-                ForEach(matching) { point in
-                    HStack { VStack(alignment: .leading,spacing: 4) { Text(Date(timeIntervalSince1970: point.at),format: .dateTime.month().day().hour().minute().second()); Text("同步前 \(point.before.topics.count) 个话题 · 同步后 \(point.after.topics.count) 个话题").font(.caption).foregroundStyle(.secondary) }; Spacer(); Button("恢复此前状态") { restoring = point }.disabled(model.synchronizing) }
+        ScrollView {
+            VStack(alignment: .leading,spacing: 22) {
+                Text("与 VCPChat 的 MobileSync 配对。现有本机会话保留，同步内容使用独立来源身份。").font(.system(size: 14)).foregroundStyle(palette.muted)
+                VStack(alignment: .leading,spacing: 24) {
+                    WorkspaceField(title: "桌面 HTTP 地址",palette: palette) { TextField("http://桌面:5974",text: $model.services.sync.httpURL).autocorrectionDisabled().accessibilityLabel("同步 HTTP 地址") }
+                    WorkspaceField(title: "同步 WebSocket 地址",palette: palette) { TextField("ws://桌面:5975/",text: $model.services.sync.socketURL).autocorrectionDisabled().accessibilityLabel("同步 WebSocket 地址") }
+                    WorkspaceField(title: "Mobile Sync Token",palette: palette) { SecureField("桌面同步 Token",text: Binding(get: { model.serviceSecrets[.syncToken] ?? "" },set: { model.serviceSecrets[.syncToken] = $0 })) }
+                    if model.credentialsLocked { Label("连接尚未解锁，请先在服务器设置中主动解锁",systemImage: "lock").font(.caption); NavigationLink("打开连接设置") { ConnectionView(model: model) } }
+                }.padding(18).workspaceGlass(palette).disabled(model.synchronizing)
+                VStack(spacing: 12) {
+                    Button("只拉取桌面内容",systemImage: "arrow.down") { start(.pull) }.workspaceAction(palette,primary: true).disabled(unavailable)
+                    Button("双向同步",systemImage: "arrow.up.arrow.down") { confirmWrite = true }.workspaceAction(palette).disabled(unavailable)
+                    if model.synchronizing { HStack { ProgressView().controlSize(.small); Text(progress) }; Button("取消同步",role: .cancel) { task?.cancel() } }
+                    else if !progress.isEmpty { Label(progress,systemImage: "checkmark.circle").font(.system(size: 13)).foregroundStyle(palette.muted) }
+                    if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
                 }
-            }
-        }.formStyle(.grouped).navigationTitle("会话同步")
+                Text("头像单独传输；历史附件只同步身份与提取内容，原文件需要在文件页导入。桌面须启用 VCPMobileSync（Wire 1.5）。同步在前台运行。").font(.system(size: 13)).foregroundStyle(palette.muted)
+                if let selected,selected.lastSync > 0 { LabeledContent("上次完成",value: Date(timeIntervalSince1970: selected.lastSync/1000).formatted(date: .abbreviated,time: .shortened)); Text("\(selected.entities.values.filter { $0.identity.entityType == "owner" && $0.identity.ownerType == "agent" && $0.deletedAt == nil }.count) 位 Agent · \(selected.entities.values.filter { $0.identity.entityType == "topic" && $0.deletedAt == nil }.count) 个话题").font(.caption).foregroundStyle(palette.muted) }
+                VStack(alignment: .leading,spacing: 16) {
+                    Text("本机恢复点").font(.system(size: 16,weight: .semibold))
+                    if matching.isEmpty { Text("首次同步完成后会保存原状与结果；恢复仅影响此同步来源。").font(.system(size: 13)).foregroundStyle(palette.muted) }
+                    ForEach(matching) { point in HStack { VStack(alignment: .leading,spacing: 4) { Text(Date(timeIntervalSince1970: point.at),format: .dateTime.month().day().hour().minute().second()); Text("同步前 \(point.before.topics.count) 个话题 · 同步后 \(point.after.topics.count) 个话题").font(.caption).foregroundStyle(palette.muted) }; Spacer(); Button("恢复此前状态") { restoring = point }.disabled(model.synchronizing) } }
+                }.padding(18).workspaceGlass(palette)
+            }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
+        }.buttonStyle(WorkspacePress()).navigationTitle("桌面同步").background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
             .task { await refresh() }
             .onDisappear { task?.cancel() }
             .onChange(of: phase) { _,p in if p == .background { task?.cancel() } }
