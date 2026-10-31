@@ -39,11 +39,12 @@ public struct RichMessageBody: View {
     public var rules: [RegexRule]
     public var role: String
     public var depth: Int
+    public var expandsToFill: Bool
     @State private var rendering = RenderState()
     @State private var visible = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
-    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth }
+    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0, expandsToFill: Bool = true) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth; self.expandsToFill = expandsToFill }
     private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.contains("http://") && !source.contains("https://") && !(source.contains("@") && source.contains(".")) && (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })))) }
     public var body: some View {
         Group {
@@ -51,7 +52,7 @@ public struct RichMessageBody: View {
             else if rendering.blocks.isEmpty { Text(verbatim: rules.isEmpty ? source : "…").textSelection(.enabled) }
             else { NativeBlocks(blocks: rendering.blocks, options: options).equatable() }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: expandsToFill ? .infinity : nil, alignment: .leading)
         .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth), initial: true) { _, input in
             if visible && phase != .background && !plain { rendering.update(input) } else { rendering.cancel() }
         }

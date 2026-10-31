@@ -68,7 +68,8 @@ struct ConversationsHome: View {
 struct WorkspaceActivityButton: View {
     let model: ChatViewModel
     var action: () -> Void
-    var body: some View { WorkspaceIconButton(icon: "bell",label: "打开通知中心",action: action).overlay(alignment: .topTrailing) { if model.activity.unread > 0 { Text(model.activity.unread > 99 ? "99+" : String(model.activity.unread)).font(.system(size: 9,weight: .bold)).foregroundStyle(.black).padding(.horizontal,4).frame(minWidth: 16,minHeight: 16).background(model.activity.pending.isEmpty ? model.appearance.theme.tint : .orange,in: Capsule()).allowsHitTesting(false) } } }
+    private var count: Int { model.activity.pending.isEmpty ? model.activity.unread : model.activity.pending.count }
+    var body: some View { WorkspaceIconButton(icon: "bell",label: "打开通知中心" + (count > 0 ? "，\(count) 条" + (model.activity.pending.isEmpty ? "未读" : "待审批") : ""),action: action).overlay(alignment: .topTrailing) { if count > 0 { Text(count > 99 ? "99+" : String(count)).font(.system(size: 9,weight: .bold)).foregroundStyle(.black).padding(.horizontal,4).frame(minWidth: 16,minHeight: 16).background(model.activity.pending.isEmpty ? model.appearance.theme.tint : .orange,in: Capsule()).allowsHitTesting(false) } } }
 }
 struct WorkspaceOwnerPicker: View {
     let model: ChatViewModel

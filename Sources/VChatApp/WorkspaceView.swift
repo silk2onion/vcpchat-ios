@@ -36,7 +36,7 @@ struct WorkspaceView: View {
     var body: some View {
         ZStack {
             activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
-                .safeAreaInset(edge: .bottom,spacing: 0) { VStack(spacing: 0) { MiniSpeechPlayer(player: model.speech); if showTabBar { bottomTabs } } }
+                .safeAreaInset(edge: .bottom,spacing: 0) { VStack(spacing: 0) { MiniSpeechPlayer(player: model.speech); if showTabBar { bottomTabs } }.animation(motion ? .easeOut(duration: 0.18) : nil,value: model.speech.phase == "idle") }
                 .background(ThemeWallpaper(model.appearance,animations: motion).ignoresSafeArea())
                 .blur(radius: activityOpen ? 8 : 0).allowsHitTesting(!activityOpen).accessibilityHidden(activityOpen)
             if activityOpen {
@@ -68,9 +68,9 @@ struct WorkspaceView: View {
     private var bottomTabs: some View {
         HStack(spacing: 4) {
             ForEach(Tab.allCases,id: \.self) { item in
-                Button { searching = false; withAnimation(motion ? .easeInOut(duration: 0.14) : nil) { tab = item } } label: {
+                Button { searching = false; withAnimation(motion ? .easeInOut(duration: 0.14) : nil) { chatQuery = ""; search = ""; if item == .me { mePath = [] }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } } label: {
                     VStack(spacing: 4) {
-                        WorkspaceGlyph(item.icon,size: 22).overlay(alignment: .topTrailing) { if item == .discover,model.activity.unread > 0 { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) } }
+                        WorkspaceGlyph(item.icon,size: 22).overlay(alignment: .topTrailing) { if item == .discover,(model.activity.unread > 0 || !model.activity.pending.isEmpty) { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) } }
                         Text(item.title).font(.system(size: 11,weight: .semibold))
                     }.foregroundStyle(tab == item ? palette.accent : palette.muted).frame(maxWidth: .infinity).frame(minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(WorkspacePress()).accessibilityLabel(item.title).accessibilityAddTraits(tab == item ? [.isSelected] : [])
@@ -80,19 +80,19 @@ struct WorkspaceView: View {
     private var chats: some View {
         NavigationStack(path: $chatPath) {
             ConversationsHome(model: model,searching: $searching,query: $chatQuery,openAgent: openAgent,openTopic: openTopic,chooseMain: { choosingMain = true },newConversation: { newChat = true },activity: { openActivity(0,.all) })
-                .navigationDestination(for: String.self) { _ in ChatView(model: model).workspaceDetailNavigation() }
+                .navigationDestination(for: String.self) { _ in ChatView(model: model,activity: { openActivity(0,.all) }).workspaceDetailNavigation() }
         }
     }
     private var contacts: some View {
         NavigationStack(path: $contactPath) {
             ContactsHome(model: model,searching: $searching,query: $search,openAgent: { agent in Task { await model.openAgent(agent); move { searching = false; contactPath = [model.activeTopicID] } } },editAgent: { editing = $0 },openGroup: { group in Task { await model.openGroup(group); move { searching = false; contactPath = [model.activeTopicID] } } },editGroup: { editingGroup = $0 },newAgent: { editing = VCPAgent() },newGroup: { editingGroup = VCPGroup() })
-                .navigationDestination(for: String.self) { _ in ChatView(model: model).workspaceDetailNavigation() }
+                .navigationDestination(for: String.self) { _ in ChatView(model: model,activity: { openActivity(0,.all) }).workspaceDetailNavigation() }
         }
     }
     private var me: some View {
         NavigationStack(path: $mePath) {
             MeHome(model: model,navigate: { screen in move { mePath.append(screen) } },avatar: { avatar = true },activity: { openActivity(0,.all) },settings: { move { mePath.append(.settings) } })
-                .navigationDestination(for: MeScreen.self) { screen in meScreen(screen).workspaceDetailNavigation() }
+                .navigationDestination(for: MeScreen.self) { screen in if screen == .settings || screen == .profile { meScreen(screen) } else { meScreen(screen).workspaceDetailNavigation() } }
         }
     }
     @ViewBuilder private func meScreen(_ screen: MeScreen) -> some View {
@@ -105,9 +105,9 @@ struct WorkspaceView: View {
         case .settings: SettingsView(model: model,embedded: true)
         }
     }
-    private func openActivity(_ section: Int,_ filter: ActivityKind) { activitySection = section; activityFilter = filter; move { activityOpen = true } }
+    private func openActivity(_ section: Int,_ filter: ActivityKind) { activitySection = section; activityFilter = section == 0 && filter == .all && !model.activity.pending.isEmpty ? .approval : filter; move { activityOpen = true } }
     private func closeActivity() { withAnimation(motion ? .easeIn(duration: 0.18) : nil) { activityOpen = false } }
-    private func createChat(_ id: String,_ type: String) { Task { await model.createTopic(ownerID: id,ownerType: type); move { searching = false; tab = .chats; chatPath = [model.activeTopicID] } } }
+    private func createChat(_ id: String,_ type: String) { Task { let previous = model.activeTopicID; await model.createTopic(ownerID: id,ownerType: type); guard model.activeTopicID != previous else { return }; move { searching = false; tab = .chats; chatPath = [model.activeTopicID] } } }
     func openAgent(_ agent: VCPAgent) { Task { await model.openAgent(agent); move { searching = false; tab = .chats; chatPath = [model.activeTopicID] } } }
     func openTopic(_ topic: ChatTopic) { Task { await model.openTopic(topic); move { searching = false; chatPath = [topic.id] } } }
     private func move(_ action: () -> Void) { withAnimation(motion ? .timingCurve(0.2,0.7,0.2,1,duration: 0.22) : nil,action) }
@@ -147,51 +147,50 @@ struct ContactAvatar: View {
 struct AgentEditor: View {
     @Bindable var model: ChatViewModel
     @State var agent: VCPAgent
-    @State private var choosingModel = false
     @State private var regex = false
     @State private var avatar = false
     @State private var deleting = false
+    @State private var voiceOpen = false
     @Environment(\.dismiss) private var dismiss
+    private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
     var existing: Bool { model.agents.contains { $0.id == agent.id } }
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Agent 资料") {
-                    Button { avatar = true } label: { HStack { ContactAvatar(name: agent.name, image: agent.avatarUrl, symbol: agent.avatar, size: 62); Spacer(); Label("编辑头像", systemImage: "camera") } }.buttonStyle(.plain)
-                    TextField("名字", text: $agent.name)
-                    TextField("简介", text: $agent.description, axis: .vertical).lineLimit(2...4)
-                    TextField("头像符号（无图片时显示）",text: $agent.avatar)
+        WorkspacePanel(title: existing ? "Agent 资料" : "添加 Agent",palette: palette,close: { dismiss() }) {
+            VStack(alignment: .leading,spacing: 24) {
+                HStack(spacing: 18) {
+                    Button { avatar = true } label: { ContactAvatar(name: agent.name,image: agent.avatarUrl,symbol: agent.avatar,size: 88).overlay(alignment: .bottomTrailing) { WorkspaceGlyph("camera",size: 17).foregroundStyle(palette.accentInk).frame(width: 29,height: 29).background(palette.accent,in: Circle()).overlay(Circle().stroke(palette.solid,lineWidth: 3)) } }.accessibilityLabel("更换 Agent 图片头像")
+                    VStack(alignment: .leading,spacing: 6) { Text("让它有自己的样子").font(.system(size: 15,weight: .semibold)); Text("点头像，选择照片或图片。").font(.system(size: 13)).foregroundStyle(palette.muted); if !agent.avatarUrl.isEmpty { Button("文字头像") { agent.avatarUrl = "" }.foregroundStyle(palette.accent) } }
+                }.padding(.vertical,8)
+                WorkspaceField(title: "头像文字",palette: palette) { TextField("头像符号",text: $agent.avatar).accessibilityLabel("头像文字") }.frame(maxWidth: 130,alignment: .leading)
+                WorkspaceField(title: "名字",palette: palette) { TextField("名字",text: $agent.name) }
+                WorkspaceField(title: "简介",palette: palette) { TextField("它擅长什么",text: $agent.description,axis: .vertical).lineLimit(1...4).accessibilityLabel("简介") }
+                WorkspaceModelField(model: model,selection: $agent.model)
+                WorkspaceField(title: "系统提示",palette: palette) { TextEditor(text: $agent.systemPrompt).scrollContentBackground(.hidden).frame(minHeight: 110).accessibilityLabel("系统提示") }
+                VStack(alignment: .leading,spacing: 12) {
+                    Toggle("独立 Temperature",isOn: Binding(get: { agent.temperature != nil },set: { agent.temperature = $0 ? model.configuration.temperature : nil }))
+                    if agent.temperature != nil { HStack { Text("Temperature"); Spacer(); Text((agent.temperature ?? 0.8).formatted(.number.precision(.fractionLength(2)))) }; Slider(value: Binding(get: { agent.temperature ?? 0.8 },set: { agent.temperature = $0 }),in: 0...2) }
+                    Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.system(size: 12)).foregroundStyle(palette.muted)
                 }
-                Section("系统提示词") { TextEditor(text: $agent.systemPrompt).frame(minHeight: 140) }
-                Section("模型") {
-                    TextField("留空使用全局模型", text: $agent.model)
-                    Button("从模型列表选择") { choosingModel = true }
-                    Toggle("独立 Temperature", isOn: Binding(get: { agent.temperature != nil }, set: { agent.temperature = $0 ? model.configuration.temperature : nil }))
-                    if let temperature = agent.temperature { LabeledContent("Temperature", value: temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: Binding(get: { agent.temperature ?? 0.8 }, set: { agent.temperature = $0 }), in: 0...2) }
-                    Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.caption).foregroundStyle(.secondary)
+                WorkspaceSeparator(palette: palette)
+                DisclosureGroup("这个 Agent 的声音",isExpanded: $voiceOpen) {
+                    VStack(alignment: .leading,spacing: 18) {
+                        WorkspaceField(title: "音色 ID（留空继承全局）",palette: palette) { TextField("音色 ID",text: $agent.voice) }
+                        Toggle("继承全局语速",isOn: $agent.speechSpeedInherited)
+                        if !agent.speechSpeedInherited { LabeledContent("语速",value: agent.speechSpeed.formatted(.number.precision(.fractionLength(2)))); Slider(value: $agent.speechSpeed,in: 0.5...2,step: 0.05) }
+                        WorkspaceField(title: "导演提示词（留空继承全局）",palette: palette) { TextField("导演提示词",text: $agent.speechDirector,axis: .vertical).lineLimit(2...4) }
+                    }.padding(.top,16)
                 }
-                Section("专属语音") {
-                    TextField("音色 ID（留空继承全局）", text: $agent.voice)
-                    Toggle("继承全局语速",isOn: $agent.speechSpeedInherited)
-                    if !agent.speechSpeedInherited { LabeledContent("语速",value: agent.speechSpeed.formatted(.number.precision(.fractionLength(2)))); Slider(value: $agent.speechSpeed,in: 0.5...2,step: 0.05) }
-                    TextField("导演提示词（留空继承全局）",text: $agent.speechDirector,axis: .vertical).lineLimit(2...4)
-                }
-                Section { Button("专属正则 · \(agent.regexRules.count) 条", systemImage: "text.magnifyingglass") { regex = true } }
+                Button { regex = true } label: { HStack { WorkspaceGlyph("regex",size: 19); Text("Agent 正则"); Spacer(); Text("\(agent.regexRules.count)"); WorkspaceGlyph("chevron",size: 18) }.frame(minHeight: 44) }
                 if existing {
-                    Section {
-                        Button(agent.id == model.profile.mainAgentID ? "当前主 Agent" : "设为主 Agent", systemImage: "star") { Task { await model.setMainAgent(agent.id) } }.disabled(agent.id == model.profile.mainAgentID)
-                        Button("删除 Agent", role: .destructive) { deleting = true }
-                    }
+                    Button(agent.id == model.profile.mainAgentID ? "当前主 Agent" : "设为主 Agent") { Task { await model.setMainAgent(agent.id) } }.foregroundStyle(palette.accent).disabled(agent.id == model.profile.mainAgentID)
+                    Button("删除 Agent",role: .destructive) { deleting = true }
                 }
-            }.formStyle(.grouped).navigationTitle(existing ? "编辑 Agent" : "添加 Agent")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("保存") { Task { if await model.saveAgent(agent) { dismiss() } } }.disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
-            }
-            .sheet(isPresented: $choosingModel) { ModelPicker(model: model, selection: $agent.model) }
-            .sheet(isPresented: $regex) { RegexRulesView(title: "Agent 正则", rules: $agent.regexRules) {} }
-            .sheet(isPresented: $avatar) { AvatarEditor(image: $agent.avatarUrl, name: agent.name) }
-            .confirmationDialog("删除这个 Agent？聊天记录将保留。", isPresented: $deleting, titleVisibility: .visible) { Button("删除 Agent", role: .destructive) { Task { await model.removeAgent(agent.id); if model.error == nil { dismiss() } } } }
-        }.frame(minWidth: 340, minHeight: 530)
+            }.font(.system(size: 15))
+        } footer: {
+            HStack(spacing: 10) { Button("取消") { dismiss() }.workspaceAction(palette); Button("保存") { Task { if await model.saveAgent(agent) { dismiss() } } }.workspaceAction(palette,primary: true).disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+        }.frame(minWidth: 340,minHeight: 530)
+        .sheet(isPresented: $regex) { RegexRulesView(title: "Agent 正则",rules: $agent.regexRules) {} }
+        .sheet(isPresented: $avatar) { AvatarEditor(image: $agent.avatarUrl,name: agent.name) }
+        .confirmationDialog("删除这个 Agent？聊天记录将保留。",isPresented: $deleting,titleVisibility: .visible) { Button("删除 Agent",role: .destructive) { Task { await model.removeAgent(agent.id); if model.error == nil { dismiss() } } } }
     }
 }

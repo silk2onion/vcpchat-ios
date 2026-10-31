@@ -75,7 +75,14 @@ struct WorkspaceSearch: View {
             if !query.isEmpty { Button { query = "" } label: { WorkspaceGlyph("close",size: 16).frame(width: 26,height: 36) }.buttonStyle(WorkspacePress()).accessibilityLabel("清空搜索") }
             if focused { Button("取消") { focused = false }.font(.system(size: 14)).foregroundStyle(palette.accent).buttonStyle(WorkspacePress()) }
         }.padding(.horizontal,13).frame(minHeight: 46).background(palette.input,in: RoundedRectangle(cornerRadius: 13))
-            .onChange(of: focused) { _,value in showing = value }
+            .onChange(of: focused) { _,value in
+                #if os(iOS)
+                showing = value
+                #else
+                // A Mac hardware-keyboard focus does not cover the bottom navigation.
+                showing = false
+                #endif
+            }
             .onChange(of: showing) { _,value in if !value { focused = false } }
     }
 }
@@ -148,5 +155,31 @@ extension View {
         #else
         self
         #endif
+    }
+}
+
+struct WorkspaceDetailHeader<Actions: View>: View {
+    let title: String; let palette: WorkspacePalette
+    var note = ""
+    @ViewBuilder var actions: () -> Actions
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        HStack(spacing: 12) {
+            WorkspaceIconButton(icon: "back",label: "返回",action: { dismiss() })
+            Text(title).font(.system(size: 22,weight: .bold)).foregroundStyle(palette.ink).lineLimit(1)
+            Spacer(minLength: 4)
+            if !note.isEmpty { Text(note).font(.system(size: 11)).foregroundStyle(palette.muted) }
+            actions()
+        }.padding(.horizontal,20).padding(.vertical,16).background(palette.glass).background(.ultraThinMaterial)
+    }
+}
+
+struct WorkspaceSegments: View {
+    let titles: [String]
+    @Binding var selection: Int
+    let palette: WorkspacePalette
+    @Environment(\.workspaceMotion) private var motion
+    var body: some View {
+        HStack(spacing: 4) { ForEach(Array(titles.enumerated()),id: \.offset) { index,title in Button { withAnimation(motion ? .easeOut(duration: 0.16) : nil) { selection = index } } label: { Text(title).font(.system(size: 13,weight: .semibold)).foregroundStyle(selection == index ? palette.ink : palette.muted).frame(maxWidth: .infinity).frame(minHeight: 38).background(selection == index ? palette.glass : .clear,in: RoundedRectangle(cornerRadius: 10)) }.accessibilityAddTraits(selection == index ? [.isSelected] : []) } }.padding(4).background(palette.input,in: RoundedRectangle(cornerRadius: 13)).buttonStyle(WorkspacePress())
     }
 }

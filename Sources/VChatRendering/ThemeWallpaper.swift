@@ -56,3 +56,19 @@ private actor BundledWallpapers {
         return image
     }
 }
+
+public struct WallpaperThumbnail: View {
+    let wallpaper: AppWallpaper
+    let custom: String
+    @State private var image: CGImage?
+    public init(_ wallpaper: AppWallpaper,custom: String = "") { self.wallpaper = wallpaper; self.custom = custom }
+    public var body: some View {
+        GeometryReader { geometry in
+            Group {
+                if wallpaper == .custom { NativeRaster(custom,animations: false) }
+                else if let image { Image(decorative: image,scale: 1).resizable().scaledToFill() }
+                else { Color.clear }
+            }.frame(width: geometry.size.width,height: geometry.size.height).clipped()
+        }.task(id: wallpaper) { let value = await BundledWallpapers.shared.image(wallpaper); if !Task.isCancelled { image = value } }
+    }
+}
