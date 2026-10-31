@@ -278,12 +278,18 @@ struct TopicDraft: Codable, Sendable {
         } catch { self.error = error.localizedDescription }
     }
     func importConnection(from url: URL) async {
+        guard !credentialsLocked else { error = "请先解锁已有连接，再导入新配置"; return }
         do {
             let imported = try await DesktopConnection.read(from: url)
-            var config = imported.configuration; config.model = configuration.model
+            var config = imported.configuration; config.model = imported.preferredModel ?? configuration.model
             configuration = config; apiKey = imported.apiKey; logKey = imported.logKey
-            if await saveConnection() { error = nil }
-        } catch { self.error = "导入失败，请选择桌面 VCPChat 的连接设置文件" }
+            if let sync = imported.syncSettings,let token = imported.syncToken {
+                services.sync = sync; serviceSecrets[.syncToken] = token
+            }
+            guard await saveConnection() else { return }
+            if imported.syncSettings != nil { guard await saveServices() else { return } }
+            error = nil
+        } catch { self.error = "导入失败，请选择有效的桌面连接或手机配对文件" }
     }
     func saveConnection() async -> Bool {
         guard !savingConnection else { return false }
