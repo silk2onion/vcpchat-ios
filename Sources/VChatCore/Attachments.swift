@@ -1,6 +1,7 @@
 import Foundation
 import UniformTypeIdentifiers
 import ImageIO
+import CoreImage
 
 public struct ChatAttachment: Codable, Sendable, Equatable, Identifiable {
     public var id: String
@@ -40,6 +41,26 @@ public actor AttachmentImporter {
         guard data.count <= 200_000 else { throw ClientError.server("\(name) 超过 200 KB") }
         guard let text = String(data: data, encoding: .utf8) else { throw ClientError.server("文本附件需要 UTF-8 编码") }
         return ChatAttachment(name: name, mime: mime, kind: "text", text: text, hash: SyncWire.sha(data))
+    }
+    /// Camera pixels cross into this actor without UIKit objects or capture metadata.
+    /// Normalize orientation and size here, leaving the UI free while encoding.
+    public func prepareCameraPhoto(_ image: CGImage, orientation: UInt32, name: String) throws -> ChatAttachment {
+        guard (1...8).contains(orientation) else { throw ClientError.server("无法识别照片方向") }
+        let oriented = CIImage(cgImage: image).oriented(forExifOrientation: Int32(orientation))
+        let context = CIContext(options: [.cacheIntermediates: false])
+        for maxSide in [2560.0, 1920.0, 1280.0] {
+            let scale = min(1, maxSide / max(oriented.extent.width, oriented.extent.height))
+            let resized = oriented.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            guard let raster = context.createCGImage(resized, from: resized.extent.integral) else { throw ClientError.server("无法处理拍摄的照片") }
+            for quality in [0.85, 0.65, 0.45] {
+                let data = NSMutableData()
+                guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { throw ClientError.server("照片编码失败") }
+                CGImageDestinationAddImage(destination, raster, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+                guard CGImageDestinationFinalize(destination) else { throw ClientError.server("照片编码失败") }
+                if data.length <= 1_500_000 { return try prepare(data as Data, name: name, mime: "image/jpeg") }
+            }
+        }
+        throw ClientError.server("照片压缩后仍超过 1.5 MB，请从图库选择较小的图片")
     }
     public static func assertCount(_ current: Int, adding: Int) throws { guard current + adding <= 4 else { throw ClientError.server("最多 4 个附件") } }
 }
