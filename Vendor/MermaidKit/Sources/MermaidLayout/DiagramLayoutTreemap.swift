@@ -1,0 +1,130 @@
+import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
+
+extension DiagramLayoutEngine {
+
+    /// How a treemap places its text, grown with it: a leaf's 10pt label 5 above
+    /// its middle and 9pt value 9 below, shown once the leaf is over 20 tall;
+    /// a group's 9.5pt header centered 10 below its top, shown once the group
+    /// is over 44 tall. Both renderers and the lint scene place text by them.
+    /// Whether a group draws its 9.5pt semibold header — the one rule the
+    /// layout (which reserves the strip), both renderers and the lint scene all
+    /// apply, so a strip is reserved exactly where a header is drawn. Width is
+    /// judged at regular weight (all a layout's measurer offers, and what the
+    /// `RenderScene` path always used); the semibold header can run up to ~10%
+    /// wider, into the 6pt right padding.
+    package static func treemapDrawsHeader(_ label: String, in frame: CGRect,
+                                           _ measure: DiagramTextMeasurer) -> Bool {
+        frame.height > treemapText(measure).groupMinHeight && frame.width > 40
+            && measure(label, 9.5).width <= frame.width - 12
+    }
+
+    package static func treemapText(_ measure: DiagramTextMeasurer) -> (labelRise: CGFloat, valueDrop: CGFloat,
+        leafMinHeight: CGFloat, headerY: CGFloat, groupMinHeight: CGFloat) {
+        (grown(5, fontSize: 10, measure), grown(9, fontSize: 9, measure), grown(20, fontSize: 10, measure),
+         grown(10, fontSize: 9.5, measure), grown(44, fontSize: 9.5, measure))
+    }
+
+    /// Lays out a treemap with the squarified algorithm (Bruls et al.):
+    /// children fill their parent's rectangle in rows chosen to keep cells as
+    /// square as possible, recursing into each internal node. Leaves are tinted
+    /// by their top-level branch. Pure geometry — the renderer only draws.
+    public static func layout(_ treemap: Treemap, measure: DiagramTextMeasurer) -> TreemapLayout {
+        let margin: CGFloat = 14
+        // The board grows with the text, so cells keep room for their labels.
+        let boardWidth: CGFloat = grown(540, fontSize: 10, measure)
+        let boardHeight: CGFloat = grown(340, fontSize: 10, measure)
+        let headerHeight: CGFloat = grown(16, fontSize: 9.5, measure)
+        let gap: CGFloat = 2
+
+        var cells: [TreemapLayout.Cell] = []
+
+        func place(_ node: TreemapNode, in rect: CGRect, colorIndex: Int, depth: Int) {
+            guard rect.width > 1, rect.height > 1 else { return }
+            if node.children.isEmpty {
+                cells.append(TreemapLayout.Cell(label: node.label, value: node.value,
+                                                frame: rect, colorIndex: colorIndex, isLeaf: true, depth: depth))
+                return
+            }
+            // Group rect (drawn as an outline + header behind its children).
+            cells.append(TreemapLayout.Cell(label: node.label, value: node.value,
+                                            frame: rect, colorIndex: colorIndex, isLeaf: false, depth: depth))
+            let inner = rect.insetBy(dx: gap, dy: gap)
+            // Room for the header only where the renderers draw one (roomy
+            // enough, and the label fits), so children never sit under an
+            // empty strip.
+            let drawsHeader = treemapDrawsHeader(node.label, in: rect, measure)
+            let reserve: CGFloat = drawsHeader ? headerHeight : 0
+            let content = CGRect(x: inner.minX, y: inner.minY + reserve,
+                                 width: inner.width, height: inner.height - reserve)
+            for (child, childRect) in squarify(node.children, in: content) {
+                place(child, in: childRect, colorIndex: colorIndex, depth: depth + 1)
+            }
+        }
+
+        let board = CGRect(x: margin, y: margin, width: boardWidth, height: boardHeight)
+        if treemap.root.children.isEmpty {
+            place(treemap.root, in: board, colorIndex: 0, depth: 0)
+        } else {
+            for (index, (child, rect)) in squarify(treemap.root.children, in: board).enumerated() {
+                place(child, in: rect, colorIndex: index, depth: 1)
+            }
+        }
+
+        return TreemapLayout(
+            size: CGSize(width: boardWidth + margin * 2, height: boardHeight + margin * 2),
+            cells: cells
+        )
+    }
+
+    /// Squarified placement of `nodes` (by value) filling `rect`.
+    static func squarify(_ nodes: [TreemapNode], in rect: CGRect) -> [(TreemapNode, CGRect)] {
+        let total = nodes.map(\.value).reduce(0, +)
+        guard total > 0, rect.width > 0, rect.height > 0 else { return nodes.map { ($0, .zero) } }
+        let scale = Double(rect.width * rect.height) / total   // value → pixel area
+
+        var remaining = nodes.sorted { $0.value > $1.value }.map { ($0, $0.value * scale) }
+        var result: [(TreemapNode, CGRect)] = []
+        var r = rect
+
+        func worst(_ areas: [Double], side: Double) -> Double {
+            let s = areas.reduce(0, +)
+            guard s > 0, let mx = areas.max(), let mn = areas.min(), mn > 0, side > 0 else { return .infinity }
+            return Swift.max(side * side * mx / (s * s), s * s / (side * side * mn))
+        }
+
+        while !remaining.isEmpty {
+            let side = Double(Swift.min(r.width, r.height))
+            var row = [remaining[0]]
+            var i = 1
+            while i < remaining.count,
+                  worst((row + [remaining[i]]).map(\.1), side: side) <= worst(row.map(\.1), side: side) {
+                row.append(remaining[i]); i += 1
+            }
+            let rowArea = row.map(\.1).reduce(0, +)
+            if r.width >= r.height {
+                let stripWidth = CGFloat(rowArea / Double(r.height))
+                var y = r.minY
+                for (node, area) in row {
+                    let h = CGFloat(area / rowArea) * r.height
+                    result.append((node, CGRect(x: r.minX, y: y, width: stripWidth, height: h)))
+                    y += h
+                }
+                r = CGRect(x: r.minX + stripWidth, y: r.minY, width: r.width - stripWidth, height: r.height)
+            } else {
+                let stripHeight = CGFloat(rowArea / Double(r.width))
+                var x = r.minX
+                for (node, area) in row {
+                    let w = CGFloat(area / rowArea) * r.width
+                    result.append((node, CGRect(x: x, y: r.minY, width: w, height: stripHeight)))
+                    x += w
+                }
+                r = CGRect(x: r.minX, y: r.minY + stripHeight, width: r.width, height: r.height - stripHeight)
+            }
+            remaining.removeFirst(row.count)
+        }
+        return result
+    }
+}
