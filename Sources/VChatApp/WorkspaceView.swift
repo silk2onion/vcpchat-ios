@@ -18,6 +18,10 @@ struct WorkspaceView: View {
     @State private var tab = Tab.chats
     @State private var chatPath: [String] = []
     @State private var mePath: [MeScreen] = []
+    @State private var contactPath: [String] = []
+    @State private var searching = false
+    @State private var chatQuery = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var editingGroup: VCPGroup?
     @State private var editing: VCPAgent?
     @State private var search = ""
@@ -39,19 +43,20 @@ struct WorkspaceView: View {
             }
         }
         .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
-        .tint(model.appearance.theme.tint)
+        .tint(WorkspacePalette(theme: model.appearance.theme).accent)
         .sheet(item: $editing) { agent in AgentEditor(model: model, agent: agent) }
         .sheet(item: $editingGroup) { group in GroupEditor(model: model, group: group) }
         .sheet(isPresented: $settings) { SettingsView(model: model) }
         .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("好") { model.error = nil } } message: { Text(model.error ?? "") }
     }
     private var showTabBar: Bool {
-        switch tab { case .chats: chatPath.isEmpty; case .contacts: true; case .discover: discoverAtRoot; case .me: mePath.isEmpty }
+        guard !searching else { return false }
+        return switch tab { case .chats: chatPath.isEmpty; case .contacts: contactPath.isEmpty; case .discover: discoverAtRoot; case .me: mePath.isEmpty }
     }
     private var bottomTabs: some View {
         HStack(spacing: 0) {
             ForEach(Tab.allCases,id: \.self) { item in
-                Button { tab = item } label: {
+                Button { move { tab = item } } label: {
                     VStack(spacing: 3) {
                         Image(systemName: item.icon + (tab == item ? ".fill" : ""))
                             .font(.system(size: 23,weight: .regular)).frame(height: 27)
@@ -59,120 +64,29 @@ struct WorkspaceView: View {
                                 if item == .discover,model.activity.unread > 0 { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) }
                             }
                         Text(item.title).font(.system(size: 11,weight: tab == item ? .medium : .regular))
-                    }.foregroundStyle(tab == item ? model.appearance.theme.tint : .secondary)
+                    }.foregroundStyle(tab == item ? WorkspacePalette(theme: model.appearance.theme).accent : .secondary)
                         .frame(maxWidth: .infinity).frame(minHeight: 55).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(item.title)
                     .accessibilityAddTraits(tab == item ? [.isSelected] : [])
             }
-        }.padding(.horizontal,10).background(.regularMaterial).overlay(alignment: .top) { Divider() }
+        }.padding(.horizontal,10).background(WorkspacePalette(theme: model.appearance.theme).chrome).overlay(alignment: .top) { Divider() }
     }
     private var chats: some View {
-            NavigationStack(path: $chatPath) {
-                List {
-                    if let main = model.mainAgent {
-                        Section {
-                            Button { openAgent(main) } label: {
-                                HStack(spacing: 14) {
-                                    ContactAvatar(name: main.name, image: main.avatarUrl, symbol: main.avatar, size: 50)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(main.name).font(.headline)
-                                        Label("主 Agent", systemImage: "star.fill").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                                }.padding(.vertical, 6).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                    Section("最近会话") {
-                        ForEach(model.topics.sorted { $0.updatedAt > $1.updatedAt }) { topic in
-                            Button { openTopic(topic) } label: {
-                                HStack(spacing: 12) {
-                                    let agent = model.agents.first { $0.id == topic.ownerId }
-                                    let group = model.groups.first { $0.id == topic.ownerId }
-                                    ContactAvatar(name: agent?.name ?? group?.name ?? "会话", image: agent?.avatarUrl ?? group?.avatarUrl ?? "", symbol: agent?.avatar ?? "", kind: topic.ownerType == "group" ? .group : .agent, size: 44)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(topic.title).foregroundStyle(.primary).lineLimit(1)
-                                        Text(agent?.name ?? model.groups.first(where: { $0.id == topic.ownerId })?.name ?? "已删除的联系人").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if model.rooms[topic.id]?.busy == true { ProgressView().controlSize(.small) }
-                                }.padding(.vertical, 4).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-                .scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
-                .navigationTitle("会话")
-                .navigationDestination(for: String.self) { _ in ChatView(model: model) }
-            }
+        NavigationStack(path: $chatPath) {
+            ConversationsHome(model: model,searching: $searching,query: $chatQuery,openAgent: openAgent,openTopic: openTopic,newAgent: { editing = VCPAgent() },newGroup: { editingGroup = VCPGroup() },contacts: { move { tab = .contacts } })
+                .navigationDestination(for: String.self) { _ in ChatView(model: model).workspaceDetailNavigation() }
+        }
     }
     private var contacts: some View {
-            NavigationStack {
-                List {
-                    ForEach(orderedAgents) { agent in
-                        HStack(spacing: 12) {
-                            Button { openAgent(agent) } label: {
-                                HStack(spacing: 12) {
-                                    ContactAvatar(name: agent.name, image: agent.avatarUrl, symbol: agent.avatar, size: 46)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack { Text(agent.name).font(.headline); if agent.id == model.profile.mainAgentID { Image(systemName: "star.fill").font(.caption).foregroundStyle(.orange) } }
-                                        Text(agent.description.isEmpty ? (agent.model.isEmpty ? "使用默认模型" : agent.model) : agent.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                    }
-                                    Spacer()
-                                }.contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                            Button { editing = agent } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }.buttonStyle(.plain).accessibilityLabel("编辑 \(agent.name)")
-                        }.padding(.vertical, 4)
-                    }
-                    Section {
-                        ForEach(model.groups.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { group in
-                            HStack(spacing: 12) {
-                                Button { Task { await model.openGroup(group); tab = .chats; chatPath = [model.activeTopicID] } } label: {
-                                    HStack(spacing: 12) {
-                                        ContactAvatar(name: group.name, image: group.avatarUrl, kind: .group, size: 46)
-                                        VStack(alignment: .leading, spacing: 4) { Text(group.name).font(.headline); Text("\(group.memberIds.count) 位 Agent · \(group.mode.title)").font(.caption).foregroundStyle(.secondary) }
-                                        Spacer()
-                                    }.contentShape(Rectangle())
-                                }.buttonStyle(.plain)
-                                Button { editingGroup = group } label: { Image(systemName: "ellipsis").frame(width: 38, height: 44) }.buttonStyle(.plain).accessibilityLabel("编辑群聊 \(group.name)")
-                            }.padding(.vertical, 4)
-                        }
-                        Button("创建群聊", systemImage: "person.2.badge.plus") { editingGroup = VCPGroup() }
-                    } header: { Text("群聊") }
-                }
-                .scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
-                .searchable(text: $search, prompt: "搜索 Agent")
-                .navigationTitle("通讯录")
-                .toolbar { Button { editing = VCPAgent() } label: { Image(systemName: "plus") }.accessibilityLabel("添加 Agent") }
-            }
+        NavigationStack(path: $contactPath) {
+            ContactsHome(model: model,searching: $searching,query: $search,openAgent: { agent in Task { await model.openAgent(agent); move { searching = false; contactPath = [model.activeTopicID] } } },editAgent: { editing = $0 },openGroup: { group in Task { await model.openGroup(group); move { searching = false; contactPath = [model.activeTopicID] } } },editGroup: { editingGroup = $0 },newAgent: { editing = VCPAgent() },newGroup: { editingGroup = VCPGroup() })
+                .navigationDestination(for: String.self) { _ in ChatView(model: model).workspaceDetailNavigation() }
+        }
     }
     private var me: some View {
-            NavigationStack(path: $mePath) {
-                List {
-                    Section {
-                        NavigationLink(value: MeScreen.profile) { HStack(spacing: 16) {
-                            ContactAvatar(name: model.profile.name.isEmpty ? "我" : model.profile.name, image: model.profile.avatar, kind: .personal, size: 64)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(model.profile.name.isEmpty ? "我" : model.profile.name).font(.title2.bold())
-                                Text("你的 VCP 随身工作台").font(.callout).foregroundStyle(.secondary)
-                            }
-                        }.padding(.vertical, 20) }
-                    }
-                    Section { NavigationLink(value: MeScreen.activity) { HStack { Label("通知与监视", systemImage: model.activity.unread > 0 ? "bell.badge" : "bell"); Spacer(); if model.activity.unread > 0 { Text("\(model.activity.unread)").foregroundStyle(.secondary) } } } }
-                    Section { NavigationLink(value: MeScreen.notes) { Label("笔记", systemImage: "note.text") } }
-                    Section { NavigationLink(value: MeScreen.sync) { Label("会话同步", systemImage: "arrow.triangle.2.circlepath") } }
-                    Section { NavigationLink(value: MeScreen.files) { Label("文件", systemImage: "folder") } }
-                    Section { Button { settings = true } label: { Label("设置", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
-                }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("我")
-                .navigationDestination(for: MeScreen.self) { screen in
-                    meScreen(screen)
-                }
-            }
-    }
-    var orderedAgents: [VCPAgent] {
-        model.agents.filter { search.isEmpty || ($0.name + $0.description).localizedCaseInsensitiveContains(search) }.sorted {
-            if ($0.id == model.profile.mainAgentID) != ($1.id == model.profile.mainAgentID) { return $0.id == model.profile.mainAgentID }
-            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        NavigationStack(path: $mePath) {
+            MeHome(model: model,navigate: { screen in move { mePath.append(screen) } },settings: { settings = true })
+                .navigationDestination(for: MeScreen.self) { screen in meScreen(screen).workspaceDetailNavigation() }
         }
     }
     @ViewBuilder private func meScreen(_ screen: MeScreen) -> some View {
@@ -184,8 +98,9 @@ struct WorkspaceView: View {
         case .files: FileLibraryView(model: model)
         }
     }
-    func openAgent(_ agent: VCPAgent) { Task { await model.openAgent(agent); tab = .chats; chatPath = [model.activeTopicID] } }
-    func openTopic(_ topic: ChatTopic) { Task { await model.openTopic(topic); chatPath = [topic.id] } }
+    func openAgent(_ agent: VCPAgent) { Task { await model.openAgent(agent); move { searching = false; tab = .chats; chatPath = [model.activeTopicID] } } }
+    func openTopic(_ topic: ChatTopic) { Task { await model.openTopic(topic); move { searching = false; chatPath = [topic.id] } } }
+    private func move(_ action: () -> Void) { withAnimation(model.renderOptions.motion && !reduceMotion ? .easeInOut(duration: 0.22) : nil,action) }
 }
 struct ContactAvatar: View {
     enum Kind { case agent,group,personal }
@@ -205,7 +120,7 @@ struct ContactAvatar: View {
             } else if let url = URL(string: image), ["http", "https"].contains(url.scheme) {
                 AsyncImage(url: url) { phase in if let image = phase.image { image.resizable().scaledToFill() } else { initials } }
             } else { initials }
-        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.27)).accessibilityHidden(true)
+        }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: min(8,size * 0.14))).accessibilityHidden(true)
         .task(id: image) { let value = await AvatarImageCache.shared.image(image); if !Task.isCancelled { decodedAvatar = value } }
     }
     var initials: some View {
