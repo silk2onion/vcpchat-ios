@@ -1,10 +1,8 @@
+<a id="top"></a>
+
 <div align="center">
 
-<img src="Configuration/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="132" height="132" alt="VChat 应用图标" />
-
-# VChat for iOS
-
-**你的 Agent，随身同行。**
+<img src="docs/assets/vchat-cover.png" width="100%" alt="VChat for iOS — 你的 Agent，随身同行。森林绿与薄荷色的耳机伙伴，托起一枚友好的聊天气泡。" />
 
 把 VCP Agent、聊天记录、笔记与文件带到 iPhone。
 连接自有 VCP 服务，保留属于你的工作空间。
@@ -13,7 +11,7 @@
 <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-276359?style=flat-square&amp;logo=swift&amp;logoColor=white" />
 <img alt="SwiftUI 原生界面" src="https://img.shields.io/badge/UI-SwiftUI-418577?style=flat-square" />
 
-[开始使用](#开始使用) · [安装到 iPhone](#安装) · [功能指南](#功能指南) · [TODO](#todo)
+[**开始使用**](#开始使用)　·　[安装到 iPhone](#安装)　·　[功能指南](#功能指南)　·　[开发计划](#todo)
 
 </div>
 
@@ -21,14 +19,46 @@
 
 ## 随身的 Agent 工作空间
 
-| 你想做的事 | VChat 提供的入口 |
-| --- | --- |
-| 和熟悉的 Agent 继续聊 | 独立话题、流式回复、一键新话题与本机搜索 |
-| 管理多个 Agent | 通讯录、头像、提示词、主 Agent 与多成员群聊 |
-| 接着桌面上的工作 | 官方桌面同步，导入会话、联系人与头像 |
-| 处理文件和笔记 | 连接文件夹、本机文件库、服务器文件与日记 |
-| 看懂复杂回复 | 原生 Markdown、代码、公式、Mermaid 与 HTML 视觉气泡 |
-| 听回复、看运行动态 | SoVITS / MiMo 朗读、工具审批、VCPLog 与 RAG 监视 |
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>💬 和 Agent 继续聊</h3>
+      独立话题、流式回复、一键新话题与本机搜索。
+      <p><a href="#聊天与本机记录">会话与消息 →</a></p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>👥 组成你的团队</h3>
+      通讯录、头像、提示词、主 Agent 与多成员群聊。
+      <p><a href="#agent-通讯录">Agent 与群聊 →</a></p>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h3>🔄 接着桌面的工作</h3>
+      官方桌面同步，导入会话、联系人与头像。
+      <p><a href="#桌面同步">连接桌面 →</a></p>
+    </td>
+    <td valign="top">
+      <h3>📂 整理文件与笔记</h3>
+      连接文件夹、本机文件库、服务器文件与日记。
+      <p><a href="#文件与工作区">文件工作区 →</a></p>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h3>✨ 看懂复杂回复</h3>
+      原生 Markdown、代码、公式、Mermaid 与 HTML 视觉气泡。
+      <p><a href="#聊天与本机记录">消息渲染 →</a></p>
+    </td>
+    <td valign="top">
+      <h3>🎧 听回复，看动态</h3>
+      SoVITS / MiMo 朗读、工具审批、VCPLog 与 RAG 监视。
+      <p><a href="#语音朗读">语音朗读 →</a> · <a href="#通知工具审批与-rag-监视">通知中心 →</a></p>
+    </td>
+  </tr>
+</table>
+
+---
 
 ## 开始使用
 
@@ -62,6 +92,8 @@ Temperature 默认不发送，只有打开“发送 Temperature”才会启用�
 
 </details>
 
+---
+
 ## 安装
 
 ### iPhone 侧载
@@ -77,10 +109,15 @@ Temperature 默认不发送，只有打开“发送 Temperature”才会启用�
 
 同一套原生代码也支持 macOS 14+。使用 Swift 6 构建根目录的 Swift Package 可运行 Mac 客户端。
 
+---
+
 ## 功能指南
 
-[会话与通讯录](#底部导航) · [聊天与渲染](#聊天与本机记录) · [图片与附件](#聊天附件) · [桌面同步](#桌面同步)
-[文件工作区](#文件与工作区) · [语音朗读](#语音朗读) · [通知与监视](#通知工具审批与-rag-监视) · [个性化](#外观与壁纸)
+| 聊天与 Agent | 连接与工作 | 按你的习惯 |
+| --- | --- | --- |
+| [导航与通讯录](#底部导航) | [桌面同步](#桌面同步) | [语音朗读](#语音朗读) |
+| [聊天与渲染](#聊天与本机记录) | [文件工作区](#文件与工作区) | [正则规则](#正则规则) |
+| [图片与附件](#聊天附件) | [通知与 RAG](#通知工具审批与-rag-监视) | [外观与壁纸](#外观与壁纸) |
 
 ### 底部导航
 
@@ -245,3 +282,7 @@ Markdown 解析采用 [swift-markdown](https://github.com/swiftlang/swift-markdo
 原生动态图片使用 [SDWebImage](https://github.com/SDWebImage/SDWebImage)（MIT）；壁纸沿用原 iOS 客户端的林间夜游与雨后绿叶素材。
 
 原生 Mermaid 图表使用 [MermaidKit 2.10.2](https://github.com/2389-research/MermaidKit)（MIT，Copyright 2026 Clint Ecker），源码固定于 `8556a1b8`。仅纳入 Apple 原生解析、布局和绘制组件，以兼容 Swift 6.0 的工程配置构建；添加有像素上限的 Actor 绘制入口，并修正显式 XY 轴范围与裁切。完整许可随组件资源保留。
+
+---
+
+<p align="center"><img src="Configuration/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="48" height="48" alt="VChat" /><br /><a href="#top">返回顶部 ↑</a></p>
