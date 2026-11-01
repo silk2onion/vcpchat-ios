@@ -85,16 +85,16 @@ extension ChatViewModel {
                     else if rooms[changedID] === room { room.messages = messages.map(MessageViewModel.init); room.needsExternalReload = false }
                 }
             }
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
     func setTopicLocked(_ topic: ChatTopic,locked: Bool) async {
         guard !synchronizing else { error = "请等待同步结束后修改话题权限"; return }
         do { try await store?.updateTopicToolFlags(topicID: topic.id,locked: locked); await reloadTopicTools(changedID: topic.id) }
-        catch { error = error.localizedDescription }
+        catch { self.error = error.localizedDescription }
     }
     func markTopicRead(_ id: String) async {
         guard var state = topicStates[id],state.unread else { return }; state.unread = false
         do { try await store?.updateTopicToolFlags(topicID: id,markRead: true); topicStates[id] = state; if let i = topics.firstIndex(where: { $0.id == id }) { topics[i].unread = false } }
-        catch { error = error.localizedDescription }
+        catch { self.error = error.localizedDescription }
     }
 }

@@ -81,7 +81,7 @@ extension ChatStore {
             let selected = messages.filter { abs((depths[$0.id] ?? center) - center) <= window }
             let maxPerMessage = max(400,18_000 / max(1,selected.count))
             var excerpted = false
-            let text = selected.map { message in
+            let text: String = selected.map { message -> String in
                 let body = MobileTopicTool.plain(message.content)
                 var start = 0
                 if message.id == match.id,body.unicodeScalars.count > maxPerMessage {
