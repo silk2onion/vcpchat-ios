@@ -79,6 +79,7 @@ extension ChatViewModel {
             let prefix = "sync:\(p.id):"
             let oldIDs = Set(topics.filter { $0.ownerId.hasPrefix(prefix) }.map(\.id))
             agents = all.agents; groups = all.groups; topics = all.topics
+            topicStates = try await store.topicToolStates()
             let ids = oldIDs.union(topics.filter { $0.ownerId.hasPrefix(prefix) }.map(\.id))
             for (id,room) in rooms where ids.contains(id) || room.messages.contains(where: { $0.id.hasPrefix(prefix) }) { rooms.removeValue(forKey: id) }
             if let topic = topics.first(where: { $0.id == activeTopicID }) { await openTopic(topic) }

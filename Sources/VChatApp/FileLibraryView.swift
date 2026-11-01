@@ -21,8 +21,8 @@ struct FileLibraryView: View {
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceSegments(titles: ["本机附件","连接文件夹","服务器文件"],selection: $mode,palette: palette).padding(.horizontal,20).padding(.vertical,12)
-            if mode == 1 { ConnectedFoldersView(model: model).onDisappear { Task { await refresh() } } }
-            else if mode == 2 { ServerFilesView(model: model).onDisappear { Task { await refresh() } } }
+            if mode == 1 { ConnectedFoldersView(model: model,embedded: true).onDisappear { Task { await refresh() } } }
+            else if mode == 2 { ServerFilesView(model: model,embedded: true).onDisappear { Task { await refresh() } } }
             else {
                 ScrollView {
                     LazyVStack(alignment: .leading,spacing: 16) {

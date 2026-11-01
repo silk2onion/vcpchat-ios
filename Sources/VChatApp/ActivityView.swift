@@ -76,10 +76,20 @@ private struct ActivityCard: View {
     @State private var error: String?
     var data: JSONValue { entry.data }
     var safeOptions: RenderOptions { var value = model.renderOptions; value.html = false; return value }
-    var bodyText: String { for key in ["extractedMemories","narrative","error","content","message","text","summary","result","reason","query"] { if data[key] != .null { return data[key].text.isEmpty ? data[key].pretty : data[key].text } }; return "" }
+    var bodyText: String { if let presentation = entry.logPresentation { return presentation.message }; for key in ["extractedMemories","narrative","error","content","message","text","summary","result","reason","query"] { if data[key] != .null { return data[key].text.isEmpty ? data[key].pretty : data[key].text } }; return "" }
     var body: some View {
         VStack(alignment: .leading,spacing: 12) {
-            HStack(spacing: 10) { Image(systemName: entry.kind.icon).foregroundStyle(model.appearance.theme.tint); VStack(alignment: .leading) { Text(entry.kind == .approval ? "工具审批" : entry.kind.title).font(.caption).foregroundStyle(.secondary); Text(entry.title).font(.headline).lineLimit(2) }; Spacer(); Text(Date(timeIntervalSince1970: entry.createdAt),style: .time).font(.caption2).foregroundStyle(.secondary) }
+            HStack(spacing: 10) { Image(systemName: entry.logPresentation?.isDiary == true ? "doc.text" : entry.kind.icon).foregroundStyle(model.appearance.theme.tint); VStack(alignment: .leading) { Text(entry.kind == .approval ? "工具审批" : entry.kind.title).font(.caption).foregroundStyle(.secondary); Text(entry.title).font(.headline).lineLimit(2) }; Spacer(); Text(Date(timeIntervalSince1970: entry.logPresentation?.occurredAt ?? entry.createdAt),style: .time).font(.caption2).foregroundStyle(.secondary) }
+            if let presentation = entry.logPresentation {
+                if !presentation.author.isEmpty { Label(presentation.author,systemImage: "person.crop.circle").font(.subheadline.weight(.medium)) }
+                if presentation.isDiary {
+                    VStack(alignment: .leading,spacing: 8) {
+                        if !presentation.folder.isEmpty { Label(presentation.folder,systemImage: "folder").font(.caption).foregroundStyle(.secondary) }
+                        if !presentation.file.isEmpty { Text(presentation.file).font(.callout).textSelection(.enabled) }
+                        if !presentation.indexLabel.isEmpty { Label(presentation.indexLabel,systemImage: ["failed","error"].contains(presentation.indexState.lowercased()) ? "exclamationmark.circle" : ["queued","pending"].contains(presentation.indexState.lowercased()) ? "clock" : "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+            }
             if entry.kind == .approval && data["type"].text == "tool_approval_request" {
                 TimelineView(.periodic(from: .now,by: 1)) { context in Text(entry.approvalStatus(in: model.activity.entries,now: context.date.timeIntervalSince1970)).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 Text(data["reason"].text.isEmpty ? data["aiReason"].text : data["reason"].text)

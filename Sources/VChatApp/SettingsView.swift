@@ -43,6 +43,8 @@ struct SettingsView: View {
                     }.workspaceGlass(palette)
                     label("应用")
                     VStack(spacing: 0) {
+                        NavigationLink { FileNodeView(model: model).workspaceDetailNavigation() } label: { row("移动工具节点","server","文件、历史回忆与主动话题",blue: true) }
+                        WorkspaceSeparator(palette: palette)
                         NavigationLink { DataManagementView(model: model).workspaceDetailNavigation() } label: { row("本机数据","folder","备份、恢复与连接密钥",blue: true) }
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { AboutVChat().workspaceDetailNavigation() } label: { row("关于 VCPChat","info","") }
@@ -82,6 +84,12 @@ private struct RenderingSettings: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {
+                Toggle(isOn: $model.outputPreferences.animatedBubbles) {
+                    VStack(alignment: .leading,spacing: 5) {
+                        Text("Agent 输出动画气泡").font(.headline)
+                        Text("向新请求追加 VCP 气泡输出规范，不改变已有消息。与下方显示开关独立。").font(.caption).foregroundStyle(palette.muted)
+                    }
+                }.toggleStyle(.switch).padding(18).workspaceGlass(palette)
                 Toggle("高级渲染",isOn: $model.renderOptions.enabled).font(.headline).padding(18).workspaceGlass(palette)
                 VStack(spacing: 0) {
                     toggle("代码高亮","代码块的语法着色",$model.renderOptions.code)
@@ -94,6 +102,7 @@ private struct RenderingSettings: View {
             }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
         }.navigationTitle("高级渲染").background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).tint(palette.accent)
         .onChange(of: model.renderOptions) { _,_ in Task { await model.saveRenderOptions() } }
+        .onChange(of: model.outputPreferences) { _,_ in Task { await model.saveOutputPreferences() } }
     }
     private func toggle(_ title: String,_ subtitle: String,_ binding: Binding<Bool>) -> some View { VStack(spacing: 0) { Toggle(isOn: binding) { VStack(alignment: .leading,spacing: 4) { Text(title).font(.system(size: 15,weight: .semibold)); Text(subtitle).font(.system(size: 13)).foregroundStyle(palette.muted) } }.toggleStyle(.switch).accessibilityLabel(title).padding(17); WorkspaceSeparator(palette: palette) } }
 }

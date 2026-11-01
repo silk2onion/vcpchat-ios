@@ -55,6 +55,17 @@ struct WorkspaceActionStyle: ButtonStyle {
             .animation(motion && !reduceMotion ? .easeOut(duration: 0.18) : nil,value: configuration.isPressed)
     }
 }
+/// List/Form actions own their entire row, independent of an inherited button style.
+struct WorkspaceRowActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity,alignment: .leading).frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .foregroundStyle(configuration.role == .destructive ? Color.red : Color.accentColor)
+            .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.72 : 1)
+    }
+}
 struct WorkspaceIconButton: View {
     let icon: String; let label: String
     var accent = false
@@ -161,6 +172,7 @@ extension View {
     func workspaceAction(_ palette: WorkspacePalette,primary: Bool = false) -> some View {
         self.buttonStyle(WorkspaceActionStyle(palette: palette,primary: primary))
     }
+    func workspaceRowAction() -> some View { self.buttonStyle(WorkspaceRowActionStyle()) }
     @ViewBuilder func workspaceRootNavigation() -> some View {
         #if os(iOS)
         self.toolbar(.hidden,for: .navigationBar)

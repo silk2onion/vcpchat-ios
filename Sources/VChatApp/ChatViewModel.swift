@@ -36,6 +36,7 @@ import VChatRendering
     var connection = ""
     var frames = 0
     var pendingCount = 0
+    var needsExternalReload = false
     var error: String?
     @ObservationIgnored let session = SessionActor()
     @ObservationIgnored var generation: Task<Void, Never>?
@@ -53,10 +54,12 @@ struct TopicDraft: Codable, Sendable {
     var agents: [VCPAgent] = []
     var groups: [VCPGroup] = []
     var topics: [ChatTopic] = []
+    var topicStates: [String:TopicToolState] = [:]
     var profile = UserProfile()
     var renderOptions = RenderOptions()
     var appearance = AppearanceSettings()
     var inputPreferences = InputPreferences()
+    var outputPreferences = OutputPreferences()
     var regexRules: [RegexRule] = []
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
@@ -130,6 +133,7 @@ struct TopicDraft: Codable, Sendable {
             profile = try await database.records(UserProfile.self, kind: "profile").first ?? UserProfile()
             regexRules = try await database.records([RegexRule].self, kind: "regex-global").first ?? []
             inputPreferences = try await database.records(InputPreferences.self, kind: "input-options").first ?? InputPreferences()
+            outputPreferences = try await database.records(OutputPreferences.self, kind: "output-options").first ?? OutputPreferences()
             services = try await database.records(ServiceSettings.self, kind: "services").first ?? ServiceSettings()
             appearance = try await database.records(AppearanceSettings.self, kind: "appearance").first ?? AppearanceSettings()
             renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
@@ -138,6 +142,7 @@ struct TopicDraft: Codable, Sendable {
                 try await database.put(assistant, kind: "agent", id: assistant.id); agents = [assistant]
             }
             topics = try await database.records(ChatTopic.self, kind: "topic")
+            topicStates = try await database.topicToolStates()
             if topics.isEmpty {
                 let topic = ChatTopic(id: "legacy", ownerId: agents[0].id, title: "第一段对话")
                 try await database.put(topic, kind: "topic", id: topic.id); topics = [topic]
@@ -177,6 +182,10 @@ struct TopicDraft: Codable, Sendable {
     func displayedText(_ message: MessageViewModel) async throws -> String { try await RegexEngine.shared.apply(message.text, rules: displayRules(for: message), scope: "frontend", role: message.role, depth: rooms[message.topicID]?.depths[message.id] ?? 0) }
     func saveInputPreferences() async {
         do { try await store?.put(inputPreferences, kind: "input-options", id: "keyboard") }
+        catch { self.error = error.localizedDescription }
+    }
+    func saveOutputPreferences() async {
+        do { try await store?.put(outputPreferences, kind: "output-options", id: "bubbles") }
         catch { self.error = error.localizedDescription }
     }
     func saveRenderOptions() async {
@@ -354,7 +363,7 @@ struct TopicDraft: Codable, Sendable {
         let speakers = group.map { GroupRouting.speakers(group: $0, agents: agents, text: content, turn: topic.turnIndex) } ?? activeAgent.map { [$0] } ?? []
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending", attachments: room.attachments)
-        let config = configuration, key = apiKey, profile = profile, rules = regexRules
+        let config = configuration, key = apiKey, profile = profile, rules = regexRules, output = outputPreferences
         room.busy = true; room.cancellation = nil; room.error = nil
         room.generation = Task {
             var currentReply: MessageViewModel?
@@ -369,7 +378,7 @@ struct TopicDraft: Codable, Sendable {
                 let builder = ConversationBuilder()
                 for agent in speakers {
                     guard !room.cancelled else { break }
-                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules)
+                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: output)
                     guard !room.cancelled else { break }
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
@@ -385,6 +394,7 @@ struct TopicDraft: Codable, Sendable {
                 }
             }
             room.busy = false; room.generation = nil
+            if room.needsExternalReload { await reloadTopicTools(changedID: room.id) }
             room.pendingCount = room.messages.filter { $0.status == "pending" }.count
             if var current = topics.first(where: { $0.id == topic.id }) {
                 if group != nil { current.turnIndex += 1 }; current.updatedAt = Date().timeIntervalSince1970
@@ -417,14 +427,14 @@ struct TopicDraft: Codable, Sendable {
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
         guard let agent = authorAgent(for: message) else { room.error = "找不到写这条回复的 Agent"; return }
         let group = groups.first { $0.id == topic.ownerId && topic.ownerType == "group" }
-        let config = configuration, key = apiKey, profile = profile, rules = regexRules
+        let config = configuration, key = apiKey, profile = profile, rules = regexRules, output = outputPreferences
         let prefix = continuing ? message.text : "", reasoning = continuing ? message.reasoning : ""
         let history = (continuing ? room.messages : Array(room.messages.dropLast())).map(\.record)
         room.busy = true; room.cancellation = nil; room.error = nil
         room.generation = Task {
-            defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
+            defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count; if room.needsExternalReload { Task { await self.reloadTopicTools(changedID: room.id) } } }
             do {
-                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules)
+                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: output)
                 guard !room.cancelled else { return }
                 let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
                 let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature)
@@ -483,7 +493,7 @@ struct TopicDraft: Codable, Sendable {
         backgrounded = false
         for room in Array(rooms.values) { await room.session.setBackgroundPacing(false) }
         if activity.enabled && !logKey.isEmpty { connectPush() }
-        if fileNode.active,let folders = connectedFolders { await fileNode.start(settings: services.fileNode,key: serviceSecrets[.fileNodeKey] ?? "",folders: folders) }
+        if fileNode.active { await connectMobileTools(persist: false) }
     }
     func suspend() async { await enterBackground(); await interruptForBackground() }
     func searchLocal() async {

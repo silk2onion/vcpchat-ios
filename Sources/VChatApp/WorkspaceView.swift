@@ -35,7 +35,12 @@ struct WorkspaceView: View {
     private var motion: Bool { model.renderOptions.motion && !reduceMotion }
     var body: some View {
         ZStack {
-            activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
+            // Only the page participates in tab transitions. Chrome and wallpaper
+            // keep their identity and backdrop while the outgoing page disappears.
+            ZStack {
+                activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
+            }
+                .animation(motion ? .easeInOut(duration: 0.14) : nil,value: tab)
                 .safeAreaInset(edge: .bottom,spacing: 0) { VStack(spacing: 0) { MiniSpeechPlayer(player: model.speech); if showTabBar { bottomTabs } }.animation(motion ? .easeOut(duration: 0.18) : nil,value: model.speech.phase == "idle") }
                 .background(ThemeWallpaper(model.appearance,animations: motion).ignoresSafeArea())
                 .blur(radius: activityOpen ? 8 : 0).allowsHitTesting(!activityOpen).accessibilityHidden(activityOpen)
@@ -68,7 +73,7 @@ struct WorkspaceView: View {
     private var bottomTabs: some View {
         HStack(spacing: 4) {
             ForEach(Tab.allCases,id: \.self) { item in
-                Button { searching = false; withAnimation(motion ? .easeInOut(duration: 0.14) : nil) { chatQuery = ""; search = ""; if item == .me { mePath = NavigationPath() }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } } label: {
+                Button { searching = false; chatQuery = ""; search = ""; if item == .me { mePath = NavigationPath() }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } label: {
                     VStack(spacing: 4) {
                         WorkspaceGlyph(item.icon,size: 22).overlay(alignment: .topTrailing) { if item == .discover,(model.activity.unread > 0 || !model.activity.pending.isEmpty) { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) } }
                         Text(item.title).font(.system(size: 11,weight: .semibold))
@@ -116,7 +121,6 @@ struct ContactAvatar: View {
     enum Kind { case agent,group,personal }
     let name: String
     var image = ""
-    var symbol = ""
     var kind = Kind.agent
     var size: CGFloat = 44
     @Environment(\.workspaceTheme) private var theme
@@ -127,20 +131,23 @@ struct ContactAvatar: View {
                 NativeRaster(image)
             } else if image.hasPrefix("data:image") {
                 if let decodedAvatar { Image(decorative: decodedAvatar, scale: 1).resizable().scaledToFill() }
-                else { initials }
+                else { fallbackAvatar }
             } else if let url = URL(string: image), ["http", "https"].contains(url.scheme) {
-                AsyncImage(url: url) { phase in if let image = phase.image { image.resizable().scaledToFill() } else { initials } }
-            } else { initials }
+                AsyncImage(url: url) { phase in if let image = phase.image { image.resizable().scaledToFill() } else { fallbackAvatar } }
+            } else { fallbackAvatar }
         }.frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.30)).accessibilityHidden(true)
         .task(id: image) { let value = await AvatarImageCache.shared.image(image); if !Task.isCancelled { decodedAvatar = value } }
     }
-    var initials: some View {
+    @ViewBuilder private var fallbackAvatar: some View {
+        if kind == .agent { DefaultAgentAvatar() }
+        else { contactPlaceholder }
+    }
+    private var contactPlaceholder: some View {
         let tones: [(UInt32,UInt32)] = theme == .paper ? [(0x2f7a4e,0xdceee1),(0x7b5d9c,0xede4f6),(0x507daa,0xe2edf9),(0xa07642,0xf8ead4),(0xaa5f75,0xf6e4eb),(0x498b8a,0xdef0ef)] : [(0x96d8b0,0x234936),(0xc6b1ef,0x3d3154),(0x97c3ef,0x263f57),(0xf0c08c,0x513e2d),(0xf0a7bc,0x503341),(0x99d5d5,0x284749)]
         let tone = tones[name.unicodeScalars.reduce(0) { $0 + Int($1.value) } % tones.count]
         return Group {
             if kind == .personal { WorkspaceGlyph("person",size: size * 0.52) }
-            else if kind == .group { WorkspaceGlyph("agents",size: size * 0.52) }
-            else { Text(symbol.isEmpty ? (name.trimmingCharacters(in: .whitespacesAndNewlines).first.map(String.init) ?? "A") : symbol).lineLimit(1).minimumScaleFactor(0.4) }
+            else { WorkspaceGlyph("agents",size: size * 0.52) }
         }.font(.system(size: size * 0.42,weight: .semibold)).frame(width: size,height: size).background(Color(rgb: tone.1)).foregroundStyle(Color(rgb: tone.0))
     }
 }
@@ -158,10 +165,9 @@ struct AgentEditor: View {
         WorkspacePanel(title: existing ? "Agent 资料" : "添加 Agent",palette: palette,close: { dismiss() }) {
             VStack(alignment: .leading,spacing: 24) {
                 HStack(spacing: 18) {
-                    Button { avatar = true } label: { ContactAvatar(name: agent.name,image: agent.avatarUrl,symbol: agent.avatar,size: 88).overlay(alignment: .bottomTrailing) { WorkspaceGlyph("camera",size: 17).foregroundStyle(palette.accentInk).frame(width: 29,height: 29).background(palette.accent,in: Circle()).overlay(Circle().stroke(palette.solid,lineWidth: 3)) } }.accessibilityLabel("更换 Agent 图片头像")
-                    VStack(alignment: .leading,spacing: 6) { Text("让它有自己的样子").font(.system(size: 15,weight: .semibold)); Text("点头像，选择照片或图片。").font(.system(size: 13)).foregroundStyle(palette.muted); if !agent.avatarUrl.isEmpty { Button("文字头像") { agent.avatarUrl = "" }.foregroundStyle(palette.accent) } }
+                    Button { avatar = true } label: { ContactAvatar(name: agent.name,image: agent.avatarUrl,size: 88).overlay(alignment: .bottomTrailing) { WorkspaceGlyph("camera",size: 17).foregroundStyle(palette.accentInk).frame(width: 29,height: 29).background(palette.accent,in: Circle()).overlay(Circle().stroke(palette.solid,lineWidth: 3)) } }.accessibilityLabel("更换 Agent 图片头像")
+                    VStack(alignment: .leading,spacing: 6) { Text("让它有自己的样子").font(.system(size: 15,weight: .semibold)); Text("点头像，选择照片或图片。").font(.system(size: 13)).foregroundStyle(palette.muted); if !agent.avatarUrl.isEmpty { Button { agent.avatarUrl = "" } label: { Text("恢复默认头像").frame(minHeight: 44).contentShape(Rectangle()) }.foregroundStyle(palette.accent) } }
                 }.padding(.vertical,8)
-                WorkspaceField(title: "头像文字",palette: palette) { TextField("头像符号",text: $agent.avatar).accessibilityLabel("头像文字") }.frame(maxWidth: 130,alignment: .leading)
                 WorkspaceField(title: "名字",palette: palette) { TextField("名字",text: $agent.name) }
                 WorkspaceField(title: "简介",palette: palette) { TextField("它擅长什么",text: $agent.description,axis: .vertical).lineLimit(1...4).accessibilityLabel("简介") }
                 WorkspaceModelField(model: model,selection: $agent.model)

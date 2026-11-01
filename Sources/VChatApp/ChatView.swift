@@ -37,10 +37,14 @@ struct ChatView: View {
                     if model.busy { Button { Task { await model.stop() } } label: { Image(systemName: "stop.fill").frame(width: 40, height: 40) }.accessibilityLabel("停止生成") }
                     else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(model.appearance.theme.tint, in: Circle()).foregroundStyle(model.appearance.theme == .paper ? .white : .black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (model.room?.attachments.isEmpty ?? true) || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(WorkspacePress()).padding(.horizontal,10).padding(.vertical,5).workspaceGlass(WorkspacePalette(theme: model.appearance.theme),radius: 25).padding(.horizontal,14).padding(.top,9)
-                HStack { Text(model.modelTitle).lineLimit(1); Spacer(); Text("对话保存在本机") }.font(.system(size: 11)).foregroundStyle(WorkspacePalette(theme: model.appearance.theme).muted).padding(.horizontal,26).padding(.top,7).padding(.bottom,9)
+                Text(model.modelTitle).lineLimit(1).frame(maxWidth: .infinity,alignment: .leading).font(.system(size: 11)).foregroundStyle(WorkspacePalette(theme: model.appearance.theme).muted).padding(.horizontal,26).padding(.top,7).padding(.bottom,9)
             }
             .background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
             .navigationTitle(model.ownerName)
+            .task(id: model.activeTopicID) { await model.markTopicRead(model.activeTopicID) }
+            .onChange(of: model.topicStates[model.activeTopicID]?.unread) { _,unread in
+                if unread == true { let id = model.activeTopicID; Task { await model.markTopicRead(id) } }
+            }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -65,26 +69,26 @@ struct ChatView: View {
     private var titleButton: some View {
         Button { if model.activeGroup != nil { showGroup = true } else { showAgent = true } } label: {
             HStack(spacing: 8) {
-                ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",symbol: model.activeAgent?.avatar ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 28)
+                ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 28)
                 VStack(alignment: .leading,spacing: 2) { Text(model.ownerName).font(.headline).lineLimit(1); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }.frame(maxWidth: 150,alignment: .leading)
             }.frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("编辑 " + model.ownerName)
     }
     private var headerActions: some View {
         Group {
-            Button(action: startNewTopic) { Image(systemName: "square.and.pencil").font(.system(size: 22)).frame(width: 44,height: 44).contentShape(Rectangle()) }
+            Button(action: startNewTopic) { ChatHeaderIcon("compose") }
                 .disabled(model.loading || model.synchronizing || model.activeTopic == nil || creatingTopic)
                 .accessibilityLabel("新话题").accessibilityHint("为当前联系人开启独立话题，保留原话题和草稿")
                 .help("新话题")
-            Button { showTopics = true } label: { WorkspaceGlyph("history").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("历史话题")
-            Button { if let activity { activity() } else { showLog = true } } label: { WorkspaceGlyph("bell").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("通知与监视")
+            Button { showTopics = true } label: { ChatHeaderIcon("history") }.accessibilityLabel("历史话题")
+            Button { if let activity { activity() } else { showLog = true } } label: { ChatHeaderIcon("bell") }.accessibilityLabel("通知与监视")
             Menu {
                 Button("搜索本机消息",systemImage: "magnifyingglass") { showSearch = true }
                 Button("连接设置",systemImage: "slider.horizontal.3") { showSettings = true }
                 Button("导出这段对话",systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话",messages: model.messages.map(\.record))); exporting = true }
                 Button("已删除消息",systemImage: "trash") { showDeleted = true }
-            } label: { Image(systemName: "ellipsis").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("对话菜单")
-        }
+            } label: { ChatHeaderIcon("more") }.accessibilityLabel("对话菜单")
+        }.buttonStyle(WorkspacePress()).foregroundStyle(.primary)
     }
     private func startNewTopic() {
         guard !creatingTopic,let topic = model.activeTopic else { return }
@@ -95,6 +99,15 @@ struct ChatView: View {
         }
     }
 
+}
+
+/// Keep visible glyph geometry separate from the full 44pt touch target.
+private struct ChatHeaderIcon: View {
+    let name: String
+    init(_ name: String) { self.name = name }
+    var body: some View {
+        WorkspaceGlyph(name,size: 22).frame(width: 44,height: 44).contentShape(Rectangle())
+    }
 }
 
 /// The high-frequency scroll trigger is isolated from navigation and the composer.
@@ -109,7 +122,7 @@ private struct ChatTimeline: View {
                         LazyVStack(alignment: .leading, spacing: 24) {
                             if model.messages.isEmpty && !model.loading {
                                 VStack(spacing: 14) {
-                                    ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",symbol: model.activeAgent?.avatar ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 70)
+                                    ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 70)
                                     Text("和\(model.ownerName)聊聊").font(.system(size: 23,weight: .bold)).padding(.top,8)
                                     Text(model.activeAgent?.description.isEmpty == false ? model.activeAgent!.description : "新的会话，新的想法。").font(.system(size: 14)).foregroundStyle(.secondary)
                                     if model.apiKey.isEmpty { Button(model.credentialsLocked ? "解锁已有连接" : "连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(model.appearance.theme.tint) }
@@ -169,7 +182,7 @@ private struct NativeMessageRow: View {
             VStack(alignment: .leading,spacing: 9) {
                 if message.role == "assistant" {
                     let author = model.authorAgent(for: message),name = message.authorName.isEmpty ? author?.name ?? "助手" : message.authorName
-                    HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",symbol: author?.avatar ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
+                    HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
                 }
                 MessageActions(message: message,model: model) {
                     VStack(alignment: .leading,spacing: 12) {

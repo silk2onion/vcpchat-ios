@@ -10,6 +10,7 @@ enum ConnectedFolderRoute: Hashable {
 }
 struct ConnectedFoldersView: View {
     let model: ChatViewModel
+    var embedded = false
     @State private var folders: [FolderItem] = []
     @State private var selecting = false
     @State private var error: String?
@@ -20,7 +21,7 @@ struct ConnectedFoldersView: View {
             Section { Button("连接文件夹…",systemImage: "folder.badge.plus") { selecting = true }; Text("通过系统选择器连接一个工作文件夹。App 可直接读写，修改前保留备份；Agent 默认没有权限。").font(.caption).foregroundStyle(.secondary) }
             ForEach(folders) { folder in NavigationLink(value: ConnectedFolderRoute.folder(id: folder.id,name: folder.name,path: "")) { Label(folder.name,systemImage: "folder") } }
             if folders.isEmpty { ContentUnavailableView("尚未连接文件夹",systemImage: "folder.badge.plus") }
-        }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("连接文件夹").task { await refresh() }
+        }.scrollContentBackground(.hidden).background { if !embedded { ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea() } }.navigationTitle("连接文件夹").task { await refresh() }
         .navigationDestination(for: ConnectedFolderRoute.self) { route in
             Group {
                 switch route {

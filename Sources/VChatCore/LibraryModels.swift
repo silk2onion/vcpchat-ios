@@ -37,6 +37,9 @@ public struct VCPAgent: Codable, Sendable, Identifiable, Equatable {
 
 }
 public struct ChatTopic: Codable, Sendable, Identifiable, Equatable {
+    public var locked: Bool? = nil
+    public var unread: Bool? = nil
+    public var creator: String? = nil
     public var id: String
     public var ownerType: String
     public var ownerId: String

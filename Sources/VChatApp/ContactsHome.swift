@@ -27,7 +27,7 @@ struct ContactsHome: View {
                             HStack(spacing: 4) {
                                 Button { openAgent(agent) } label: {
                                     HStack(spacing: 12) {
-                                        ContactAvatar(name: agent.name,image: agent.avatarUrl,symbol: agent.avatar,size: 44)
+                                        ContactAvatar(name: agent.name,image: agent.avatarUrl,size: 44)
                                         VStack(alignment: .leading,spacing: 4) {
                                             HStack(spacing: 6) { Text(agent.name).font(.system(size: 15,weight: .semibold)).foregroundStyle(palette.ink).lineLimit(1); if agent.id == model.profile.mainAgentID { Text("主 Agent").font(.system(size: 10,weight: .semibold)).foregroundStyle(palette.accent).padding(.horizontal,6).padding(.vertical,2).background(palette.accent.opacity(0.11),in: RoundedRectangle(cornerRadius: 6)) } }
                                             Text(agent.description.isEmpty ? (agent.model.isEmpty ? "使用默认模型" : agent.model) : agent.description).font(.system(size: 13)).foregroundStyle(palette.muted).lineLimit(1)

@@ -14,7 +14,9 @@ struct DiscoverView: View {
                     VStack(spacing: 22) {
                         WorkspaceMenuRow(title: "VCP 论坛",icon: "chat",color: palette.accent,subtitle: "社区与 Agent 的交流空间",detail: "后续接入",chevron: false).workspaceGlass(palette)
                         VStack(spacing: 0) {
-                            row("VCP 记忆",icon: "brain",color: Color(rgb: 0xad93db),subtitle: "记忆检索动态",section: 2,filter: .memory)
+                            NavigationLink { MemoryCenterView(model: model) } label: { WorkspaceMenuRow(title: "VCP 记忆",icon: "brain",color: Color(rgb: 0xad93db),subtitle: "检索、编辑与整理服务器记忆") }
+                            WorkspaceSeparator(palette: palette)
+                            row("记忆检索动态",icon: "logs",color: Color(rgb: 0xad93db),subtitle: "实时查看记忆事件",section: 2,filter: .memory)
                             WorkspaceSeparator(palette: palette)
                             row("RAG 监视器",icon: "database",color: Color(rgb: 0x71a8d5),subtitle: "知识库、元思考与 Agent 事件",section: 2)
                         }.workspaceGlass(palette)

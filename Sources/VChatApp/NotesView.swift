@@ -18,7 +18,7 @@ struct NotesView: View {
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceSegments(titles: ["本机","服务器日记"],selection: $mode,palette: palette).padding(.horizontal,20).padding(.vertical,12)
-            if mode == 1 { RemoteNotesView(model: model).onDisappear { Task { await refresh() } } }
+            if mode == 1 { RemoteNotesView(model: model,embedded: true).onDisappear { Task { await refresh() } } }
             else { ScrollView {
                 LazyVStack(alignment: .leading,spacing: 16) {
                     Button("新笔记") { editing = LocalNote() }.workspaceAction(palette,primary: true)
@@ -62,6 +62,7 @@ private struct NoteEditor: View {
 }
 struct RemoteNotesView: View {
     @Bindable var model: ChatViewModel
+    var embedded = false
     @State private var client = DailyNotesClient()
     @State private var folders: [String] = []
     @State private var folder = ""
@@ -98,7 +99,7 @@ struct RemoteNotesView: View {
                     }.frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain).disabled(busy)
             }
-        }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("服务器日记").overlay { if busy { ProgressView().padding(20).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 12)) } }
+        }.scrollContentBackground(.hidden).background { if !embedded { ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea() } }.navigationTitle("服务器日记").overlay { if busy { ProgressView().padding(20).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 12)) } }
         .sheet(isPresented: $editing) {
             NavigationStack { VStack { TextField("文件名",text: $file).padding(); TextEditor(text: $bodyText).padding(.horizontal); if let error { Text(error).foregroundStyle(.red) } }.navigationTitle(folder).toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false } }; ToolbarItem(placement: .confirmationAction) { Button("保存到服务器") { work {
                         // Retain the remote pre-edit body locally before replacing it.

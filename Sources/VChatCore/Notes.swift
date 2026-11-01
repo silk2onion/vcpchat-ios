@@ -33,14 +33,15 @@ public enum NotePath {
     }
     public static func filename(_ value: String) throws -> String { let name = try segment(value); return name.contains(".") ? name : name + ".txt" }
 }
-public struct RemoteNote: Sendable, Identifiable, Equatable {
+public struct RemoteNote: Codable, Sendable, Identifiable, Equatable {
     public var folder: String; public var file: String; public var lastModified: String; public var preview: String
     public var id: String { folder + "/" + file }
+    public init(folder: String,file: String,lastModified: String = "",preview: String = "") { self.folder = folder; self.file = file; self.lastModified = lastModified; self.preview = preview }
 }
 public actor DailyNotesClient {
     let http = VCPHTTP()
     public init() {}
-    private func call(_ configuration: ConnectionConfiguration, username: String, password: String, path: [String], query: [URLQueryItem] = [], body: JSONValue? = nil) async throws -> JSONValue {
+    func call(_ configuration: ConnectionConfiguration, username: String, password: String, path: [String], query: [URLQueryItem] = [], body: JSONValue? = nil) async throws -> JSONValue {
         guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !password.isEmpty else { throw ClientError.server("请先设置日记管理员用户名和密码") }
         var url = try configuration.endpoint("admin_api/dailynotes")
         for segment in path { url.appendPathComponent(try NotePath.segment(segment)) }
@@ -52,7 +53,7 @@ public actor DailyNotesClient {
         let value = try await call(config,username: username,password: password,path: ["folders"])
         guard case .array(let folders) = value["folders"] else { throw ClientError.invalidResponse }; return folders.compactMap { if case .string(let s) = $0 { s } else { nil } }
     }
-    private func summaries(_ value: JSONValue, fallback: String) -> [RemoteNote] {
+    func summaries(_ value: JSONValue, fallback: String) -> [RemoteNote] {
         value.array.map { row in RemoteNote(folder: row["folderName"].text.isEmpty ? (row["folder"].text.isEmpty ? fallback : row["folder"].text) : row["folderName"].text,file: row["name"].text.isEmpty ? row["file"].text : row["name"].text,lastModified: row["lastModified"].text.isEmpty ? row["last_modified"].text : row["lastModified"].text,preview: row["preview"].text) }
     }
     public func notes(_ config: ConnectionConfiguration, username: String, password: String, folder: String, query: String = "") async throws -> [RemoteNote] {

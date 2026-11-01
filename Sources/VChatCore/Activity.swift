@@ -14,7 +14,9 @@ public struct ActivityEntry: Codable, Sendable, Identifiable, Equatable {
     public var createdAt = Date().timeIntervalSince1970
     public var seen = false
     public var decision: Decision?
-    public init(channel: PushChannel, payload: JSONValue) { self.channel = channel; self.payload = payload }
+    public var logPresentation: ActivityLogPresentation?
+    public init(channel: PushChannel, payload: JSONValue) { self.channel = channel; self.payload = payload; logPresentation = ActivityLogPresentation(payload: payload) }
+    mutating func prepareLogPresentation() { logPresentation = ActivityLogPresentation(payload: payload) }
     public var data: JSONValue { .object(payload.object.merging(payload["data"].object,uniquingKeysWith: { _,b in b })) }
     public var requestID: String { data["requestId"].text }
     public var kind: ActivityKind {
@@ -23,6 +25,9 @@ public struct ActivityEntry: Codable, Sendable, Identifiable, Equatable {
         if type == "RAG_RETRIEVAL_DETAILS" || { if case .array = d["results"] { true } else { false } }() { return .rag }
         if type == "META_THINKING_CHAIN" { return .thinking }
         if type == "AGENT_PRIVATE_CHAT_PREVIEW" || d["source"].text == "AgentAssistant" { return .agent }
+        if let presentation = logPresentation {
+            switch presentation.category { case .notification: return .notification; case .error: return .error; case .log: break }
+        }
         if ["AI_MEMO_RETRIEVAL","DailyNote"].contains(type) { return .memory }
         if type.hasPrefix("AGENT_DREAM_") { return .dream }
         if type.range(of: "error|fail",options: [.regularExpression,.caseInsensitive]) != nil || d["level"].text == "error" || d["status"].text == "error" { return .error }
@@ -30,6 +35,7 @@ public struct ActivityEntry: Codable, Sendable, Identifiable, Equatable {
         return .log
     }
     public var title: String {
+        if let presentation = logPresentation { return presentation.title }
         let d = data
         let keys: [String] = switch kind { case .approval: d["type"].text == "tool_approval_response" ? [] : ["toolName"]; case .rag: ["dbName"]; case .thinking: ["chainName","title"]; case .agent: ["agentName","sender","maid"]; case .memory: ["dbName","title","agentName"]; case .dream: ["title","agentName"]; default: ["title","message","toolName","type"] }
         return keys.map { d[$0].text }.first(where: { !$0.isEmpty }) ?? (d["type"].text == "tool_approval_response" ? "审批回执" : kind.title)
@@ -97,6 +103,7 @@ public actor ActivityHub {
     public init(store: ChatStore) { self.store = store }
     public func updates() async throws -> AsyncStream<ActivityUpdate> {
         entries = try await store.records([ActivityEntry].self,kind: "activities").first ?? []
+        for i in entries.indices { entries[i].prepareLogPresentation() }
         let (stream,c) = AsyncStream<ActivityUpdate>.makeStream(bufferingPolicy: .bufferingNewest(8)); continuation = c; c.yield(.entries(entries)); return stream
     }
     public func connect(server: String, key: String, secrets: [String] = []) async {
