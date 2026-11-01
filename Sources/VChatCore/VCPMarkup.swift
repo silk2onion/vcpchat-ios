@@ -49,8 +49,17 @@ public enum VCPMarkup {
         if let (start, _, _) = opened { ranges.append(NSRange(location: start, length: source.utf16.count - start)) }
         return ranges
     }
-    public static func parse(_ source: String) -> [Segment] {
-        let s = source as NSString, fences = fences(source)
+    public static func parse(_ source: String, protectingHTMLLiterals: Bool = false) -> [Segment] {
+        let s = source as NSString
+        var literalRanges = fences(source)
+        if protectingHTMLLiterals {
+            // Script/style source, comments and HTML code samples belong to the
+            // visual island, not to the surrounding VCP display protocol.
+            let pattern = #"<!--[\s\S]*?(?:-->|$)|<(script|style|pre|code|textarea)\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?(?:</\1\s*>|$)"#
+            if let regex = try? NSRegularExpression(pattern: pattern,options: .caseInsensitive) {
+                literalRanges += regex.matches(in: source,range: NSRange(location: 0,length: s.length)).map(\.range)
+            }
+        }
         var result: [Segment] = [], cursor = 0, textFrom = 0
         while cursor < s.length {
             var best: (String, Int)?
@@ -60,7 +69,7 @@ public enum VCPMarkup {
                     let r = s.range(of: marker, range: NSRange(location: from, length: s.length - from))
                     if r.location == NSNotFound { break }
                     let wrapped = (r.location > 0 && s.character(at: r.location - 1) == 96) || (NSMaxRange(r) < s.length && s.character(at: NSMaxRange(r)) == 96)
-                    if !wrapped && !fences.contains(where: { NSLocationInRange(r.location, $0) }) { if best == nil || r.location < best!.1 { best = (marker, r.location) }; break }
+                    if !wrapped && !literalRanges.contains(where: { NSLocationInRange(r.location, $0) }) { if best == nil || r.location < best!.1 { best = (marker, r.location) }; break }
                     from = NSMaxRange(r)
                 }
             }

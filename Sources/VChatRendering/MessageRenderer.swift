@@ -22,10 +22,9 @@ public actor MessageRenderer {
         try Task.checkCancellation()
         let source = rules.isEmpty ? source : try await RegexEngine.shared.apply(source, rules: rules, scope: "frontend", role: role, depth: depth)
         guard options.enabled else { return [.literal(source)] }
-        if let island = island(source,options: options,streaming: streaming) { return [island] }
         self.streaming = streaming
         var output: [RenderBlock] = []
-        for segment in VCPMarkup.parse(source) {
+        for segment in VCPMarkup.parse(source, protectingHTMLLiterals: HTMLIslandPolicy.accepts(source)) {
             switch segment {
             case .text(let prose):
                 if let island = island(prose,options: options,streaming: streaming) { output.append(island) }
