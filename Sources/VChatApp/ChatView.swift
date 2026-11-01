@@ -76,19 +76,19 @@ struct ChatView: View {
     }
     private var headerActions: some View {
         Group {
-            Button(action: startNewTopic) { Image(systemName: "square.and.pencil").font(.system(size: 22)).frame(width: 44,height: 44).contentShape(Rectangle()) }
+            Button(action: startNewTopic) { ChatHeaderIcon("compose") }
                 .disabled(model.loading || model.synchronizing || model.activeTopic == nil || creatingTopic)
                 .accessibilityLabel("新话题").accessibilityHint("为当前联系人开启独立话题，保留原话题和草稿")
                 .help("新话题")
-            Button { showTopics = true } label: { WorkspaceGlyph("history").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("历史话题")
-            Button { if let activity { activity() } else { showLog = true } } label: { WorkspaceGlyph("bell").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("通知与监视")
+            Button { showTopics = true } label: { ChatHeaderIcon("history") }.accessibilityLabel("历史话题")
+            Button { if let activity { activity() } else { showLog = true } } label: { ChatHeaderIcon("bell") }.accessibilityLabel("通知与监视")
             Menu {
                 Button("搜索本机消息",systemImage: "magnifyingglass") { showSearch = true }
                 Button("连接设置",systemImage: "slider.horizontal.3") { showSettings = true }
                 Button("导出这段对话",systemImage: "square.and.arrow.up") { exportDocument = TextExportDocument(text: TranscriptExport.markdown(title: model.activeTopic?.title ?? "对话",messages: model.messages.map(\.record))); exporting = true }
                 Button("已删除消息",systemImage: "trash") { showDeleted = true }
-            } label: { Image(systemName: "ellipsis").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("对话菜单")
-        }
+            } label: { ChatHeaderIcon("more") }.accessibilityLabel("对话菜单")
+        }.buttonStyle(WorkspacePress()).foregroundStyle(.primary)
     }
     private func startNewTopic() {
         guard !creatingTopic,let topic = model.activeTopic else { return }
@@ -99,6 +99,15 @@ struct ChatView: View {
         }
     }
 
+}
+
+/// Keep visible glyph geometry separate from the full 44pt touch target.
+private struct ChatHeaderIcon: View {
+    let name: String
+    init(_ name: String) { self.name = name }
+    var body: some View {
+        WorkspaceGlyph(name,size: 22).frame(width: 44,height: 44).contentShape(Rectangle())
+    }
 }
 
 /// The high-frequency scroll trigger is isolated from navigation and the composer.
