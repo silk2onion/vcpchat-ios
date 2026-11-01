@@ -4,6 +4,7 @@ import VChatRendering
 import UniformTypeIdentifiers
 struct ServerFilesView: View {
     @Bindable var model: ChatViewModel
+    var embedded = false
     @State private var roots: [String] = []
     @State private var path = ""
     @State private var listing: [RemoteFile] = []
@@ -43,7 +44,7 @@ struct ServerFilesView: View {
             }.disabled(busy) }
             if truncated { Text("服务器返回了部分目录条目").font(.caption).foregroundStyle(.secondary) }
             ForEach(listing) { file in Button { if file.type == "directory" { work { try await browse(file.path) } } else { selected = file; preview = nil } } label: { HStack { Image(systemName: file.type == "directory" ? "folder" : "doc"); VStack(alignment: .leading) { Text(file.name); if let size = file.size { Text(ByteCountFormatter.string(fromByteCount: Int64(size),countStyle: .file)).font(.caption).foregroundStyle(.secondary) } }; Spacer(); Image(systemName: "chevron.right") }.contentShape(Rectangle()) }.buttonStyle(.plain).disabled(busy) }
-        }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("服务器文件").overlay { if busy { ProgressView().padding(20).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 12)) } }
+        }.scrollContentBackground(.hidden).background { if !embedded { ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea() } }.navigationTitle("服务器文件").overlay { if busy { ProgressView().padding(20).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 12)) } }
         .task { path = model.services.serverFiles.root }
         .fileImporter(isPresented: $importing,allowedContentTypes: [.data]) { result in if case .success(let url) = result { work { let (name,_,data) = try await LocalFileImporter().read(url); let result = try await client().upload(ServerPath.join(path,name),data: data); notice = result["message"].text.isEmpty ? "服务器已确认上传" : result["message"].text; try await browse(path) } } }
         .sheet(isPresented: $connection) { ConnectionView(model: model) }
