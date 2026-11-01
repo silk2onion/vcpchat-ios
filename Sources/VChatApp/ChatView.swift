@@ -41,6 +41,10 @@ struct ChatView: View {
             }
             .background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
             .navigationTitle(model.ownerName)
+            .task(id: model.activeTopicID) { await model.markTopicRead(model.activeTopicID) }
+            .onChange(of: model.topicStates[model.activeTopicID]?.unread) { _,unread in
+                if unread == true { let id = model.activeTopicID; Task { await model.markTopicRead(id) } }
+            }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

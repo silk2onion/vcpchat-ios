@@ -43,6 +43,8 @@ struct SettingsView: View {
                     }.workspaceGlass(palette)
                     label("应用")
                     VStack(spacing: 0) {
+                        NavigationLink { FileNodeView(model: model).workspaceDetailNavigation() } label: { row("移动工具节点","server","文件、历史回忆与主动话题",blue: true) }
+                        WorkspaceSeparator(palette: palette)
                         NavigationLink { DataManagementView(model: model).workspaceDetailNavigation() } label: { row("本机数据","folder","备份、恢复与连接密钥",blue: true) }
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { AboutVChat().workspaceDetailNavigation() } label: { row("关于 VCPChat","info","") }

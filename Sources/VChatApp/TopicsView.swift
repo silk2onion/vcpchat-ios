@@ -64,6 +64,10 @@ struct TopicActions<Content: View>: View {
         } message: { Text("这会删除本机的对话和消息，无法撤销。") }
     }
     @ViewBuilder private var menuItems: some View {
+        if topic.ownerType == "agent" {
+            let locked = model.topicStates[topic.id]?.locked ?? topic.locked ?? true
+            Button(locked ? "允许 Agent 追加回复" : "锁定 Agent 追加回复",systemImage: locked ? "lock.open" : "lock") { Task { await model.setTopicLocked(topic,locked: !locked) } }.disabled(model.synchronizing)
+        }
         Button("重命名", systemImage: "pencil") { title = topic.title; renaming = true }.disabled(model.synchronizing)
         Button("删除对话", systemImage: "trash", role: .destructive) { deleting = true }.disabled(model.synchronizing)
     }

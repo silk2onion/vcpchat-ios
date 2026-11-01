@@ -51,7 +51,7 @@ struct ConversationsHome: View {
                                         Text(name(topic) + (model.rooms[topic.id]?.busy == true ? " · 正在回复" : "")).font(.system(size: 13)).foregroundStyle(palette.muted).lineLimit(1)
                                     }
                                     Spacer(minLength: 4)
-                                    VStack(alignment: .trailing,spacing: 9) { Text(date(topic)).font(.system(size: 11)).foregroundStyle(palette.muted); if model.rooms[topic.id]?.busy == true { Circle().fill(palette.accent).frame(width: 6,height: 6).accessibilityLabel("正在回复") } }
+                                    VStack(alignment: .trailing,spacing: 9) { Text(date(topic)).font(.system(size: 11)).foregroundStyle(palette.muted); if model.rooms[topic.id]?.busy == true { Circle().fill(palette.accent).frame(width: 6,height: 6).accessibilityLabel("正在回复") }; if model.topicStates[topic.id]?.unread == true || topic.unread == true { Circle().fill(.red).frame(width: 8,height: 8).accessibilityLabel("未读主动消息") } }
                                 }.padding(13).contentShape(RoundedRectangle(cornerRadius: 15))
                             }
                         }.workspaceGlass(palette,radius: 15,soft: true).padding(.bottom,8)

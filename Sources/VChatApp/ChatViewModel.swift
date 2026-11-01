@@ -36,6 +36,7 @@ import VChatRendering
     var connection = ""
     var frames = 0
     var pendingCount = 0
+    var needsExternalReload = false
     var error: String?
     @ObservationIgnored let session = SessionActor()
     @ObservationIgnored var generation: Task<Void, Never>?
@@ -53,6 +54,7 @@ struct TopicDraft: Codable, Sendable {
     var agents: [VCPAgent] = []
     var groups: [VCPGroup] = []
     var topics: [ChatTopic] = []
+    var topicStates: [String:TopicToolState] = [:]
     var profile = UserProfile()
     var renderOptions = RenderOptions()
     var appearance = AppearanceSettings()
@@ -140,6 +142,7 @@ struct TopicDraft: Codable, Sendable {
                 try await database.put(assistant, kind: "agent", id: assistant.id); agents = [assistant]
             }
             topics = try await database.records(ChatTopic.self, kind: "topic")
+            topicStates = try await database.topicToolStates()
             if topics.isEmpty {
                 let topic = ChatTopic(id: "legacy", ownerId: agents[0].id, title: "第一段对话")
                 try await database.put(topic, kind: "topic", id: topic.id); topics = [topic]
@@ -391,6 +394,7 @@ struct TopicDraft: Codable, Sendable {
                 }
             }
             room.busy = false; room.generation = nil
+            if room.needsExternalReload { await reloadTopicTools(changedID: room.id) }
             room.pendingCount = room.messages.filter { $0.status == "pending" }.count
             if var current = topics.first(where: { $0.id == topic.id }) {
                 if group != nil { current.turnIndex += 1 }; current.updatedAt = Date().timeIntervalSince1970
@@ -428,7 +432,7 @@ struct TopicDraft: Codable, Sendable {
         let history = (continuing ? room.messages : Array(room.messages.dropLast())).map(\.record)
         room.busy = true; room.cancellation = nil; room.error = nil
         room.generation = Task {
-            defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count }
+            defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count; if room.needsExternalReload { Task { await self.reloadTopicTools(changedID: room.id) } } }
             do {
                 let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: outputPreferences)
                 guard !room.cancelled else { return }
@@ -489,7 +493,7 @@ struct TopicDraft: Codable, Sendable {
         backgrounded = false
         for room in Array(rooms.values) { await room.session.setBackgroundPacing(false) }
         if activity.enabled && !logKey.isEmpty { connectPush() }
-        if fileNode.active,let folders = connectedFolders { await fileNode.start(settings: services.fileNode,key: serviceSecrets[.fileNodeKey] ?? "",folders: folders) }
+        if fileNode.active { await connectMobileTools(persist: false) }
     }
     func suspend() async { await enterBackground(); await interruptForBackground() }
     func searchLocal() async {

@@ -45,6 +45,7 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
             } else {
                 guard let owner = entities[identity.owner.key],owner.deletedAt == nil else { continue }
                 let rows = messages[identity.topicKey] ?? []; var t = ChatTopic(id: id,ownerType: identity.ownerType,ownerId: entityID(owner),title: d["name"].text.isEmpty ? "同步会话" : d["name"].text)
+                t.locked = d["locked"].bool; t.unread = d["unread"].bool; t.creator = d["_creator"]["agentName"].text.isEmpty ? nil : d["_creator"]["agentName"].text
                 t.createdAt = ((try? SyncWire.time(d["createdAt"])) ?? e.updatedAt)/1000; t.updatedAt = max(e.updatedAt,rows.map { $0["timestamp"].number ?? 0 }.max() ?? 0)/1000; out.topics.append(t)
                 for m in rows {
                     let mid = m["localId"].text.isEmpty ? localID("message",m["id"].text,owner: identity.topicKey) : m["localId"].text
@@ -79,6 +80,7 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
             let id = entityID(e); var next = e.data.object; let kind: String
             if e.identity.entityType == "topic" {
                 kind = "topic"; guard let t = local.topics.first(where: { $0.id == id }) else { e.deletedAt = now; entities[key] = e; continue }; next["name"] = .string(t.title)
+                if let locked = t.locked { next["locked"] = .bool(locked) }; if let unread = t.unread { next["unread"] = .bool(unread) }
             } else if e.identity.ownerType == "agent" {
                 kind = "agent"; guard let a = local.agents.first(where: { $0.id == id }) else { e.deletedAt = now; entities[key] = e; continue }
                 next["name"] = .string(a.name); next["systemPrompt"] = .string(a.systemPrompt); next["model"] = .string(a.model)
@@ -99,7 +101,7 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
             guard let owner = owners[t.ownerId],owner.deletedAt == nil else { continue }
             let identity = SyncIdentity(entityType: "topic",ownerType: owner.identity.ownerType,ownerId: owner.identity.ownerId,topicId: t.id)
             var data: [String:JSONValue] = ["id":.string(t.id),"name":.string(t.title),"createdAt":.number(SyncWire.milliseconds(t.createdAt)),"ownerId":.string(identity.ownerId)]
-            if identity.ownerType == "agent" { data["locked"] = .bool(false); data["unread"] = .bool(false) }
+            if identity.ownerType == "agent" { data["locked"] = .bool(t.locked ?? false); data["unread"] = .bool(t.unread ?? false) }
             var e = SyncEntity(identity: identity,data: .object(data),updatedAt: now); e.localId = t.id; entities[identity.key] = e
         }
         for e in entities.values where e.identity.entityType == "topic" && e.deletedAt == nil {
