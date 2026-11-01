@@ -37,6 +37,24 @@ struct WorkspacePress: ButtonStyle {
             .animation(motion && !reduceMotion ? .easeOut(duration: 0.18) : nil,value: configuration.isPressed)
     }
 }
+struct WorkspaceActionStyle: ButtonStyle {
+    let palette: WorkspacePalette
+    var primary = false
+    @Environment(\.workspaceMotion) private var motion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        // Size the label itself: framing the Button only paints non-interactive padding.
+        configuration.label.font(.system(size: 15,weight: .semibold))
+            .frame(maxWidth: .infinity).frame(minHeight: 46)
+            .foregroundStyle(primary ? palette.accentInk : palette.ink)
+            .background(primary ? palette.accent : palette.input,in: RoundedRectangle(cornerRadius: 14))
+            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed && motion && !reduceMotion ? 0.985 : 1)
+            .animation(motion && !reduceMotion ? .easeOut(duration: 0.18) : nil,value: configuration.isPressed)
+    }
+}
 struct WorkspaceIconButton: View {
     let icon: String; let label: String
     var accent = false
@@ -141,7 +159,7 @@ extension View {
         self.background(soft ? palette.soft : palette.glass,in: RoundedRectangle(cornerRadius: radius)).background { RoundedRectangle(cornerRadius: radius).fill(.ultraThinMaterial).opacity(soft ? 0.25 : 0.5) }.overlay(RoundedRectangle(cornerRadius: radius).stroke(palette.line,lineWidth: 0.6))
     }
     func workspaceAction(_ palette: WorkspacePalette,primary: Bool = false) -> some View {
-        self.font(.system(size: 15,weight: .semibold)).frame(maxWidth: .infinity).frame(minHeight: 46).foregroundStyle(primary ? palette.accentInk : palette.ink).background(primary ? palette.accent : palette.input,in: RoundedRectangle(cornerRadius: 14)).contentShape(RoundedRectangle(cornerRadius: 14))
+        self.buttonStyle(WorkspaceActionStyle(palette: palette,primary: primary))
     }
     @ViewBuilder func workspaceRootNavigation() -> some View {
         #if os(iOS)
