@@ -143,7 +143,7 @@ struct MemoryCenterView: View {
     var body: some View {
         List {
             if app.credentialsLocked {
-                NavigationLink("解锁已有连接") { ConnectionView(model: app) }
+                NavigationLink("解锁已有连接") { ConnectionView(model: app) }.workspaceRowAction()
             }
             Section {
                 Picker("检索范围",selection: $center.scope) {
@@ -155,9 +155,9 @@ struct MemoryCenterView: View {
                         Text("选择文件夹").tag("")
                         ForEach(center.visibleFolders,id: \.self) { Text($0).tag($0) }
                     }
-                    Button { folders = true } label: { Image(systemName: "folder.badge.gearshape").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) }.accessibilityLabel("管理文件夹")
+                    Button { folders = true } label: { Image(systemName: "folder.badge.gearshape").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityLabel("管理文件夹")
                 }
-                Button { request = UUID() } label: { Label(center.loading ? "正在读取" : "搜索与刷新",systemImage: "arrow.clockwise").frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }
+                Button { request = UUID() } label: { Label(center.loading ? "正在读取" : "搜索与刷新",systemImage: "arrow.clockwise") }.workspaceRowAction()
             }
             if let error = center.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             if !center.notice.isEmpty { Text(center.notice).font(.callout).foregroundStyle(.secondary) }
@@ -179,17 +179,17 @@ struct MemoryCenterView: View {
             } header: { Text("\(center.notes.count) 篇记忆") }
             if !center.drafts.isEmpty {
                 Section("本机草稿") {
-                    ForEach(center.drafts) { draft in Button(draft.file.isEmpty ? "未命名草稿" : draft.file) { editor = draft } }
+                    ForEach(center.drafts) { draft in Button(draft.file.isEmpty ? "未命名草稿" : draft.file) { editor = draft }.workspaceRowAction() }
                 }
             }
             Section {
-                Button("整理工作台 · \(center.workbench.count) 篇") { workbench = true }
-                Button("修改前备份与恢复") { recovery = true }
-                Button("记忆服务连接") { connecting = true }
+                Button("整理工作台 · \(center.workbench.count) 篇") { workbench = true }.workspaceRowAction()
+                Button("修改前备份与恢复") { recovery = true }.workspaceRowAction()
+                Button("记忆服务连接") { connecting = true }.workspaceRowAction()
             } footer: { Text("浏览、编辑和图谱使用服务器日记接口；语义检索使用原版 LightMemo。工作台整理先生成可编辑的新记忆，保留来源原文。") }
         }.listStyle(.inset).scrollContentBackground(.hidden).navigationTitle("记忆中心")
         .background(ThemeWallpaper(app.appearance,animations: app.renderOptions.motion).ignoresSafeArea())
-        .toolbar { ToolbarItem(placement: .primaryAction) { Button { editor = MemoryDraft(folder: center.folder) } label: { Label("新记忆",systemImage: "square.and.pencil") } } }
+        .toolbar { ToolbarItem(placement: .primaryAction) { Button { editor = MemoryDraft(folder: center.folder) } label: { Label("新记忆",systemImage: "square.and.pencil").frame(minHeight: 44).contentShape(Rectangle()) } } }
         .disabled(center.working)
         .overlay(alignment: .top) { if center.loading || center.working { ProgressView().padding(12).background(.regularMaterial,in: Capsule()) } }
         .task(id: request) { await center.loadPreferences(); await center.load() }
@@ -212,7 +212,7 @@ private struct MemoryNoteLabel: View {
             Text(note.file).font(.headline).lineLimit(2)
             Text(note.folder).font(.caption).foregroundStyle(.secondary)
             if !note.preview.isEmpty { Text(note.preview).font(.callout).foregroundStyle(.secondary).lineLimit(3) }
-        }.frame(maxWidth: .infinity,alignment: .leading).padding(.vertical,6).contentShape(Rectangle())
+        }.frame(maxWidth: .infinity,alignment: .leading).frame(minHeight: 44).padding(.vertical,6).contentShape(Rectangle())
     }
 }
 
@@ -221,14 +221,14 @@ private struct MemoryConnectionView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         Form {
-            if center.app.credentialsLocked { NavigationLink("解锁连接密钥") { ConnectionView(model: center.app) } }
+            if center.app.credentialsLocked { NavigationLink("解锁连接密钥") { ConnectionView(model: center.app) }.workspaceRowAction() }
             LabeledContent("服务器",value: center.app.configuration.server)
             TextField("日记管理员用户名",text: Binding(get: { center.app.services.adminUsername },set: { center.app.services.adminUsername = $0 }))
             SecureField("日记管理员密码",text: Binding(get: { center.app.serviceSecrets[.adminPassword] ?? "" },set: { center.app.serviceSecrets[.adminPassword] = $0 }))
             Text("日记接口使用管理员连接；语义检索另用现有聊天 API Key。只有你主动解锁后才读取钥匙串。").font(.callout).foregroundStyle(.secondary)
             if let error = center.error { Text(error).foregroundStyle(.red) }
-            Button("保存连接") { center.perform { guard await center.app.saveServices() else { throw ClientError.server(center.app.error ?? "连接保存失败") }; dismiss() } }.disabled(center.working)
-        }.navigationTitle("记忆服务连接").toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+            Button("保存连接") { center.perform { guard await center.app.saveServices() else { throw ClientError.server(center.app.error ?? "连接保存失败") }; dismiss() } }.workspaceRowAction().disabled(center.working)
+        }.navigationTitle("记忆服务连接").toolbar { ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Text("关闭").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) } } }
     }
 }
 
@@ -296,23 +296,23 @@ private struct MemoryWorkbench: View {
         List {
             Section("来源记忆 · \(center.workbench.count) 篇") {
                 ForEach(center.workbench) { note in
-                    Button { center.perform { editor = try await center.draft(note) } } label: { MemoryNoteLabel(note: note) }
+                    Button { center.perform { editor = try await center.draft(note) } } label: { MemoryNoteLabel(note: note) }.buttonStyle(.plain)
                 }.onDelete { offsets in center.workbench.remove(atOffsets: offsets) }
             }
             Section {
-                Button("全文合并为新草稿") { center.perform { editor = try await center.mergeDraft() } }.disabled(center.workbench.isEmpty)
+                Button("全文合并为新草稿") { center.perform { editor = try await center.mergeDraft() } }.workspaceRowAction().disabled(center.workbench.isEmpty)
                 Text("合并只创建新记忆，不删除或移动来源。编辑确认后再发布；左滑仅从工作台移除。").font(.callout).foregroundStyle(.secondary)
             }
             Section("批量整理") {
                 TextField("目标文件夹，如“已整理”",text: $target)
-                Button("移动所选记忆") { moving = true }.disabled(center.workbench.isEmpty || target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("归档到“已整理”") { target = "已整理"; moving = true }.disabled(center.workbench.isEmpty)
-                Button("删除所选服务器记忆",role: .destructive) { deleting = true }.disabled(center.workbench.isEmpty)
+                Button("移动所选记忆") { moving = true }.workspaceRowAction().disabled(center.workbench.isEmpty || target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("归档到“已整理”") { target = "已整理"; moving = true }.workspaceRowAction().disabled(center.workbench.isEmpty)
+                Button("删除所选服务器记忆",role: .destructive) { deleting = true }.workspaceRowAction().disabled(center.workbench.isEmpty)
                 Text("修改前在本机逐篇保留原文；目标有同名文件时停止，不覆盖。").font(.caption).foregroundStyle(.secondary)
             }
             if let error = center.error { Text(error).foregroundStyle(.red) }
         }.navigationTitle("整理工作台").disabled(center.working).interactiveDismissDisabled(center.working)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(center.working) } }
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Text("关闭").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) }.disabled(center.working) } }
         .sheet(item: $editor) { MemoryEditor(center: center,initial: $0) }
         .confirmationDialog("删除工作台内\(center.workbench.count)篇服务器记忆？",isPresented: $deleting,titleVisibility: .visible) {
             Button("备份后删除",role: .destructive) { center.perform { try await center.client.deleteMemories(center.connection(),notes: center.workbench,store: center.database()); center.workbench = []; await center.loadPreferences(); await center.load() } }
@@ -340,7 +340,7 @@ private struct MemoryFoldersView: View {
             } footer: { Text("开关仅隐藏本机文件夹入口，不影响全局检索或服务器文件。拖动调整顺序。新记忆中填写新的文件夹名称即可创建。只允许删除服务器空文件夹。") }
             if let error = center.error { Text(error).foregroundStyle(.red) }
         }.navigationTitle("文件夹").disabled(center.working).toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+            ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Text("关闭").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) } }
             #if os(iOS)
             ToolbarItem(placement: .primaryAction) { EditButton() }
             #endif
@@ -360,15 +360,15 @@ private struct MemoryRecoveryView: View {
             ForEach(center.recovery) { point in
                 Section {
                     ForEach(point.documents) { document in
-                        NavigationLink(document.note.id) { NativeFileText(text: document.content).navigationTitle(document.note.file).toolbar { ShareLink(item: document.content) { Label("导出原文",systemImage: "square.and.arrow.up") } } }
+                        NavigationLink(document.note.id) { NativeFileText(text: document.content).navigationTitle(document.note.file).toolbar { ShareLink(item: document.content) { Label("导出原文",systemImage: "square.and.arrow.up").frame(minHeight: 44).contentShape(Rectangle()) } } }.workspaceRowAction()
                     }
-                    Button("恢复缺失文件（不覆盖）") { restoring = point }
+                    Button("恢复缺失文件（不覆盖）") { restoring = point }.workspaceRowAction()
                 } header: { Text("\(point.operation) · \(Date(timeIntervalSince1970: point.createdAt).formatted())") }
             }
             if center.recovery.isEmpty { Text("暂时没有修改备份") }
             if let error = center.error { Text(error).foregroundStyle(.red) }
         }.navigationTitle("记忆恢复").disabled(center.working).interactiveDismissDisabled(center.working)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(center.working) } }
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Text("关闭").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) }.disabled(center.working) } }
         .confirmationDialog("补回本次备份中缺失的文件？",isPresented: Binding(get: { restoring != nil },set: { if !$0 { restoring = nil } }),titleVisibility: .visible,presenting: restoring) { point in
             Button("恢复缺失文件") { center.perform { try await center.client.restoreMemories(center.connection(),point: point); center.notice = "缺失文件已恢复；已有文件保持不变"; await center.load() } }
         }
@@ -440,8 +440,8 @@ private struct MemoryGraphView: View {
             if busy { ProgressView("正在读取联想关系").padding(8) }
             if let error { Text(error).font(.callout).foregroundStyle(.red).padding() }
         }.navigationTitle("记忆联想图谱").toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-            ToolbarItem(placement: .primaryAction) { Button("复位视图") { zoom = 1; pan = .zero } }
+            ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Text("关闭").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) } }
+            ToolbarItem(placement: .primaryAction) { Button { zoom = 1; pan = .zero } label: { Text("复位视图").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) } }
         }.task { nodes = [root]; selected = root; expand(root) }
         .sheet(item: $editor) { MemoryEditor(center: center,initial: $0) }
     }

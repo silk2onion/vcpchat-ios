@@ -25,8 +25,8 @@ struct FileNodeView: View {
                 SecureField("分布式 Key",text: Binding(get: { model.serviceSecrets[.fileNodeKey] ?? "" },set: { model.serviceSecrets[.fileNodeKey] = $0 }))
                 TextField("设备名称",text: $model.services.fileNode.name)
                 LabeledContent("状态",value: model.fileNode.status)
-                Button(model.fileNode.active ? "保存并重新发布工具" : "保存并连接") { Task { await model.connectMobileTools(); error = model.error } }
-                Button("停止发布") { Task { model.services.fileNode.enabled = false; await model.fileNode.stop(); _ = await model.saveServices() } }.disabled(!model.fileNode.active)
+                Button(model.fileNode.active ? "保存并重新发布工具" : "保存并连接") { Task { await model.connectMobileTools(); error = model.error } }.workspaceRowAction()
+                Button("停止发布") { Task { model.services.fileNode.enabled = false; await model.fileNode.stop(); _ = await model.saveServices() } }.workspaceRowAction().disabled(!model.fileNode.active)
                 Text("iPhone 退到后台时暂停节点；回到前台可重新连接。持续运行的节点适合放在 Mac 或服务器。").font(.caption).foregroundStyle(.secondary)
             }
             Section("话题与回忆工具") {
