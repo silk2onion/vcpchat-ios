@@ -20,7 +20,7 @@ struct GroupEditor: View {
                 VStack(alignment: .leading,spacing: 14) {
                     Text("群成员").font(.system(size: 14)).foregroundStyle(palette.muted)
                     ForEach(model.agents) { agent in
-                        Toggle(isOn: Binding(get: { group.memberIds.contains(agent.id) },set: { selected in if selected { group.memberIds.append(agent.id) } else { group.memberIds.removeAll { $0 == agent.id } } })) { HStack(spacing: 12) { ContactAvatar(name: agent.name,image: agent.avatarUrl,symbol: agent.avatar,size: 35); Text(agent.name).font(.system(size: 15)) } }.toggleStyle(.switch)
+                        Toggle(isOn: Binding(get: { group.memberIds.contains(agent.id) },set: { selected in if selected { group.memberIds.append(agent.id) } else { group.memberIds.removeAll { $0 == agent.id } } })) { HStack(spacing: 12) { ContactAvatar(name: agent.name,image: agent.avatarUrl,size: 35); Text(agent.name).font(.system(size: 15)) } }.toggleStyle(.switch)
                     }
                 }
                 if group.memberIds.count > 1 {
@@ -33,7 +33,7 @@ struct GroupEditor: View {
             }
         } footer: { HStack(spacing: 10) { Button("取消") { dismiss() }.workspaceAction(palette); Button("保存") { Task { if await model.saveGroup(group) { dismiss() } } }.workspaceAction(palette,primary: true).disabled(group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || group.memberIds.isEmpty) } }
         .frame(minWidth: 340,minHeight: 600)
-        .sheet(isPresented: $avatar) { AvatarEditor(image: $group.avatarUrl,name: group.name) }
+        .sheet(isPresented: $avatar) { AvatarEditor(image: $group.avatarUrl,name: group.name,kind: .group) }
         .confirmationDialog("删除群聊？聊天记录将保留。",isPresented: $deleting,titleVisibility: .visible) { Button("删除群聊",role: .destructive) { Task { await model.removeGroup(group.id); dismiss() } } }
     }
 }

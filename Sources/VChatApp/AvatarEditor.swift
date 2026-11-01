@@ -7,6 +7,7 @@ import VChatRendering
 struct AvatarEditor: View {
     @Binding var image: String
     let name: String
+    var kind = ContactAvatar.Kind.agent
     @Environment(\.dismiss) private var dismiss
     @Environment(\.workspaceTheme) private var theme
     @State private var picker: PhotosPickerItem?
@@ -23,7 +24,7 @@ struct AvatarEditor: View {
         let palette = WorkspacePalette(theme: theme)
         WorkspacePanel(title: "编辑头像",palette: palette,close: { dismiss() }) {
             VStack(spacing: 22) {
-                ContactAvatar(name: name,image: preview.isEmpty ? image : preview,size: 220).padding(.top,12)
+                ContactAvatar(name: name,image: preview.isEmpty ? image : preview,kind: kind,size: 220).padding(.top,12)
                 HStack { PhotosPicker(selection: $picker,matching: .images) { Label("照片",systemImage: "photo") }; Button("从文件选择",systemImage: "folder") { importing = true } }.foregroundStyle(palette.accent).frame(minHeight: 44)
                 if animated { Text("动态头像保留完整动画，按头像区域居中显示。").font(.caption).foregroundStyle(palette.muted) }
                 if ready && !animated {
@@ -78,6 +79,6 @@ struct ProfileEditor: View {
                 NavigationLink { RemoteNotesView(model: model).workspaceDetailNavigation() } label: { WorkspaceMenuRow(title: "服务器日记账号",icon: "notes",color: palette.accent,subtitle: "管理员连接与服务器日记") }.workspaceGlass(palette)
             }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity) }
         }.workspacePageNavigation(title: "个人资料",palette: palette,note: "本机保存").buttonStyle(WorkspacePress()).background(VChatRendering.ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
-        .sheet(isPresented: $avatar) { AvatarEditor(image: $profile.avatar,name: profile.name.isEmpty ? "我" : profile.name) }
+        .sheet(isPresented: $avatar) { AvatarEditor(image: $profile.avatar,name: profile.name.isEmpty ? "我" : profile.name,kind: .personal) }
     }
 }

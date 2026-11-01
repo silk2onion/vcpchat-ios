@@ -69,7 +69,7 @@ struct ChatView: View {
     private var titleButton: some View {
         Button { if model.activeGroup != nil { showGroup = true } else { showAgent = true } } label: {
             HStack(spacing: 8) {
-                ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",symbol: model.activeAgent?.avatar ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 28)
+                ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 28)
                 VStack(alignment: .leading,spacing: 2) { Text(model.ownerName).font(.headline).lineLimit(1); Text(model.activeTopic?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) }.frame(maxWidth: 150,alignment: .leading)
             }.frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("编辑 " + model.ownerName)
@@ -122,7 +122,7 @@ private struct ChatTimeline: View {
                         LazyVStack(alignment: .leading, spacing: 24) {
                             if model.messages.isEmpty && !model.loading {
                                 VStack(spacing: 14) {
-                                    ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",symbol: model.activeAgent?.avatar ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 70)
+                                    ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 70)
                                     Text("和\(model.ownerName)聊聊").font(.system(size: 23,weight: .bold)).padding(.top,8)
                                     Text(model.activeAgent?.description.isEmpty == false ? model.activeAgent!.description : "新的会话，新的想法。").font(.system(size: 14)).foregroundStyle(.secondary)
                                     if model.apiKey.isEmpty { Button(model.credentialsLocked ? "解锁已有连接" : "连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(model.appearance.theme.tint) }
@@ -182,7 +182,7 @@ private struct NativeMessageRow: View {
             VStack(alignment: .leading,spacing: 9) {
                 if message.role == "assistant" {
                     let author = model.authorAgent(for: message),name = message.authorName.isEmpty ? author?.name ?? "助手" : message.authorName
-                    HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",symbol: author?.avatar ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
+                    HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
                 }
                 MessageActions(message: message,model: model) {
                     VStack(alignment: .leading,spacing: 12) {
