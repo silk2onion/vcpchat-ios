@@ -37,7 +37,7 @@ struct ChatView: View {
                     if model.busy { Button { Task { await model.stop() } } label: { Image(systemName: "stop.fill").frame(width: 40, height: 40) }.accessibilityLabel("停止生成") }
                     else { Button { model.send() } label: { Image(systemName: "arrow.up").fontWeight(.semibold).frame(width: 40, height: 40).background(model.appearance.theme.tint, in: Circle()).foregroundStyle(model.appearance.theme == .paper ? .white : .black) }.disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (model.room?.attachments.isEmpty ?? true) || model.loading).accessibilityLabel("发送消息") }
                 }.buttonStyle(WorkspacePress()).padding(.horizontal,10).padding(.vertical,5).workspaceGlass(WorkspacePalette(theme: model.appearance.theme),radius: 25).padding(.horizontal,14).padding(.top,9)
-                HStack { Text(model.modelTitle).lineLimit(1); Spacer(); Text("对话保存在本机") }.font(.system(size: 11)).foregroundStyle(WorkspacePalette(theme: model.appearance.theme).muted).padding(.horizontal,26).padding(.top,7).padding(.bottom,9)
+                Text(model.modelTitle).lineLimit(1).frame(maxWidth: .infinity,alignment: .leading).font(.system(size: 11)).foregroundStyle(WorkspacePalette(theme: model.appearance.theme).muted).padding(.horizontal,26).padding(.top,7).padding(.bottom,9)
             }
             .background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
             .navigationTitle(model.ownerName)
