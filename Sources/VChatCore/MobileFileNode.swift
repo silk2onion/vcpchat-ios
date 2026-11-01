@@ -107,7 +107,13 @@ public actor MobileFileNode {
             let window = try MobileTopicTool.integer(args["window_size"],default: 10,range: 1...20)
             let limit = try MobileTopicTool.integer(args["limit"],default: 10,range: 1...10)
             var hits = try await store.recall(agentID: agent.id,query: RecallQuery(query),window: window,limit: limit)
-            let requested = args["rerank"].bool ?? (args["rerank"].text.isEmpty ? nil : args["rerank"].text.lowercased() == "true")
+            let requested: Bool?
+            switch args["rerank"] {
+            case .null: requested = nil
+            case .bool(let value): requested = value
+            case .string(let value) where ["true","false"].contains(value.lowercased()): requested = value.lowercased() == "true"
+            default: throw ClientError.server("rerank必须为true或false")
+            }
             if requested ?? rerank.enabled { hits = try await RecallReranker().rank(hits,query: query,settings: rerank,key: rerankKey) }
             return TopicToolReply(value: .object(["agent_id": .string(agent.id),"source": .string("本机聊天记录"),"hits": .array(hits.map(\.json)),"count": .number(Double(hits.count))]),changedTopicID: nil)
         }

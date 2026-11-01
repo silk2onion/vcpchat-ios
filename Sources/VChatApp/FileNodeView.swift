@@ -79,7 +79,11 @@ extension ChatViewModel {
             topicStates = try await store.topicToolStates()
             if let room = rooms[changedID] {
                 if room.busy { room.needsExternalReload = true }
-                else { room.messages = try await store.messages(topicID: changedID).map(MessageViewModel.init); room.needsExternalReload = false }
+                else {
+                    let messages = try await store.messages(topicID: changedID)
+                    if room.busy { room.needsExternalReload = true }
+                    else if rooms[changedID] === room { room.messages = messages.map(MessageViewModel.init); room.needsExternalReload = false }
+                }
             }
         } catch { error = error.localizedDescription }
     }

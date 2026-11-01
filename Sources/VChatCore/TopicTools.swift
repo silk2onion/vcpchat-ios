@@ -90,6 +90,9 @@ extension ChatStore {
             guard var topic = try Self.toolRecord(ChatTopic.self,db,kind: "topic",id: topicID) else { throw ClientError.server("话题已不存在") }
             var state = try Self.toolRecord(TopicToolState.self,db,kind: "topic-tool-state",id: topicID) ?? TopicToolState()
             state.locked = topic.locked ?? state.locked; state.unread = topic.unread ?? state.unread; state.creator = topic.creator ?? state.creator
+            if let locked,locked != state.locked {
+                try Self.toolPut(topic,db,kind: "topic-tool-backup",id: UUID().uuidString)
+            }
             if let locked { state.locked = locked }
             if markRead { state.unread = false }
             topic.locked = state.locked; topic.unread = state.unread; topic.creator = state.creator
@@ -120,7 +123,8 @@ extension ChatStore {
             func rows(_ id: String) throws -> [StoredMessage] { try StoredMessage.fetchAll(db,sql: "SELECT * FROM messages WHERE topicID=? ORDER BY createdAt,rowid",arguments: [id]) }
             func metadata(_ topic: ChatTopic) throws -> JSONValue {
                 let s = try state(topic.id)
-                return .object(["id": .string(topic.id),"topic_id": .string(topic.id),"name": .string(topic.title),"createdAt": .number(topic.createdAt * 1000),"locked": .bool(s.locked),"unread": .bool(s.unread),"agent_id": .string(agent.id)])
+                let count = try Int.fetchOne(db,sql: "SELECT COUNT(*) FROM messages WHERE topicID=?",arguments: [topic.id]) ?? 0
+                return .object(["id": .string(topic.id),"topic_id": .string(topic.id),"name": .string(topic.title),"topic_name": .string(topic.title),"createdAt": .number(topic.createdAt * 1000),"created_at": .number(topic.createdAt * 1000),"last_message_time": .number(topic.updatedAt * 1000),"message_count": .number(Double(count)),"locked": .bool(s.locked),"unread": .bool(s.unread),"agent_id": .string(agent.id)])
             }
             func page(_ messages: [StoredMessage]) throws -> JSONValue {
                 let messageOffset = command == "ReadUnlockedTopics" ? 0 : offset
@@ -182,7 +186,19 @@ extension ChatStore {
                 if command == "CheckTopicOwnership" {
                     let creator = try state(topic.id).creator, caller = try MobileTopicTool.text(args["caller_name"],limit: 200)
                     value = .object(["is_owner": .bool(!creator.isEmpty && creator == caller),"creator_name": .string(creator.isEmpty ? "unknown" : creator),"topic_name": .string(topic.title)])
-                } else { var info = try metadata(topic).object; info["history"] = try page(rows(topic.id)); value = .object(info) }
+                } else {
+                    var info = try metadata(topic).object
+                    let history = try page(rows(topic.id)); info["history"] = history
+                    info["messages"] = history["messages"]; info["next_offset"] = history["next_offset"]; info["next_content_offset"] = history["next_content_offset"]
+                    if command == "ReadTopicContent" {
+                        let format = args["format"].text.lowercased()
+                        guard ["","markdown","md","json","raw"].contains(format) else { throw ClientError.server("format应为markdown或json；raw仍仅返回本机正文，不包含附件原件") }
+                        if ["","markdown","md"].contains(format) {
+                            info["content"] = .string("# \(topic.title)\n\n" + history["messages"].array.map { "**\($0["name"].text)**\n\n\($0["content"].text)" }.joined(separator: "\n\n---\n\n"))
+                        }
+                    }
+                    value = .object(info)
+                }
             case "ListTopics","ListUnlockedTopics","ReadUnlockedTopics","CheckNewTopics","CheckUnreadMessages":
                 let days = try MobileTopicTool.integer(args["days"],default: 3,range: 1...3650)
                 let includeRead = args["include_read"].bool == true || args["include_read"].text.lowercased() == "true"
@@ -204,7 +220,11 @@ extension ChatStore {
                     guard bytes + size <= 300_000 else { break }; bytes += size; list.append(row)
                 }
                 let next = offset + list.count
-                value = .object(["agent_id": .string(agent.id),"agent_name": .string(agent.name),"topics": .array(list),"total": .number(Double(filtered.count)),"has_unread": .bool(!filtered.isEmpty),"next_offset": next < filtered.count ? .number(Double(next)) : .null])
+                var info: [String:JSONValue] = ["agent_id": .string(agent.id),"agent_name": .string(agent.name),"topics": .array(list),"total": .number(Double(filtered.count)),"total_topics": .number(Double(filtered.count)),"next_offset": next < filtered.count ? .number(Double(next)) : .null]
+                if command == "CheckUnreadMessages" { info["has_unread"] = .bool(!filtered.isEmpty); info["unread_topics"] = .array(list) }
+                if command == "CheckNewTopics" { info["has_new_topics"] = .bool(!filtered.isEmpty); info["new_topics_count"] = .number(Double(filtered.count)) }
+                if command == "ListUnlockedTopics" { info["has_unlocked_topics"] = .bool(!filtered.isEmpty); info["unlocked_topics_count"] = .number(Double(filtered.count)) }
+                value = .object(info)
             default: throw ClientError.server("不支持的移动话题指令")
             }
             return TopicToolReply(value: value,changedTopicID: nil)

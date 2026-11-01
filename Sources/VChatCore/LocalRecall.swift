@@ -83,8 +83,14 @@ extension ChatStore {
             let maxPerMessage = max(400,18_000 / max(1,selected.count))
             var excerpted = false
             let text = selected.map { message in
-                let body = MobileTopicTool.plain(message.content), slice = String(body.unicodeScalars.prefix(maxPerMessage))
-                if slice != body { excerpted = true }
+                let body = MobileTopicTool.plain(message.content)
+                var start = 0
+                if message.id == match.id,body.unicodeScalars.count > maxPerMessage {
+                    let positions = query.terms.flatMap(\.words).compactMap { body.range(of: $0,options: .caseInsensitive)?.lowerBound }
+                    if let position = positions.min() { start = max(0,body[..<position].unicodeScalars.count - maxPerMessage / 3) }
+                }
+                var slice = String(body.unicodeScalars.dropFirst(start).prefix(maxPerMessage))
+                if slice != body { excerpted = true; if start > 0 { slice = "…" + slice }; if start + maxPerMessage < body.unicodeScalars.count { slice += "…" } }
                 return "**\(message.authorName.isEmpty ? message.role : message.authorName)**: \(slice)"
             }.joined(separator: "\n\n")
             covered[topic.id,default: []].formUnion(selected.map(\.id))
