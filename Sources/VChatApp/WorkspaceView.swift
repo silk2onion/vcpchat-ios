@@ -35,7 +35,12 @@ struct WorkspaceView: View {
     private var motion: Bool { model.renderOptions.motion && !reduceMotion }
     var body: some View {
         ZStack {
-            activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
+            // Only the page participates in tab transitions. Chrome and wallpaper
+            // keep their identity and backdrop while the outgoing page disappears.
+            ZStack {
+                activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
+            }
+                .animation(motion ? .easeInOut(duration: 0.14) : nil,value: tab)
                 .safeAreaInset(edge: .bottom,spacing: 0) { VStack(spacing: 0) { MiniSpeechPlayer(player: model.speech); if showTabBar { bottomTabs } }.animation(motion ? .easeOut(duration: 0.18) : nil,value: model.speech.phase == "idle") }
                 .background(ThemeWallpaper(model.appearance,animations: motion).ignoresSafeArea())
                 .blur(radius: activityOpen ? 8 : 0).allowsHitTesting(!activityOpen).accessibilityHidden(activityOpen)
@@ -68,7 +73,7 @@ struct WorkspaceView: View {
     private var bottomTabs: some View {
         HStack(spacing: 4) {
             ForEach(Tab.allCases,id: \.self) { item in
-                Button { searching = false; withAnimation(motion ? .easeInOut(duration: 0.14) : nil) { chatQuery = ""; search = ""; if item == .me { mePath = NavigationPath() }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } } label: {
+                Button { searching = false; chatQuery = ""; search = ""; if item == .me { mePath = NavigationPath() }; if item == .chats { chatPath = [] }; if item == .contacts { contactPath = [] }; tab = item } label: {
                     VStack(spacing: 4) {
                         WorkspaceGlyph(item.icon,size: 22).overlay(alignment: .topTrailing) { if item == .discover,(model.activity.unread > 0 || !model.activity.pending.isEmpty) { Circle().fill(.red).frame(width: 7,height: 7).offset(x: 5,y: -1) } }
                         Text(item.title).font(.system(size: 11,weight: .semibold))
