@@ -4,7 +4,17 @@ public struct FileNodeSettings: Codable, Sendable, Equatable {
     public var name = "VCPChat Mobile"
     public var deviceID = UUID().uuidString
     public var enabled = false
+    public var topicTools = TopicToolPolicy()
     public init() {}
+    enum CodingKeys: String, CodingKey { case server, name, deviceID, enabled, topicTools }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        server = try c.decodeIfPresent(String.self,forKey: .server) ?? ""
+        name = try c.decodeIfPresent(String.self,forKey: .name) ?? "VCPChat Mobile"
+        deviceID = try c.decodeIfPresent(String.self,forKey: .deviceID) ?? UUID().uuidString
+        enabled = try c.decodeIfPresent(Bool.self,forKey: .enabled) ?? false
+        topicTools = try c.decodeIfPresent(TopicToolPolicy.self,forKey: .topicTools) ?? TopicToolPolicy()
+    }
 }
 public enum MobileFileTool {
     public static let commands = ["ListAllowedDirectories","ListDirectory","FileInfo","ReadFile","WriteFile","AppendFile","EditFile","CopyFile","MoveFile","RenameFile","DeleteFile","CreateDirectory"]
@@ -31,15 +41,24 @@ public enum MobileFileTool {
 }
 public actor MobileFileNode {
     private let folders: ConnectedFolders
+    private let store: ChatStore?
+    private let rerank: RecallRerankSettings
+    private let rerankKey: String
+    private let topicChanged: (@Sendable (String) async -> Void)?
     private let socket = JSONSocket()
     private var task: Task<Void,Never>?
     private var timeout: Task<Void,Never>?
     private var generation: UUID?
     private var continuation: AsyncStream<String>.Continuation?
     private var acknowledged = false
-    public init(folders: ConnectedFolders) { self.folders = folders }
+    public init(folders: ConnectedFolders, store: ChatStore? = nil, rerank: RecallRerankSettings = .init(), rerankKey: String = "", topicChanged: (@Sendable (String) async -> Void)? = nil) {
+        self.folders = folders; self.store = store; self.rerank = rerank; self.rerankKey = rerankKey; self.topicChanged = topicChanged
+    }
     public func start(_ settings: FileNodeSettings,key: String) async throws -> AsyncStream<String> {
         await stop(); let url = try MobileFileTool.endpoint(server: settings.server,key: key), manifest = try MobileFileTool.manifest(deviceID: settings.deviceID), id = UUID(); generation = id
+        let topics = try MobileTopicTool.manifests(deviceID: settings.deviceID,policy: settings.topicTools)
+        guard topics.isEmpty || store != nil else { throw ClientError.server("话题工具需要本机数据库") }
+        let tools = [manifest] + topics
         let (updates,c) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(8)); continuation = c
         task = Task {
             while !Task.isCancelled && generation == id {
@@ -50,14 +69,22 @@ public actor MobileFileNode {
                     guard generation == id, !Task.isCancelled else { return }
                     if message["type"].text == "connection_ack" {
                         timeout?.cancel(); acknowledged = true
-                        try await socket.send(.object(["type": .string("register_tools"),"data": .object(["serverName": .string(settings.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "VCPChat Mobile" : settings.name),"tools": .array([manifest])])]))
+                        try await socket.send(.object(["type": .string("register_tools"),"data": .object(["serverName": .string(settings.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "VCPChat Mobile" : settings.name),"tools": .array(tools)])]))
                         c.yield("已连接"); continue
                     }
                     guard acknowledged,message["type"].text == "execute_tool" else { continue }
                     let data = message["data"], requestID = data["requestId"].text
-                    guard !requestID.isEmpty,requestID.count <= 160,data["toolName"].text == manifest["name"].text else { continue }
+                    guard !requestID.isEmpty,requestID.count <= 160,tools.contains(where: { $0["name"].text == data["toolName"].text }) else { continue }
                     var answer: [String: JSONValue] = ["requestId": .string(requestID)]
-                    do { answer["result"] = try await MobileFileTool.execute(data["toolArgs"],requestID: requestID,folders: folders); answer["status"] = .string("success") }
+                    do {
+                        if data["toolName"].text == manifest["name"].text { answer["result"] = try await MobileFileTool.execute(data["toolArgs"],requestID: requestID,folders: folders) }
+                        else {
+                            let reply = try await executeTopic(tool: data["toolName"].text,args: data["toolArgs"],requestID: requestID,policy: settings.topicTools)
+                            answer["result"] = .object(["status": .string("success"),"result": .object(["details": reply.value,"content": .array([.object(["type": .string("text"),"text": .string(reply.value.pretty)])])])])
+                            if let topicID = reply.changedTopicID { await topicChanged?(topicID) }
+                        }
+                        answer["status"] = .string("success")
+                    }
                     catch { answer["status"] = .string("error"); answer["error"] = .string(error.localizedDescription) }
                     guard generation == id,!Task.isCancelled else { return }
                     try await socket.send(.object(["type": .string("tool_result"),"data": .object(answer)]))
@@ -67,6 +94,30 @@ public actor MobileFileNode {
             }
         }
         return updates
+    }
+    private func executeTopic(tool: String,args input: JSONValue,requestID: String,policy: TopicToolPolicy) async throws -> TopicToolReply {
+        guard let store,case .object(var fields) = input else { throw ClientError.server("话题参数或数据库不可用") }
+        if fields["topic_id"] == nil { fields["topic_id"] = fields["topicId"] ?? fields["TopicId"] }
+        let args = JSONValue.object(fields)
+        var command = args["command"].text
+        if tool.hasPrefix("MobileDeepMemo_") {
+            guard policy.deepMemo,command.isEmpty || command == "DeepMemo" else { throw ClientError.server("DeepMemo指令无效") }
+            let agent = try await store.topicAgent(args,policy: policy)
+            let query = try MobileTopicTool.text(args["keyword"],limit: 2000)
+            let window = try MobileTopicTool.integer(args["window_size"],default: 10,range: 1...20)
+            let limit = try MobileTopicTool.integer(args["limit"],default: 10,range: 1...10)
+            var hits = try await store.recall(agentID: agent.id,query: RecallQuery(query),window: window,limit: limit)
+            let requested = args["rerank"].bool ?? (args["rerank"].text.isEmpty ? nil : args["rerank"].text.lowercased() == "true")
+            if requested ?? rerank.enabled { hits = try await RecallReranker().rank(hits,query: query,settings: rerank,key: rerankKey) }
+            return TopicToolReply(value: .object(["agent_id": .string(agent.id),"source": .string("本机聊天记录"),"hits": .array(hits.map(\.json)),"count": .number(Double(hits.count))]),changedTopicID: nil)
+        }
+        if tool.hasPrefix("MobileTopicMemo_") {
+            guard policy.memo else { throw ClientError.server("TopicMemo未启用") }; if command.isEmpty { command = "ListTopics" }
+            guard ["ListTopics","GetTopicContent"].contains(command) else { throw ClientError.server("TopicMemo只支持只读查询") }
+        } else {
+            guard policy.sponsor,MobileTopicTool.sponsorCommands.contains(command) else { throw ClientError.server("TopicSponsor指令未启用或不支持") }
+        }
+        return try await store.executeTopicTool(command,arguments: args,requestID: requestID,policy: policy)
     }
     public func stop() async { generation = nil; task?.cancel(); task = nil; timeout?.cancel(); timeout = nil; await socket.close(); continuation?.yield("未连接"); continuation?.finish(); continuation = nil }
 }
