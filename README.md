@@ -159,7 +159,7 @@ iPhone 节点在前台提供服务，后台时暂停；需要持续运行时使�
 Copyright 2026 VCPChat iOS contributors。
 
 本客户端参考并适配了 [VCPMobile](https://github.com/MRiecy/VCPMobile)（MRiecy / Nova）、[VCPChat](https://github.com/lioensky/VCPChat) 与 [VCPToolBox](https://github.com/lioensky/VCPToolBox)（lioensky）的协议与交互。
-原 Tauri/Vue 实现已重写为 SwiftUI 原生客户端，应用图标沿用原 iOS 客户端；相关历史来源与改动保留在 Git 历史中。
+原 Tauri/Vue 实现已重写为 SwiftUI 原生客户端；相关历史来源与改动保留在 Git 历史中。
 
 数据库组件 [GRDB.swift](https://github.com/groue/GRDB.swift) 使用其独立的 [MIT 许可](https://github.com/groue/GRDB.swift/blob/v7.0.0/LICENSE)。
 
