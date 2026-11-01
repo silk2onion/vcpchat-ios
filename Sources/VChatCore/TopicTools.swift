@@ -34,7 +34,7 @@ public enum MobileTopicTool {
         func manifest(_ kind: String,_ commands: [String],_ description: String) -> JSONValue {
             .object(["name": .string("Mobile\(kind)_\(suffix)"),"displayName": .string(kind),"pluginType": .string("synchronous"),"version": .string("1.0.0"),"entryPoint": .object(["command": .string("native:topics")]),"communication": .object(["protocol": .string("direct"),"timeout": .number(120000)]),"description": .string(description),"capabilities": .object(["invocationCommands": .array(commands.map { .object(["command": .string($0),"commandIdentifier": .string($0),"description": .string(description)]) })])])
         }
-        let common = "仅访问本机用户授权的Agent。maid用准确名字，重名时用agentId；topic_id必须来自本设备列表，不能混用Mac编号。offset/limit分页返回next_offset；读取正文时若next_content_offset非空，须同时携带next_offset与content_offset继续读取同条长消息。ReadUnlockedTopics的外层offset是话题偏移，history分页可用GetTopicContent继续读取。不修改或恢复历史。"
+        let common = "仅访问本机用户授权的Agent。maid用准确名字，重名时用agentId；topic_id必须来自本设备列表，不能混用Mac编号。offset/limit分页返回next_offset；读取正文时若next_content_offset非空，须同时携带next_offset与content_offset继续读取同条长消息。ReadUnlockedTopics的外层offset是话题偏移，history分页可用GetTopicContent继续读取。不覆盖已有消息，不恢复已删除话题。"
         var tools: [JSONValue] = []
         if policy.memo { tools.append(manifest("TopicMemo",["ListTopics","GetTopicContent"],common)) }
         if policy.deepMemo { tools.append(manifest("DeepMemo",["DeepMemo"],common + " keyword必需，支持短语、(关键词:权重)、[排除词]、{词1|词2:权重}；window_size为1–20，默认10。检索本机历史并返回前后上下文，不检索服务器日记。rerank:true需要用户配置精排服务。")) }

@@ -76,10 +76,9 @@ extension ChatStore {
             guard hits.count < limit,covered[match.topicID]?.contains(match.id) != true,let topic = topics.first(where: { $0.id == match.topicID && $0.ownerId == agentID }) else { continue }
             let messages = try await messages(topicID: topic.id)
             guard let at = messages.firstIndex(where: { $0.id == match.id }) else { continue }
-            // One turn contains an adjacent user/assistant pair; preserve surrounding
-            // dialogue and keep the selected hit present even for a single huge bubble.
-            let lower = max(0,at - window * 2), upper = min(messages.count,at + window * 2 + 1)
-            let selected = Array(messages[lower..<upper])
+            // Reuse the same user/assistant turn boundaries as context regex rules.
+            let depths = TurnDepths.calculate(messages), center = depths[messages[at].id] ?? 0
+            let selected = messages.filter { abs((depths[$0.id] ?? center) - center) <= window }
             let maxPerMessage = max(400,18_000 / max(1,selected.count))
             var excerpted = false
             let text = selected.map { message in
