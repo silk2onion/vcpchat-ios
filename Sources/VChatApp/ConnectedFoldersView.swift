@@ -22,11 +22,13 @@ struct ConnectedFoldersView: View {
             if folders.isEmpty { ContentUnavailableView("尚未连接文件夹",systemImage: "folder.badge.plus") }
         }.scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("连接文件夹").task { await refresh() }
         .navigationDestination(for: ConnectedFolderRoute.self) { route in
-            switch route {
-            case .node: FileNodeView(model: model)
-            case let .folder(id,name,path): ConnectedFolderBrowser(model: model,folderID: id,name: name,path: path)
-            case let .backups(id): ConnectedBackupsView(model: model,folderID: id)
-            }
+            Group {
+                switch route {
+                case .node: FileNodeView(model: model)
+                case let .folder(id,name,path): ConnectedFolderBrowser(model: model,folderID: id,name: name,path: path)
+                case let .backups(id): ConnectedBackupsView(model: model,folderID: id)
+                }
+            }.workspaceDetailNavigation()
         }
         .fileImporter(isPresented: $selecting,allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result { Task { do { guard let engine = model.connectedFolders else { throw ClientError.server("本机文件引擎尚未就绪") }; _ = try await engine.connect(url); await refresh() } catch { self.error = error.localizedDescription } } }

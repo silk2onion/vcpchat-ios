@@ -22,7 +22,7 @@ struct SyncView: View {
                     WorkspaceField(title: "桌面 HTTP 地址",palette: palette) { TextField("http://桌面:5974",text: $model.services.sync.httpURL).autocorrectionDisabled().accessibilityLabel("同步 HTTP 地址") }
                     WorkspaceField(title: "同步 WebSocket 地址",palette: palette) { TextField("ws://桌面:5975/",text: $model.services.sync.socketURL).autocorrectionDisabled().accessibilityLabel("同步 WebSocket 地址") }
                     WorkspaceField(title: "Mobile Sync Token",palette: palette) { SecureField("桌面同步 Token",text: Binding(get: { model.serviceSecrets[.syncToken] ?? "" },set: { model.serviceSecrets[.syncToken] = $0 })) }
-                    if model.credentialsLocked { Label("连接尚未解锁，请先在服务器设置中主动解锁",systemImage: "lock").font(.caption); NavigationLink("打开连接设置") { ConnectionView(model: model) } }
+                    if model.credentialsLocked { Label("连接尚未解锁，请先在服务器设置中主动解锁",systemImage: "lock").font(.caption); NavigationLink("打开连接设置") { ConnectionView(model: model,embedded: true) } }
                 }.padding(18).workspaceGlass(palette).disabled(model.synchronizing)
                 VStack(spacing: 12) {
                     Button("只拉取桌面内容",systemImage: "arrow.down") { start(.pull) }.workspaceAction(palette,primary: true).disabled(unavailable)

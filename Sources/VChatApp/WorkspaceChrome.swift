@@ -157,6 +157,22 @@ extension View {
         self
         #endif
     }
+    /// Pushed iOS pages keep the system back button and interactive transition.
+    /// Only a modal root receives a close action; it must not replace a pushed back button.
+    @ViewBuilder func workspacePageNavigation(title: String, palette: WorkspacePalette, note: String = "", close: (() -> Void)? = nil) -> some View {
+        #if os(iOS)
+        self.workspaceDetailNavigation().navigationTitle(title)
+            .toolbarBackground(palette.glass, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .principal) { Text(title).font(.system(size: 18, weight: .semibold)).foregroundStyle(palette.ink).lineLimit(1) }
+                if !note.isEmpty { ToolbarItem(placement: .topBarTrailing) { Text(note).font(.system(size: 11)).foregroundStyle(palette.muted) } }
+                if let close { ToolbarItem(placement: .cancellationAction) { Button("关闭", action: close) } }
+            }
+        #else
+        self.workspaceRootNavigation()
+        #endif
+    }
 }
 
 struct WorkspaceDetailHeader<Actions: View>: View {

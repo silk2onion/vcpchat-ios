@@ -92,7 +92,7 @@ struct WorkspaceView: View {
     private var me: some View {
         NavigationStack(path: $mePath) {
             MeHome(model: model,navigate: { screen in move { mePath.append(screen) } },avatar: { avatar = true },activity: { openActivity(0,.all) },settings: { move { mePath.append(MeScreen.settings) } })
-                .navigationDestination(for: MeScreen.self) { screen in if screen == .settings || screen == .profile { meScreen(screen) } else { meScreen(screen).workspaceDetailNavigation() } }
+                .navigationDestination(for: MeScreen.self) { screen in meScreen(screen).workspaceDetailNavigation() }
         }
     }
     @ViewBuilder private func meScreen(_ screen: MeScreen) -> some View {

@@ -29,6 +29,10 @@ public struct NativeRaster: View {
 struct RasterImageView: UIViewRepresentable {
     var data: Data; var animating: Bool
     func makeCoordinator() -> Coordinator { Coordinator() }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: SDAnimatedImageView, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
+    }
     func makeUIView(context: Context) -> SDAnimatedImageView { let view = SDAnimatedImageView(); view.contentMode = .scaleAspectFill; view.clipsToBounds = true; view.autoPlayAnimatedImage = false; view.maxBufferSize = 8_000_000; view.clearBufferWhenStopped = true; return view }
     func updateUIView(_ view: SDAnimatedImageView, context: Context) {
         if context.coordinator.data != data { context.coordinator.data = data; view.image = SDAnimatedImage(data: data) }
@@ -41,6 +45,10 @@ struct RasterImageView: UIViewRepresentable {
 struct RasterImageView: NSViewRepresentable {
     var data: Data; var animating: Bool
     func makeCoordinator() -> Coordinator { Coordinator() }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: SDAnimatedImageView, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else { return nil }
+        return CGSize(width: width, height: height)
+    }
     func makeNSView(context: Context) -> SDAnimatedImageView { let view = SDAnimatedImageView(); view.imageScaling = .scaleAxesIndependently; view.autoPlayAnimatedImage = false; view.maxBufferSize = 8_000_000; view.clearBufferWhenStopped = true; return view }
     func updateNSView(_ view: SDAnimatedImageView, context: Context) {
         if context.coordinator.data != data { context.coordinator.data = data; view.image = SDAnimatedImage(data: data) }

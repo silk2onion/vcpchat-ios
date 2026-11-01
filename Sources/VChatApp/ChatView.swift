@@ -16,6 +16,7 @@ struct ChatView: View {
     @State private var exporting = false
     @State private var exportDocument = TextExportDocument()
     @State private var newlineRequest = 0
+    @State private var creatingTopic = false
     var body: some View {
         Group {
             VStack(spacing: 0) {
@@ -45,8 +46,8 @@ struct ChatView: View {
             #endif
             .toolbar {
                 #if os(iOS)
-                ToolbarItem(placement: .principal) { titleButton }
-                ToolbarItemGroup(placement: .primaryAction) { headerActions }
+                ToolbarItem(placement: .principal) { titleButton.frame(maxWidth: 120) }
+                ToolbarItem(placement: .primaryAction) { HStack(spacing: 0) { headerActions } }
                 #endif
             }
             .sheet(isPresented: $showDeleted) { DeletedMessagesView(model: model, topicID: model.activeTopicID) }
@@ -71,6 +72,10 @@ struct ChatView: View {
     }
     private var headerActions: some View {
         Group {
+            Button(action: startNewTopic) { Image(systemName: "square.and.pencil").font(.system(size: 22)).frame(width: 44,height: 44).contentShape(Rectangle()) }
+                .disabled(model.loading || model.synchronizing || model.activeTopic == nil || creatingTopic)
+                .accessibilityLabel("新话题").accessibilityHint("为当前联系人开启独立话题，保留原话题和草稿")
+                .help("新话题")
             Button { showTopics = true } label: { WorkspaceGlyph("history").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("历史话题")
             Button { if let activity { activity() } else { showLog = true } } label: { WorkspaceGlyph("bell").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("通知与监视")
             Menu {
@@ -81,13 +86,21 @@ struct ChatView: View {
             } label: { Image(systemName: "ellipsis").frame(width: 44,height: 44).contentShape(Rectangle()) }.accessibilityLabel("对话菜单")
         }
     }
+    private func startNewTopic() {
+        guard !creatingTopic,let topic = model.activeTopic else { return }
+        creatingTopic = true
+        Task {
+            await model.createTopic(ownerID: topic.ownerId,ownerType: topic.ownerType)
+            creatingTopic = false
+        }
+    }
 
 }
 
 /// The high-frequency scroll trigger is isolated from navigation and the composer.
 private struct ChatTimeline: View {
     let model: ChatViewModel
-    @State private var followLatest = true
+    @State private var following = TranscriptFollowing()
     @State private var openSettings = false
     @State private var viewport = CGRect.zero
     var body: some View {
@@ -105,19 +118,38 @@ private struct ChatTimeline: View {
                             ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }
                             Color.clear.frame(height: 1).id("latest")
                         }.padding(.horizontal, 20).padding(.vertical, 22)
+                            .background {
+                                TranscriptScrollObserver { event in
+                                    switch event {
+                                    case .began: following.beginInteraction()
+                                    case .ended(let atLatest): following.endInteraction(atLatest: atLatest)
+                                    }
+                                }
+                            }
+                            .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { _ in
+                                if following.canScrollToLatest { scrollToLatest(proxy) }
+                            }
                     }
                     .environment(\.messageViewport, viewport)
-                    .background(GeometryReader { geometry in Color.clear.preference(key: ChatViewport.self, value: geometry.frame(in: .global)) })
-                    .onPreferenceChange(ChatViewport.self) { value in Task { @MainActor in viewport = value } }
-                    .defaultScrollAnchor(model.messages.isEmpty ? .top : .bottom)
-                    .onChange(of: model.frames) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
-                    .onChange(of: model.messages.count) { _, _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
+                    .coordinateSpace(name: "vcp-message-viewport")
+                    .onGeometryChange(for: CGSize.self,of: { $0.size }) { viewport = CGRect(origin: .zero,size: $0) }
+                    .defaultScrollAnchor(model.messages.isEmpty ? .top : (following.canScrollToLatest ? .bottom : nil))
+                    .onChange(of: model.frames) { _, _ in if following.canScrollToLatest { scrollToLatest(proxy) } }
+                    .onChange(of: model.messages.count) { _, _ in if following.canScrollToLatest { scrollToLatest(proxy) } }
+                    .onChange(of: model.activeTopicID) { _, _ in following.reset(); scrollToLatest(proxy) }
                     .overlay(alignment: .bottomTrailing) {
-                        Button { followLatest.toggle(); if followLatest { proxy.scrollTo("latest", anchor: .bottom) } } label: { Image(systemName: followLatest ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
-                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(followLatest ? "暂停跟随回复" : "跟随最新回复")
+                        Button {
+                            if following.mode == .following { following.pause() }
+                            else { following.resume(); scrollToLatest(proxy) }
+                        } label: { Image(systemName: following.mode == .following ? "pause.circle" : "arrow.down.circle.fill").font(.title2) }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(following.mode == .following ? "暂停跟随回复" : "回到最新")
                     }
                 }
             .sheet(isPresented: $openSettings) { ConnectionView(model: model) }
+    }
+    private func scrollToLatest(_ proxy: ScrollViewProxy) {
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction) { proxy.scrollTo(model.messages.last?.id ?? "latest",anchor: .bottom) }
     }
 }
 
@@ -139,15 +171,17 @@ private struct NativeMessageRow: View {
                     let author = model.authorAgent(for: message),name = message.authorName.isEmpty ? author?.name ?? "助手" : message.authorName
                     HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",symbol: author?.avatar ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
                 }
-                VStack(alignment: .leading,spacing: 12) {
-                    if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
-                    if let notice = message.syncNotice { Label(notice,systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(palette.muted) }
-                    if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(palette.muted).textSelection(.enabled) } }
-                    RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user").font(.system(size: 16)).lineSpacing(5)
-                }.padding(.horizontal,message.role == "user" ? 16 : 17).padding(.vertical,message.role == "user" ? 10 : 15)
+                MessageActions(message: message,model: model) {
+                    VStack(alignment: .leading,spacing: 12) {
+                        if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
+                        if let notice = message.syncNotice { Label(notice,systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(palette.muted) }
+                        if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(palette.muted).textSelection(.disabled) } }
+                        RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user").font(.system(size: 16)).lineSpacing(5)
+                    }.environment(\.messageTextSelectionEnabled,false)
+                    .padding(.horizontal,message.role == "user" ? 16 : 17).padding(.vertical,message.role == "user" ? 10 : 15)
                     .background(message.role == "user" ? palette.glass : palette.soft,in: UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20))
                     .overlay(UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20).stroke(glowing ? palette.accent.opacity(0.45) : palette.line,lineWidth: 0.7))
-                if !streaming { MessageActions(message: message,model: model).fixedSize(horizontal: message.role == "user",vertical: false) }
+                }
             }
         }.frame(maxWidth: .infinity,alignment: message.role == "user" ? .trailing : .leading)
         .opacity(motion && !entered ? 0 : 1).offset(y: motion && !entered ? 10 : 0).scaleEffect(motion && !entered ? 0.985 : 1)
@@ -156,5 +190,3 @@ private struct NativeMessageRow: View {
     }
     private func updateGlow() { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { glowing = false }; if streaming && motion { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { glowing = true } } }
 }
-
-private struct ChatViewport: PreferenceKey { static let defaultValue = CGRect.zero; static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() } }
