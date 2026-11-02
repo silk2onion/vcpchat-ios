@@ -9,43 +9,63 @@ SwiftUI 原生客户端，为 iPhone 上的日常聊天与多 Agent 协作而设
 <img alt="iOS 17 及更新版本" src="https://img.shields.io/badge/iOS-17%2B-183D38?style=flat-square&amp;logo=apple&amp;logoColor=white" />
 <img alt="SwiftUI 原生界面" src="https://img.shields.io/badge/UI-SwiftUI-418577?style=flat-square" />
 
-[**下载 VChat**](https://github.com/silk2onion/vcpchat-ios/releases/latest)　·　[快速开始](#快速开始)　·　[桌面与文件](#连接你的工作空间)　·　[从源码运行](#从源码运行)
+[**下载 VChat**](https://github.com/silk2onion/vcpchat-ios/releases/latest)　·　[功能介绍](#功能介绍)　·　[快速开始](#快速开始)　·　[桌面与文件](#连接你的工作空间)　·　[从源码运行](#从源码运行)
 
 </div>
 
 ---
 
-## 一个随身的 Agent 工作空间
+## 功能介绍
+
+**会话**管理日常对话，**通讯录**管理 Agent 与群聊，**发现**查看 VCP 动态，**我**集中管理资料、文件、同步与设置。
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h3>💬 随时接着聊</h3>
-      流式回复、独立话题与本机历史。发送文字、照片和文件，搜索、编辑或导出你的对话。
+      <h3>💬 聊天与话题</h3>
+      <p>发送文字、照片和文件，实时接收流式回复。每位 Agent 和群聊都有独立话题与草稿，切换话题时回复继续接收。</p>
+      <p>支持搜索历史、编辑消息、继续写、重新生成与 Markdown 导出，聊天记录保存在本机。</p>
     </td>
     <td width="50%" valign="top">
-      <h3>👥 你的 Agent 团队</h3>
-      自定义头像、提示词与模型，选择主 Agent；把不同角色加入群聊，按点名、轮流或随机方式协作。
+      <h3>👥 Agent 与群聊</h3>
+      <p>为 Agent 设置名字、头像、系统提示词、模型与音色，将常用角色设为主 Agent。</p>
+      <p>多个 Agent 可加入同一群聊，保留各自身份，按点名、轮流、随机或全员回复的方式参与对话。</p>
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h3>🔄 桌面与手机衔接</h3>
-      从 VCPChat 同步 Agent、群聊与历史会话，把桌面的对话带到手机，继续交流。
+      <h3>✨ 富内容与工具卡片</h3>
+      <p>阅读 Markdown、代码、公式与 Mermaid 图表，查看图片、GIF 和视频；HTML 气泡支持动画与交互。</p>
+      <p>工具请求、执行结果、思考链与日记以可展开卡片呈现，正文与执行过程分开阅读。</p>
     </td>
     <td valign="top">
-      <h3>📂 资料就在手边</h3>
-      管理本机与服务器文件，连接工作文件夹，随手记录笔记、查阅和编辑服务器日记。
+      <h3>🔄 桌面同步</h3>
+      <p>连接桌面 VCPChat，同步 Agent、群组、话题、消息与头像，在手机上接着聊。</p>
+      <p>支持只拉取桌面内容或双向同步，保留手机原有记录，并提供同步恢复点。</p>
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h3>✨ 回复不止于文字</h3>
-      Markdown、代码、公式、Mermaid 图表与交互式 HTML 气泡，让复杂内容清楚呈现。
+      <h3>📂 文件、笔记与日记</h3>
+      <p>导入、预览、分享文件，连接工作文件夹与服务器文件；创建本机笔记，搜索和编辑服务器日记。</p>
+      <p>可为 Agent 授予目录访问权限，通过移动版 FileOperator 在手机前台运行时读写授权文件。</p>
     </td>
     <td valign="top">
-      <h3>🎧 听回复，看动态</h3>
-      用 SoVITS 或 MiMo 朗读消息，在通知中心处理工具审批、查看 VCPLog 与 RAG 检索结果。
+      <h3>🎧 语音朗读</h3>
+      <p>连接 SoVITS v2ProPlus 或 MiMo TTS，把助手回复读出来。不同 Agent 可使用各自的音色、语速与导演提示词。</p>
+      <p>支持音色试听、长文本朗读，以及播放、暂停、继续和停止。</p>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h3>🔔 通知、审批与 RAG</h3>
+      <p>在通知中心查看 VCPLog 与工具执行动态，检查待审批操作的命令、参数和变更预览，选择允许或拒绝。</p>
+      <p>RAG 监视器展示检索来源、分数、标签与正文，也可查看记忆检索、思考链和 Agent 会话事件。</p>
+    </td>
+    <td valign="top">
+      <h3>🎨 个性化与数据管理</h3>
+      <p>选择主题、自定义壁纸与动态头像，调整回车发送或换行，以及代码、公式、图表和 HTML 的显示。</p>
+      <p>全局与 Agent 专属正则可处理显示和发送内容，支持配置导入导出；聊天记录可备份、恢复，连接密钥存入系统钥匙串。</p>
     </td>
   </tr>
 </table>
