@@ -154,7 +154,13 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
             while !Task.isCancelled,generation == own,let input = pending {
                 pending = nil
                 do {
-                    _ = try await web.callAsyncJavaScript("window.VCPBubbleStream.update(source,streaming,epoch)",arguments: ["source":input.source,"streaming":input.streaming,"epoch":own.uuidString],in: nil,contentWorld: .defaultClient)
+                    // The public refined Objective-C entry point avoids Xcode 16.4's
+                    // missing Swift WebKit overlay in older simulator runtimes.
+                    try await withCheckedThrowingContinuation { (reply: CheckedContinuation<Void,any Error>) in
+                        web.__callAsyncJavaScript("window.VCPBubbleStream.update(source,streaming,epoch)",arguments: ["source":input.source,"streaming":input.streaming,"epoch":own.uuidString],inFrame: nil,in: .defaultClient) { _,error in
+                            if let error { reply.resume(throwing: error) } else { reply.resume() }
+                        }
+                    }
                 } catch {
                     if generation == own,!Task.isCancelled { failed = true; failureMessage = "气泡更新失败，重新进入可加载"; unmount() }
                     break
