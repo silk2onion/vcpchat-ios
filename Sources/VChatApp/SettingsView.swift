@@ -37,7 +37,7 @@ struct SettingsView: View {
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { ProfileEditor(model: model,profile: model.profile).workspaceDetailNavigation() } label: { row("身份与日记","agents","称呼与服务器日记账号",blue: true) }
                         WorkspaceSeparator(palette: palette)
-                        NavigationLink { LocationSettingsView(model: model).workspaceDetailNavigation() } label: { row("位置与出行","location",model.locationSettings.enabled ? "向选定 Agent 提供当前位置" : "按需分享位置与常用行程",blue: true) }
+                        NavigationLink { LocationSettingsView(model: model).workspaceDetailNavigation() } label: { row("位置共享","location",model.locationSettings.enabled ? "向选定 Agent 提供当前位置" : "按需分享位置与常用地点",blue: true) }
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { SpeechSettingsView(model: model).workspaceDetailNavigation() } label: { row("语音与朗读","speaker","SoVITS / MiMo · 每个 Agent 的声音") }
                         WorkspaceSeparator(palette: palette)

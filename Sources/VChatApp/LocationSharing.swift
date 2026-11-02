@@ -169,9 +169,26 @@ extension ChatViewModel {
         room.locationPreference = .include; location.authorize(); prefetchLocation()
     }
     func omitLocationOnce() { guard let room,!room.busy else { return }; room.locationPreference = .omit }
-    func saveLocationSettings() async {
-        do { try await store?.put(locationSettings,kind: "location-options",id: "sharing") }
-        catch { self.error = error.localizedDescription }
+    @discardableResult func saveLocationSettings() async -> Bool {
+        do { try await store?.put(locationSettings,kind: "location-options",id: "sharing"); return true }
+        catch { self.error = error.localizedDescription; return false }
+    }
+    @discardableResult func saveLocationPlace(_ place: LocationPlace) async -> Bool {
+        var next = locationSettings
+        if let index = next.places.firstIndex(where: { $0.id == place.id }) { next.places[index] = place }
+        else { next.places.append(place) }
+        return await persistLocationSettings(next)
+    }
+    @discardableResult func removeLocationPlace(_ id: String) async -> Bool {
+        var next = locationSettings; next.places.removeAll { $0.id == id }
+        return await persistLocationSettings(next)
+    }
+    func persistLocationSettings(_ next: LocationSharingSettings) async -> Bool {
+        do {
+            guard let store else { throw ClientError.server("本机数据尚未就绪，请稍后重试") }
+            try await store.put(next,kind: "location-options",id: "sharing")
+            locationSettings = next; return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     func prepareLocation(for agents: [VCPAgent],preference: LocationMessagePreference) async -> LocationRequestContext? {
         let settings = locationSettings

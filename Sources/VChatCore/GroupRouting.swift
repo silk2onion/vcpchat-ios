@@ -55,7 +55,7 @@ public actor ConversationBuilder {
         }
         if !agent.systemPrompt.isEmpty { system.append(agent.systemPrompt) }
         if output.animatedBubbles { system.append("输出规范要求：{{VarDivRender}}") }
-        if let location {
+        if let location = location?.forAgent(agent.id) {
             system.append(location.policy)
             system.append(try location.tray())
         }
