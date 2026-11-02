@@ -27,16 +27,16 @@ public actor MessageRenderer {
         for segment in VCPMarkup.parse(source, protectingHTMLLiterals: HTMLIslandPolicy.accepts(source)) {
             switch segment {
             case .text(let prose):
-                if let island = island(prose,options: options,streaming: streaming) { output.append(island) }
+                if let island = island(prose,options: options) { output.append(island) }
                 else { output += try markdown(prose, options: options, dark: dark) }
             default: output.append(.vcp(segment))
             }
         }
         return output
     }
-    private func island(_ source: String,options: RenderOptions,streaming: Bool) -> RenderBlock? {
+    private func island(_ source: String,options: RenderOptions) -> RenderBlock? {
         guard HTMLIslandPolicy.accepts(source) else { return nil }
-        return options.html ? (streaming ? .literal("视觉气泡生成中…") : .html(source)) : .literal(source)
+        return options.html ? .html(source) : .literal(source)
     }
     private func markdown(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
         self.dark = dark

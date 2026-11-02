@@ -9,6 +9,7 @@ import AppKit
 
 @MainActor @Observable private final class RenderState {
     var blocks: [RenderBlock] = []
+    var streaming = false
     @ObservationIgnored private var pending: Input?
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
@@ -22,7 +23,7 @@ import AppKit
                 pending = nil
                 do {
                     let rendered = try await MessageRenderer.shared.render(input.source, options: input.options, dark: input.dark, streaming: input.streaming, rules: input.rules, role: input.role, depth: input.depth)
-                    if !Task.isCancelled && generation == id { blocks = rendered }
+                    if !Task.isCancelled && generation == id { blocks = rendered; streaming = input.streaming }
                     try await Task.sleep(for: .milliseconds(70))
                 } catch is CancellationError { break }
                 catch { blocks = [.literal("消息渲染失败：" + error.localizedDescription)] }
@@ -50,7 +51,7 @@ public struct RichMessageBody: View {
         Group {
             if plain { Text(verbatim: source).modifier(MessageTextSelection()) }
             else if rendering.blocks.isEmpty { Text("正在排版…").font(.caption).foregroundStyle(.secondary).frame(minHeight: 44) }
-            else { NativeBlocks(blocks: rendering.blocks, options: options).equatable() }
+            else { NativeBlocks(blocks: rendering.blocks, options: options,streaming: rendering.streaming).equatable() }
         }
         .frame(maxWidth: expandsToFill ? .infinity : nil, alignment: .leading)
         .onChange(of: RenderState.Input(source: source, options: options, dark: scheme == .dark, streaming: streaming, rules: rules, role: role, depth: depth), initial: true) { _, input in
@@ -68,6 +69,7 @@ public struct RichMessageBody: View {
 private struct NativeBlocks: View, Equatable {
     var blocks: [RenderBlock]
     var options: RenderOptions
+    var streaming = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in blockView(block) }
@@ -75,15 +77,15 @@ private struct NativeBlocks: View, Equatable {
     }
     @ViewBuilder func blockView(_ block: RenderBlock) -> some View {
         switch block {
-        case .html(let source): HTMLIsland(source: source, options: options)
+        case .html(let source): HTMLIsland(source: source, options: options,streaming: streaming)
         case .diagram(let source,let raster): VStack(alignment: .leading,spacing: 8) { NativeDiagram(source: source,raster: raster); DisclosureGroup("图表源码") { NativeCode(language: "mermaid",source: source,spans: []) } }
         case .vcp(let segment): VCPCardView(segment: segment, options: options)
         case .literal(let text): Text(verbatim: text).modifier(MessageTextSelection())
         case .paragraph(let runs): InlineBody(runs: runs,animations: options.motion)
         case .heading(let level, let text): InlineBody(runs: text,animations: options.motion).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
-        case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
+        case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options,streaming: streaming).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
         case .list(let items, let start):
-            VStack(alignment: .leading, spacing: 8) { ForEach(Array(items.enumerated()), id: \.offset) { index, blocks in HStack(alignment: .top, spacing: 8) { Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary); NativeBlocks(blocks: blocks, options: options) } } }
+            VStack(alignment: .leading, spacing: 8) { ForEach(Array(items.enumerated()), id: \.offset) { index, blocks in HStack(alignment: .top, spacing: 8) { Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary); NativeBlocks(blocks: blocks, options: options,streaming: streaming) } } }
         case .rule: Divider()
         case .math(let source): ScrollView(.horizontal) { NativeMath(source).fixedSize().padding(.vertical, 3) }
         case .code(let language, let code, let spans): NativeCode(language: language, source: code, spans: spans)
