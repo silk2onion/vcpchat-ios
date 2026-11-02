@@ -43,7 +43,7 @@ public enum GroupRouting {
 }
 public actor ConversationBuilder {
     public init() {}
-    public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = [], output: OutputPreferences = .init()) async throws -> ChatRequest {
+    public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = [], output: OutputPreferences = .init(), location: LocationRequestContext? = nil) async throws -> ChatRequest {
         var config = configuration
         config.model = ModelResolution.resolve(global: configuration.model,agent: agent,group: group)
         guard !config.model.isEmpty else { throw ClientError.server("「\(agent.name)」还没有模型，请先设置默认模型") }
@@ -55,6 +55,10 @@ public actor ConversationBuilder {
         }
         if !agent.systemPrompt.isEmpty { system.append(agent.systemPrompt) }
         if output.animatedBubbles { system.append("输出规范要求：{{VarDivRender}}") }
+        if let location {
+            system.append(location.policy)
+            system.append(try location.tray())
+        }
         var turns: [ChatTurn] = []
         if !system.isEmpty { turns.append(ChatTurn(role: "system", content: system.joined(separator: "\n\n"))) }
         let window = Array(messages.suffix(32)), depths = TurnDepths.calculate(Array(messages.suffix(32))), allRules = rules + agent.regexRules
