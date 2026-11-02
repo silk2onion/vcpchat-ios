@@ -73,6 +73,8 @@ struct TopicDraft: Codable, Sendable {
     var credentialsLocked = false
     var unlockingCredentials = false
     var savingConnection = false
+    var connectingPush = false
+    var restoringConnections = false
     var loading = true
     var backgrounded = false
     var synchronizing = false
@@ -154,6 +156,7 @@ struct TopicDraft: Codable, Sendable {
             loading = false
             // Do not call Security APIs on startup, even with a no-interaction hint.
             credentialsLocked = !credentialsInMemory && (UserDefaults.standard.data(forKey: "native.connection") != nil || UserDefaults.standard.bool(forKey: "native.secrets-exist"))
+            await restoreRequestedConnections()
         } catch { self.error = error.localizedDescription }
         loading = false
     }
@@ -342,11 +345,6 @@ struct TopicDraft: Codable, Sendable {
             if (try? configuration.endpoint("v1/models").absoluteString) == endpoint { catalog = updated; models = updated.ids; if configuration.model.isEmpty { configuration.model = updated.ids.first ?? "" } }
         } catch { self.error = error.localizedDescription }
     }
-    func connectPush() {
-        let server = services.logServer.isEmpty ? configuration.server : services.logServer, key = logKey
-        let secrets = [apiKey,logKey] + Array(serviceSecrets.values)
-        Task { await activity.connect(server: server,key: key,secrets: secrets) }
-    }
     func attach(_ items: [ChatAttachment], to topicID: String) async {
         guard let room = rooms[topicID] else { return }
         do { try AttachmentImporter.assertCount(room.attachments.count, adding: items.count); room.attachments += items; room.draftSave?.cancel(); try await store?.put(TopicDraft(id: room.id, text: room.draft, attachments: room.attachments), kind: "draft", id: room.id); room.error = nil }
@@ -490,10 +488,10 @@ struct TopicDraft: Codable, Sendable {
         await flushDraft()
     }
     func enterForeground() async {
+        let wasBackgrounded = backgrounded
         backgrounded = false
         for room in Array(rooms.values) { await room.session.setBackgroundPacing(false) }
-        if activity.enabled && !logKey.isEmpty { connectPush() }
-        if fileNode.active { await connectMobileTools(persist: false) }
+        if wasBackgrounded { await restoreRequestedConnections() }
     }
     func suspend() async { await enterBackground(); await interruptForBackground() }
     func searchLocal() async {

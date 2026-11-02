@@ -31,8 +31,8 @@ struct ActivityView: View {
                 ForEach(PushChannel.allCases,id: \.self) { channel in
                     VStack(alignment: .leading,spacing: 5) { HStack(spacing: 5) { Circle().fill(model.activity.statuses[channel] == "已连接" ? palette.accent : palette.muted).frame(width: 6,height: 6); Text(channel.title).font(.system(size: 12)) }; Text(model.activity.statuses[channel] ?? "未连接").font(.system(size: 11)).foregroundStyle(palette.muted).padding(.leading,11) }.frame(maxWidth: .infinity,alignment: .leading)
                 }
-                Button { model.connectPush() } label: { WorkspaceGlyph("history",size: 18).frame(width: 36,height: 36).background(palette.input,in: Circle()) }.accessibilityLabel("重新连接通知")
-                Menu { Button("连接设置") { connection = true }; Button("全部标为已读") { Task { await model.activity.markRead() } }; Button("清理已处理日志",role: .destructive) { clearing = true }; Button("断开连接") { Task { await model.activity.disconnect() } } } label: { WorkspaceGlyph("more",size: 18).frame(width: 32,height: 36) }.menuStyle(.borderlessButton).buttonStyle(.plain).fixedSize().accessibilityLabel("通知选项")
+                Button { if model.credentialsLocked { connection = true } else { Task { await model.reconnectPush() } } } label: { WorkspaceGlyph("history",size: 18).frame(width: 36,height: 36).background(palette.input,in: Circle()) }.accessibilityLabel("重新连接通知")
+                Menu { Button("连接设置") { connection = true }; Button("全部标为已读") { Task { await model.activity.markRead() } }; Button("清理已处理日志",role: .destructive) { clearing = true }; Button("断开连接") { Task { await model.disconnectPush() } } } label: { WorkspaceGlyph("more",size: 18).frame(width: 32,height: 36) }.menuStyle(.borderlessButton).buttonStyle(.plain).fixedSize().accessibilityLabel("通知选项")
             }.padding(.horizontal,18).padding(.vertical,12)
             HStack(spacing: 4) {
                 ForEach(0..<3) { index in

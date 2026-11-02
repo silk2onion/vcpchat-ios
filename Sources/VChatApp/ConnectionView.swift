@@ -46,7 +46,8 @@ struct ConnectionView: View {
                         VStack(alignment: .leading,spacing: 20) {
                             WorkspaceField(title: "日志地址（留空使用聊天服务器）",palette: palette) { TextField("日志服务器",text: $model.services.logServer).autocorrectionDisabled() }
                             WorkspaceField(title: "VCPLog Key",palette: palette) { SecureField("与聊天 Key 分开",text: $model.logKey).accessibilityLabel("VCPLog Key") }
-                            Button("连接 WebSocket") { model.connectPush() }.workspaceAction(palette,primary: true)
+                            Button(model.connectingPush ? "正在保存并连接…" : "保存并连接 WebSocket") { Task { await model.saveAndConnectPush() } }.workspaceAction(palette,primary: true).disabled(model.connectingPush || model.savingConnection)
+                            Text("记住连接状态；回到前台自动重连。重开 App 后，解锁已有连接即可恢复。").font(.caption).foregroundStyle(palette.muted)
                             ForEach(PushChannel.allCases,id: \.self) { channel in LabeledContent(channel.title,value: model.activity.statuses[channel] ?? "未连接").font(.system(size: 13)) }
                         }.padding(18).workspaceGlass(palette,radius: 20)
                     }

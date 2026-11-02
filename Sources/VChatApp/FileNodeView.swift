@@ -11,7 +11,7 @@ import VChatCore
         do { let updates = try await node.start(settings,key: key); task = Task { for await value in updates { if Task.isCancelled { return }; status = value } } }
         catch { active = false; status = error.localizedDescription }
     }
-    func pause() async { await node?.stop(); task?.cancel(); task = nil; status = "后台暂停" }
+    func pause() async { await node?.stop(); task?.cancel(); task = nil; if active { status = "后台暂停" } }
     func stop() async { active = false; await node?.stop(); task?.cancel(); task = nil; status = "未连接" }
 }
 struct FileNodeView: View {
@@ -26,7 +26,7 @@ struct FileNodeView: View {
                 TextField("设备名称",text: $model.services.fileNode.name)
                 LabeledContent("状态",value: model.fileNode.status)
                 Button(model.fileNode.active ? "保存并重新发布工具" : "保存并连接") { Task { await model.connectMobileTools(); error = model.error } }.workspaceRowAction()
-                Button("停止发布") { Task { model.services.fileNode.enabled = false; await model.fileNode.stop(); _ = await model.saveServices() } }.workspaceRowAction().disabled(!model.fileNode.active)
+                Button("停止发布") { Task { await model.disconnectMobileTools(); error = model.error } }.workspaceRowAction().disabled(!model.services.fileNode.enabled && !model.fileNode.active)
                 Text("iPhone 退到后台时暂停节点；回到前台可重新连接。持续运行的节点适合放在 Mac 或服务器。").font(.caption).foregroundStyle(.secondary)
             }
             Section("话题与回忆工具") {
@@ -69,7 +69,14 @@ struct FileNodeView: View {
 extension ChatViewModel {
     func connectMobileTools(persist: Bool = true) async {
         guard let folders = connectedFolders,let store else { error = "本机数据尚未就绪"; return }
-        if persist { services.fileNode.enabled = true; guard await saveServices() else { return } }
+        if persist {
+            do { _ = try MobileFileTool.endpoint(server: services.fileNode.server,key: serviceSecrets[.fileNodeKey] ?? "") }
+            catch { self.error = error.localizedDescription; return }
+            let previous = services.fileNode.enabled
+            services.fileNode.enabled = true
+            guard await saveServices() else { services.fileNode.enabled = previous; return }
+        }
+        guard !backgrounded else { fileNode.status = "后台暂停"; return }
         await fileNode.start(settings: services.fileNode,key: serviceSecrets[.fileNodeKey] ?? "",folders: folders,store: store,rerank: services.recallRerank,rerankKey: serviceSecrets[.recallRerankKey] ?? "",topicChanged: { [weak self] id in await self?.reloadTopicTools(changedID: id) })
     }
     func reloadTopicTools(changedID: String) async {

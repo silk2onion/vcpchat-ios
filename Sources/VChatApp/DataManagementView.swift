@@ -77,6 +77,8 @@ extension ChatViewModel {
     func forgetCredentials() async throws {
         guard !synchronizing,!rooms.values.contains(where: \.busy),!savingConnection,!unlockingCredentials else { throw ClientError.server("请先停止生成并等待连接操作完成") }
         synchronizing = true; defer { synchronizing = false }
+        var disabled = services; disabled.logsEnabled = false; disabled.fileNode.enabled = false
+        try await store?.put(disabled,kind: "services",id: "settings"); services = disabled
         speech.stop(); await activity.disconnect(); await fileNode.stop()
         apiKey = ""; logKey = ""; serviceSecrets = [:]
         let failures = await vault.remove(["chat-api-key","vcp-log-key"] + ServiceSecret.allCases.map(\.rawValue))
