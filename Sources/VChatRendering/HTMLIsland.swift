@@ -73,6 +73,7 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
             view = WKWebView(frame: .zero, configuration: config)
             #if os(iOS)
             view.isOpaque = false; view.backgroundColor = .clear; view.scrollView.isScrollEnabled = false
+            view.scrollView.showsVerticalScrollIndicator = false
             view.scrollView.pinchGestureRecognizer?.isEnabled = false
             #else
             view.underPageBackgroundColor = .clear
@@ -119,10 +120,9 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
         guard message.frameInfo.isMainFrame, let number = message.body as? NSNumber else { return }
         let value = number.doubleValue
         if value.isFinite {
-            height = min(1400, max(44, value))
-            #if os(iOS)
-            view?.scrollView.isScrollEnabled = value > 1400
-            #endif
+            // The transcript owns vertical scrolling, even for a long bubble.
+            // ResizeObserver also lets the bubble shrink after dynamic updates.
+            height = max(44, value)
         }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
