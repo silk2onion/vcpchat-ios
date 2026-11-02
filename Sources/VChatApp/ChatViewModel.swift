@@ -160,9 +160,8 @@ struct TopicDraft: Codable, Sendable {
             await activity.load(store: database)
             await loadCatalog()
             loading = false
-            // Do not call Security APIs on startup, even with a no-interaction hint.
-            credentialsLocked = !credentialsInMemory && (UserDefaults.standard.data(forKey: "native.connection") != nil || UserDefaults.standard.bool(forKey: "native.secrets-exist"))
-            await restoreRequestedConnections()
+            credentialsLocked = true
+            await loadCredentials(allowInteraction: false)
             prefetchLocation()
         } catch { self.error = error.localizedDescription }
         loading = false
@@ -504,7 +503,10 @@ struct TopicDraft: Codable, Sendable {
         let wasBackgrounded = backgrounded
         backgrounded = false
         for room in Array(rooms.values) { await room.session.setBackgroundPacing(false) }
-        if wasBackgrounded { await restoreRequestedConnections() }
+        if wasBackgrounded {
+            if credentialsLocked { await loadCredentials(allowInteraction: false) }
+            else { await restoreRequestedConnections() }
+        }
     }
     func suspend() async { await enterBackground(); await interruptForBackground() }
     func searchLocal() async {

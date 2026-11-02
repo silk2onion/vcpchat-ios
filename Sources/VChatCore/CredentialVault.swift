@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import LocalAuthentication
 
 /// Credentials never enter UserDefaults, the chat database, source code or diagnostic logs.
 public actor CredentialVault {
@@ -14,13 +15,22 @@ public actor CredentialVault {
     public enum AccessError: Error { case authorizationRequired }
     public func read(_ name: String, allowingInteraction: Bool = true) throws -> String {
         if persistence == .session { return sessionValues[name] ?? "" }
-        guard allowingInteraction else { throw AccessError.authorizationRequired }
         var value: CFTypeRef?
-        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name, kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne]
+        let query = Self.readQuery(service: service,name: name,allowingInteraction: allowingInteraction)
         let status = SecItemCopyMatching(query as CFDictionary, &value)
         if status == errSecItemNotFound { return "" }
+        if [errSecInteractionNotAllowed,errSecAuthFailed,errSecUserCanceled].contains(status) { throw AccessError.authorizationRequired }
         guard status == errSecSuccess, let data = value as? Data, let text = String(data: data, encoding: .utf8) else { throw ClientError.server("无法读取本机钥匙串（\(status)）") }
         return text
+    }
+    /// Silent restoration must actually query saved items, without opening system UI.
+    static func readQuery(service: String,name: String,allowingInteraction: Bool) -> [CFString: Any] {
+        var query: [CFString: Any] = [kSecClass: kSecClassGenericPassword,kSecAttrService: service,kSecAttrAccount: name,kSecReturnData: true,kSecMatchLimit: kSecMatchLimitOne]
+        if !allowingInteraction {
+            let context = LAContext(); context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext] = context
+        }
+        return query
     }
     public func save(_ value: String, name: String) throws {
         if persistence == .session { if value.isEmpty { sessionValues.removeValue(forKey: name) } else { sessionValues[name] = value }; return }
