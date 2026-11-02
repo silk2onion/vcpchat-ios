@@ -29,12 +29,14 @@ public struct SSEDecoder: Sendable {
         let object = try JSONDecoder().decode(Completion.self, from: Data(payload.utf8))
         if let error = object.error { throw ClientError.server(error.message ?? "模型服务返回错误") }
         guard let choice = object.choices?.first else { return TokenDelta() }
-        return TokenDelta(text: choice.delta?.content ?? choice.message?.content ?? "", reasoning: choice.delta?.reasoning_content ?? choice.delta?.reasoning ?? "", done: choice.finish_reason != nil)
+        // VCP forwards each model round's finish_reason before executing its tools
+        // and continuing on this same stream. Only [DONE] ends the whole request.
+        return TokenDelta(text: choice.delta?.content ?? choice.message?.content ?? "", reasoning: choice.delta?.reasoning_content ?? choice.delta?.reasoning ?? "")
     }
     private struct Completion: Decodable {
         struct APIError: Decodable { let message: String? }
         struct Delta: Decodable { let content: String?; let reasoning_content: String?; let reasoning: String? }
-        struct Choice: Decodable { let delta: Delta?; let message: Delta?; let finish_reason: String? }
+        struct Choice: Decodable { let delta: Delta?; let message: Delta? }
         let choices: [Choice]?; let error: APIError?
     }
 }
