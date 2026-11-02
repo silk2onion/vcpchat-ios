@@ -32,6 +32,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual build 2>&1 | tee "$VCHAT_ARTIFACTS/results/ios-build.log"
       - name: Launch native app on simulator
         run: |
+          set -euo pipefail
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
@@ -39,6 +40,10 @@ jobs:
           xcrun simctl install "$device" "$app"
           xcrun simctl launch "$device" app.vcpchat.native | tee "$VCHAT_ARTIFACTS/results/simulator-launch.log"
           sleep 3
+          pid=$(awk -F': ' '/^app\.vcpchat\.native:/ { print $2 }' "$VCHAT_ARTIFACTS/results/simulator-launch.log")
+          [[ "$pid" =~ ^[0-9]+$ ]]
+          xcrun simctl spawn "$device" launchctl list > "$VCHAT_ARTIFACTS/results/simulator-processes.log"
+          awk -v pid="$pid" '$1 == pid && index($3,"UIKitApplication:app.vcpchat.native[") == 1 { found=1 } END { exit !found }' "$VCHAT_ARTIFACTS/results/simulator-processes.log"
           mkdir -p "$VCHAT_ARTIFACTS/products"
           xcrun simctl io "$device" screenshot "$VCHAT_ARTIFACTS/products/VChat-iOS.png"
           ditto -c -k --keepParent "$app" "$VCHAT_ARTIFACTS/products/VChat-iOS-simulator.zip"
