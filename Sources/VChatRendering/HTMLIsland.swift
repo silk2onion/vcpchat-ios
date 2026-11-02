@@ -52,6 +52,18 @@ public enum HTMLIslandPolicy {
     }
 }
 
+private enum IslandScripts {
+    static let markdown: String? = load(["marked.min", "bubble-markdown"])
+    static func load(_ names: [String]) -> String? {
+        var scripts: [String] = []
+        for name in names {
+            guard let url = Bundle.module.url(forResource: name,withExtension: "js"),let source = try? String(contentsOf: url,encoding: .utf8) else { return nil }
+            scripts.append(source)
+        }
+        return scripts.joined(separator: "\n;\n")
+    }
+}
+
 private struct ViewportKey: EnvironmentKey { static let defaultValue: CGRect? = nil }
 extension EnvironmentValues { public var messageViewport: CGRect? { get { self[ViewportKey.self] } set { self[ViewportKey.self] = newValue } } }
 @MainActor @Observable private final class IslandPool {
@@ -100,17 +112,18 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
     var failed = false
     @ObservationIgnored private var document = ""
     func mount(_ document: String, media: Bool) {
+        guard let markdownScript = IslandScripts.markdown else { failed = true; return }
         guard let web = view ?? IslandPool.shared.take(id) else { return }
         guard view == nil || self.document != document else { return }
         view = web; self.document = document; failed = false
         web.configuration.userContentController.removeAllScriptMessageHandlers()
         web.configuration.userContentController.removeAllUserScripts()
-        web.configuration.userContentController.add(self, name: "vcpHeight")
+        web.configuration.userContentController.add(self,contentWorld: .defaultClient,name: "vcpHeight")
         // The bridge accepts height only, and carries no native commands or secrets.
-        let script = """
+        let script = markdownScript + "\n;window.VCPBubbleMarkdown(document.body);\n" + """
         (()=>{let previous=0;const measure=()=>{let h=Math.ceil(document.body.getBoundingClientRect().height);if(h!==previous){previous=h;window.webkit.messageHandlers.vcpHeight.postMessage(h)}};new ResizeObserver(measure).observe(document.body);measure()})();
         """
-        web.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        web.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         web.navigationDelegate = self
         web.setAllMediaPlaybackSuspended(!media)
         web.loadHTMLString(document, baseURL: nil)
