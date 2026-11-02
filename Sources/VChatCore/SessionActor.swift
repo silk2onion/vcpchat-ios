@@ -62,6 +62,9 @@ public actor SessionActor {
     private func receiveChat(_ request: ChatRequest, url: URL, id: UUID) async {
         do {
             var call = URLRequest(url: url); call.httpMethod = "POST"
+            // Tool execution may pause the SSE body longer than the short model-
+            // discovery timeout. Keep the chat request within its 10-minute budget.
+            call.timeoutInterval = 600
             call.setValue("Bearer \(request.apiKey)", forHTTPHeaderField: "Authorization")
             call.setValue("application/json", forHTTPHeaderField: "Content-Type")
             call.setValue("text/event-stream", forHTTPHeaderField: "Accept")
