@@ -31,6 +31,7 @@ import UIKit
             WorkspaceView(model: model)
                 .task { if model.loading { await model.load() } }
                 .onChange(of: phase) { _, next in
+                    if next != .inactive { model.locationForeground(next == .active) }
                     lifetime.transition(next,model: model)
                 }
                 .frame(minWidth: 340, minHeight: 520)

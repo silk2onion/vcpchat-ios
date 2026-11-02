@@ -28,6 +28,7 @@ struct ChatView: View {
                     HStack { Text(error).font(.callout); Spacer(); Button { model.room?.error = nil; model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.padding(14).background(.red.opacity(0.09)).foregroundStyle(.red)
                 }
                 ChatTimeline(model: model)
+                if model.locationEnabledInChat { LocationSharingChip(model: model) }
                 if model.pendingCount > 0 { Text("\(model.pendingCount) 条本机待确认消息；不会自动重复发送").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
                 if let room = model.room, !room.attachments.isEmpty { AttachmentStrip(attachments: room.attachments) { id in Task { await model.detach(id) } }.padding(.horizontal, 16).padding(.bottom, 6) }
                 HStack(alignment: .bottom, spacing: 8) {
@@ -41,7 +42,7 @@ struct ChatView: View {
             }
             .background(ThemeWallpaper(model.appearance, animations: model.renderOptions.motion).ignoresSafeArea())
             .navigationTitle(model.ownerName)
-            .task(id: model.activeTopicID) { await model.markTopicRead(model.activeTopicID) }
+            .task(id: model.activeTopicID) { await model.markTopicRead(model.activeTopicID); model.prefetchLocation() }
             .onChange(of: model.topicStates[model.activeTopicID]?.unread) { _,unread in
                 if unread == true { let id = model.activeTopicID; Task { await model.markTopicRead(id) } }
             }

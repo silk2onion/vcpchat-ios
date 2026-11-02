@@ -11,6 +11,8 @@
 <key>UIBackgroundModes</key><array><string>audio</string></array>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+<key>NSLocationWhenInUseUsageDescription</key><string>允许后，向你选定的 Agent 提供发送消息时的位置，用于附近地点与出行建议。不会在后台持续追踪。</string>
+<key>NSLocationUsageDescription</key><string>向你选定的 Agent 提供发送消息时的位置，用于附近地点与出行建议。</string>
 <key>NSLocalNetworkUsageDescription</key><string>用于连接你自己的 VCP 服务器</string>
 <key>NSCameraUsageDescription</key><string>拍摄照片并添加到当前对话；确认发送后才会上传给你配置的服务器。</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
