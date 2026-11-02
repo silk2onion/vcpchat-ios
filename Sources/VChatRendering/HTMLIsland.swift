@@ -53,7 +53,7 @@ public enum HTMLIslandPolicy {
 }
 
 private enum IslandScripts {
-    static let markdown: String? = load(["marked.min", "bubble-markdown"])
+    static let runtime: String? = load(["marked.min", "morphdom.min", "bubble-markdown", "bubble-stream"])
     static func load(_ names: [String]) -> String? {
         var scripts: [String] = []
         for name in names {
@@ -106,46 +106,82 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
     }
 }
 @MainActor @Observable private final class IslandController: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    private struct Input: Equatable { var source: String; var streaming: Bool }
     let id = UUID()
     var view: WKWebView?
     var height: CGFloat = 180
     var failed = false
+    var failureMessage = "气泡已暂停，重新进入可加载"
     @ObservationIgnored private var document = ""
-    func mount(_ document: String, media: Bool) {
-        guard let markdownScript = IslandScripts.markdown else { failed = true; return }
+    @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var navigation: WKNavigation?
+    @ObservationIgnored private var ready = false
+    @ObservationIgnored private var latest: Input?
+    @ObservationIgnored private var pending: Input?
+    @ObservationIgnored private var updateTask: Task<Void,Never>?
+    func mount(_ document: String, source: String, streaming: Bool, media: Bool) {
+        guard let runtime = IslandScripts.runtime else { failed = true; failureMessage = "气泡渲染组件缺失，请更新 App"; return }
         guard let web = view ?? IslandPool.shared.take(id) else { return }
-        guard view == nil || self.document != document else { return }
-        view = web; self.document = document; failed = false
+        let input = Input(source: source,streaming: streaming)
+        let editingCompleted = latest.map { !$0.streaming && !input.streaming && $0.source != input.source } ?? false
+        if view != nil,self.document == document,!editingCompleted {
+            if latest != input { latest = input; pending = input; drain() }
+            return
+        }
+        updateTask?.cancel(); updateTask = nil; generation = UUID(); ready = false
+        view = web; self.document = document; latest = input; pending = input; failed = false
         web.configuration.userContentController.removeAllScriptMessageHandlers()
         web.configuration.userContentController.removeAllUserScripts()
         web.configuration.userContentController.add(self,contentWorld: .defaultClient,name: "vcpHeight")
-        // The bridge accepts height only, and carries no native commands or secrets.
-        let script = markdownScript + "\n;window.VCPBubbleMarkdown(document.body);\n" + """
-        (()=>{let previous=0;const measure=()=>{let h=Math.ceil(document.body.getBoundingClientRect().height);if(h!==previous){previous=h;window.webkit.messageHandlers.vcpHeight.postMessage(h)}};new ResizeObserver(measure).observe(document.body);measure()})();
+        // The isolated host world exposes only measured height, never native commands.
+        let epoch = generation.uuidString
+        let script = "window.VCPBubbleEpoch='" + epoch + "';\n" + runtime + "\n;" + """
+        (()=>{let previous=0;const epoch='\(epoch)';const measure=()=>{let h=Math.ceil(document.body.getBoundingClientRect().height);if(h!==previous){previous=h;window.webkit.messageHandlers.vcpHeight.postMessage({height:h,epoch})}};new ResizeObserver(measure).observe(document.body);measure()})();
         """
-        web.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
-        web.navigationDelegate = self
-        web.setAllMediaPlaybackSuspended(!media)
-        web.loadHTMLString(document, baseURL: nil)
+        web.configuration.userContentController.addUserScript(WKUserScript(source: script,injectionTime: .atDocumentEnd,forMainFrameOnly: true,in: .defaultClient))
+        web.navigationDelegate = self; web.setAllMediaPlaybackSuspended(!media)
+        navigation = web.loadHTMLString(document,baseURL: nil)
     }
-    func unmount() { view = nil; document = ""; IslandPool.shared.release(id) }
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let number = message.body as? NSNumber else { return }
-        let value = number.doubleValue
-        if value.isFinite {
-            // The transcript owns vertical scrolling, even for a long bubble.
-            // ResizeObserver also lets the bubble shrink after dynamic updates.
-            height = max(44, value)
+    func webView(_ webView: WKWebView,didFinish navigation: WKNavigation!) {
+        guard webView === view,navigation === self.navigation else { return }
+        ready = true; drain()
+    }
+    private func drain() {
+        guard ready,updateTask == nil,let web = view,pending != nil else { return }
+        let own = generation
+        updateTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled,generation == own,let input = pending {
+                pending = nil
+                do {
+                    _ = try await web.callAsyncJavaScript("window.VCPBubbleStream.update(source,streaming,epoch)",arguments: ["source":input.source,"streaming":input.streaming,"epoch":own.uuidString],in: nil,contentWorld: .defaultClient)
+                } catch {
+                    if generation == own,!Task.isCancelled { failed = true; failureMessage = "气泡更新失败，重新进入可加载"; unmount() }
+                    break
+                }
+            }
+            if generation == own { updateTask = nil }
         }
     }
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+    func unmount() {
+        generation = UUID(); updateTask?.cancel(); updateTask = nil; pending = nil; latest = nil; ready = false; navigation = nil
+        view = nil; document = ""; IslandPool.shared.release(id)
+    }
+    func userContentController(_ userContentController: WKUserContentController,didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame,let payload = message.body as? [String:Any],payload["epoch"] as? String == generation.uuidString,let number = payload["height"] as? NSNumber else { return }
+        let value = number.doubleValue
+        if value.isFinite { height = max(44,value) }
+    }
+    func webView(_ webView: WKWebView,decidePolicyFor navigationAction: WKNavigationAction,decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         decisionHandler(navigationAction.request.url?.absoluteString == "about:blank" && navigationAction.navigationType == .other ? .allow : .cancel)
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { failed = true; unmount() }
 }
+
 struct HTMLIsland: View {
     var source: String
     var options: RenderOptions
+    var streaming = false
     @State private var controller = IslandController()
     @State private var bounds = CGRect.zero
     @State private var appeared = false
@@ -155,11 +191,11 @@ struct HTMLIsland: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.messageLongPressAction) private var showMessageActions
     private var visible: Bool { appeared && phase == .active && (viewport?.intersects(bounds) ?? true) }
-    private var document: String { HTMLIslandPolicy.document(source, motion: options.motion && !reduceMotion, media: options.media, dark: scheme == .dark) }
+    private var document: String { HTMLIslandPolicy.document("", motion: options.motion && !reduceMotion, media: options.media, dark: scheme == .dark) }
     var body: some View {
         Group {
             if let view = controller.view { IslandNativeView(view: view,showActions: showMessageActions).frame(height: controller.height) }
-            else if controller.failed { Label("气泡已暂停，重新进入可加载", systemImage: "arrow.clockwise").font(.callout).frame(height: controller.height) }
+            else if controller.failed { Label(controller.failureMessage, systemImage: "arrow.clockwise").font(.callout).frame(height: controller.height) }
             else { Label(visible ? "等待加载视觉气泡" : "视觉气泡已暂停", systemImage: "rectangle.inset.filled").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).frame(height: controller.height) }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -167,9 +203,11 @@ struct HTMLIsland: View {
         .onAppear { appeared = true; refresh() }.onDisappear { appeared = false; controller.unmount() }
         .onChange(of: visible) { _, _ in refresh() }
         .onChange(of: document) { _, _ in refresh() }
+        .onChange(of: source) { _, _ in refresh() }
+        .onChange(of: streaming) { _, _ in refresh() }
         .onChange(of: IslandPool.shared.revision) { _, _ in if visible && controller.view == nil && !controller.failed { refresh() } }
     }
-    private func refresh() { if visible { controller.mount(document, media: options.media) } else { controller.unmount() } }
+    private func refresh() { if visible { controller.mount(document,source: source,streaming: streaming,media: options.media) } else { controller.unmount() } }
 }
 // WebKit consumes SwiftUI ancestor gestures. Keep the recognizer native and
 // remove only this host's recognizer when the pooled view is released.
