@@ -112,10 +112,18 @@ private struct ChatHeaderIcon: View {
 
 /// The high-frequency scroll trigger is isolated from navigation and the composer.
 private struct ChatTimeline: View {
+    private struct ScrollRequest: Equatable {
+        var topicID: String
+        var messageCount: Int
+        var frame: Int
+        var contentHeight: Int
+        var following: Bool
+    }
     let model: ChatViewModel
     @State private var following = TranscriptFollowing()
     @State private var openSettings = false
     @State private var viewport = CGRect.zero
+    @State private var contentHeight = 0
     var body: some View {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -139,17 +147,22 @@ private struct ChatTimeline: View {
                                     }
                                 }
                             }
-                            .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { _ in
-                                if following.canScrollToLatest { scrollToLatest(proxy) }
-                            }
+                            .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { contentHeight = $0 }
                     }
                     .environment(\.messageViewport, viewport)
                     .coordinateSpace(name: "vcp-message-viewport")
                     .onGeometryChange(for: CGSize.self,of: { $0.size }) { viewport = CGRect(origin: .zero,size: $0) }
                     .defaultScrollAnchor(model.messages.isEmpty ? .top : (following.canScrollToLatest ? .bottom : nil))
-                    .onChange(of: model.frames) { _, _ in if following.canScrollToLatest { scrollToLatest(proxy) } }
-                    .onChange(of: model.messages.count) { _, _ in if following.canScrollToLatest { scrollToLatest(proxy) } }
-                    .onChange(of: model.activeTopicID) { _, _ in following.reset(); scrollToLatest(proxy) }
+                    // Record reflow as data, then scroll outside the layout callback.
+                    // Scrolling synchronously there can re-enter lazy measurement.
+                    .task(id: ScrollRequest(topicID: model.activeTopicID,messageCount: model.messages.count,frame: model.frames,contentHeight: contentHeight,following: following.canScrollToLatest)) {
+                        guard following.canScrollToLatest,!model.messages.isEmpty else { return }
+                        // Coalesce automatic requests outside the layout transaction.
+                        await Task.yield()
+                        guard !Task.isCancelled,following.canScrollToLatest else { return }
+                        scrollToLatest(proxy)
+                    }
+                    .onChange(of: model.activeTopicID) { _, _ in following.reset() }
                     .overlay(alignment: .bottomTrailing) {
                         Button {
                             if following.mode == .following { following.pause() }
@@ -162,7 +175,9 @@ private struct ChatTimeline: View {
     }
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
         var transaction = Transaction(); transaction.disablesAnimations = true
-        withTransaction(transaction) { proxy.scrollTo(model.messages.last?.id ?? "latest",anchor: .bottom) }
+        // A fixed-height sentinel avoids resolving the bottom of a message whose
+        // Markdown/HTML height is still changing during lazy layout.
+        withTransaction(transaction) { proxy.scrollTo("latest",anchor: .bottom) }
     }
 }
 
