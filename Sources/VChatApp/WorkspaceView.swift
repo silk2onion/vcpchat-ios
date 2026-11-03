@@ -53,6 +53,7 @@ struct WorkspaceView: View {
         }
         .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
         .environment(\.workspaceMotion,motion).environment(\.workspaceTheme,model.appearance.theme)
+        .environment(\.messageEmphasisColor,model.appearance.theme.tint)
         .tint(palette.accent).foregroundStyle(palette.ink)
         .sheet(item: $editing) { AgentEditor(model: model,agent: $0) }
         .sheet(item: $editingGroup) { GroupEditor(model: model,group: $0) }

@@ -42,12 +42,13 @@ public enum HTMLIslandPolicy {
         }
         return false
     }
-    public static func document(_ source: String, motion: Bool, media: Bool, dark: Bool) -> String {
+    public static func document(_ source: String, motion: Bool, media: Bool, dark: Bool, emphasisColor: String? = nil) -> String {
         let color = dark ? "dark" : "light"
         let image = media ? "https: data:" : "'none'"
+        let emphasis = emphasisColor ?? (dark ? "#88d6b0" : "#278752")
         let noMotion = motion ? "" : "*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}"
         return """
-        <!doctype html><html data-vcp-host-theme="\(color)"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src \(image); media-src \(image); font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>:root{color-scheme:light}html,body{background:Canvas;color:CanvasText;margin:0;padding:0;font:16px -apple-system;overflow-wrap:anywhere}#vcp-root{max-width:100%;box-sizing:border-box}img,video,svg,canvas{max-width:100%}pre{white-space:pre-wrap}\(noMotion)</style></head><body>\(source)</body></html>
+        <!doctype html><html data-vcp-host-theme="\(color)"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src \(image); media-src \(image); font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>:root{color-scheme:light}html,body{background:Canvas;color:CanvasText;margin:0;padding:0;font:16px -apple-system;overflow-wrap:anywhere}#vcp-root{max-width:100%;box-sizing:border-box}img,video,svg,canvas{max-width:100%}pre{white-space:pre-wrap}:root{--vcp-md-emphasis:\(emphasis)}strong.vcp-md-strong{color:var(--vcp-md-emphasis);font-weight:700}\(noMotion)</style></head><body>\(source)</body></html>
         """
     }
 }
@@ -185,6 +186,8 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
 }
 
 struct HTMLIsland: View {
+    @Environment(\.self) private var environment
+    @Environment(\.messageEmphasisColor) private var emphasisColor
     var source: String
     var options: RenderOptions
     var streaming = false
@@ -197,7 +200,11 @@ struct HTMLIsland: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.messageLongPressAction) private var showMessageActions
     private var visible: Bool { appeared && phase == .active && (viewport?.intersects(bounds) ?? true) }
-    private var document: String { HTMLIslandPolicy.document("", motion: options.motion && !reduceMotion, media: options.media, dark: scheme == .dark) }
+    private var document: String {
+        let color = emphasisColor.resolve(in: environment)
+        let hex = String(format: "#%02x%02x%02x",Int(min(1,max(0,color.red)) * 255),Int(min(1,max(0,color.green)) * 255),Int(min(1,max(0,color.blue)) * 255))
+        return HTMLIslandPolicy.document("",motion: options.motion && !reduceMotion,media: options.media,dark: scheme == .dark,emphasisColor: hex)
+    }
     var body: some View {
         Group {
             if let view = controller.view { IslandNativeView(view: view,showActions: showMessageActions).frame(height: controller.height) }

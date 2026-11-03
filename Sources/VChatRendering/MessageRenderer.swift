@@ -18,6 +18,8 @@ public actor MessageRenderer {
     public init() {}
     private struct MathToken { var token: String; var latex: String; var original: String; var block: Bool }
     private var mathTokens: [MathToken] = []
+    private var emphasisMarker = ""
+    private var escapedStarMarker = ""
     public func render(_ source: String, options: RenderOptions, dark: Bool, streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0) async throws -> [RenderBlock] {
         try Task.checkCancellation()
         let source = rules.isEmpty ? source : try await RegexEngine.shared.apply(source, rules: rules, scope: "frontend", role: role, depth: depth)
@@ -55,6 +57,9 @@ public actor MessageRenderer {
             mathTokens.append(MathToken(token: token, latex: text.substring(with: match.range(at: capture)), original: original, block: capture <= 2))
             if let range = Range(match.range, in: protected) { protected.replaceSubrange(range, with: token) }
         }
+        emphasisMarker = "VCPSTRONG" + namespace + "END"
+        escapedStarMarker = "VCPSTAR" + namespace + "END"
+        protected = MarkdownStrongCompatibility.prepare(protected,marker: emphasisMarker,escapedStar: escapedStarMarker)
         return try blocks(Document(parsing: protected), options: options)
     }
     private func blocks(_ container: any Markup, options: RenderOptions) throws -> [RenderBlock] {
@@ -89,7 +94,7 @@ public actor MessageRenderer {
             }
         }
     }
-    private func restore(_ text: String) -> String { mathTokens.reduce(text) { $0.replacingOccurrences(of: $1.token, with: $1.original) } }
+    private func restore(_ text: String) -> String { mathTokens.reduce(emphasisMarker.isEmpty ? text : text.replacingOccurrences(of: emphasisMarker,with: "").replacingOccurrences(of: escapedStarMarker,with: "\\*")) { $0.replacingOccurrences(of: $1.token, with: $1.original) } }
     private func inline(_ node: any Markup, options: RenderOptions) -> [InlineRun] {
         if node.childCount == 0 { return inlineSource(node.detachedFromParent.format(),options: options) }
         var result: [InlineRun] = [],buffer = ""
@@ -101,6 +106,14 @@ public actor MessageRenderer {
                 else { result.append(.text(AttributedString("图片：" + (caption.isEmpty ? image.source ?? "未命名" : caption)))) }
             } else if let link = child as? Markdown.Link,options.media,let media = MessageMedia(source: link.destination ?? "",caption: link.children.map { $0.detachedFromParent.format() }.joined(),videoOnly: true) {
                 flush(); result.append(.media(media))
+            } else if let link = child as? Markdown.Link,let url = link.destination.flatMap(URL.init(string:)) {
+                flush()
+                // Foundation flattens strong emphasis inside links. Keep the
+                // Markdown tree's inline styles, then attach the destination.
+                result += inline(link,options: options).map { run in
+                    if case .text(var value) = run { value.link = url; return .text(value) }
+                    return run
+                }
             } else if let html = child as? InlineHTML,options.media,let media = MessageMedia.html(html.rawHTML) {
                 flush(); result.append(.media(media))
             } else if containsMedia(child,videos: options.media) { flush(); result += inline(child,options: options) }
@@ -112,7 +125,11 @@ public actor MessageRenderer {
         node is Markdown.Image || (videos && (node as? Markdown.Link).map { MessageMedia.isVideo($0.destination ?? "") } == true) || node.children.contains { containsMedia($0,videos: videos) }
     }
     private func inlineSource(_ source: String,options: RenderOptions) -> [InlineRun] {
-        let attributed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+        var attributed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+        if !emphasisMarker.isEmpty {
+            while let range = attributed.range(of: emphasisMarker) { attributed.replaceSubrange(range,with: AttributedString()) }
+            while let range = attributed.range(of: escapedStarMarker) { attributed.replaceSubrange(range,with: AttributedString("*")) }
+        }
         let found = mathTokens.compactMap { token -> (Range<AttributedString.Index>, MathToken)? in attributed.range(of: token.token).map { ($0, token) } }.sorted { $0.0.lowerBound < $1.0.lowerBound }
         var result: [InlineRun] = []; var cursor = attributed.startIndex
         for (range, token) in found {
