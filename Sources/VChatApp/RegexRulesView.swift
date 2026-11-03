@@ -70,6 +70,7 @@ private struct RegexRuleEditor: View {
                 Section("应用位置") {
                     Toggle("消息显示", isOn: $rule.applyToFrontend)
                     Toggle("发送给模型的上下文", isOn: $rule.applyToContext)
+                    if rule.applyToContext { Text("轮深限制会随对话推进重新处理历史内容，可能改变历史缓存前缀。只需调整显示时，请仅开启“消息显示”。").font(.caption).foregroundStyle(.secondary) }
                     Toggle("用户消息", isOn: role("user")); Toggle("助手消息", isOn: role("assistant"))
                     TextField("最小轮深（-1 不限制）", value: $rule.minDepth, format: .number)
                     TextField("最大轮深（-1 不限制）", value: $rule.maxDepth, format: .number)
