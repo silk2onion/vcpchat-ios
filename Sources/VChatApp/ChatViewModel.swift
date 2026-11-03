@@ -204,6 +204,7 @@ struct TopicDraft: Codable, Sendable {
     func saveAgent(_ agent: VCPAgent) async -> Bool {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard !agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = "给 Agent 起一个名字"; return false }
+        guard agent.contextTokenLimit.map({ $0 >= 0 }) ?? true, agent.maxOutputTokens.map({ $0 >= 0 }) ?? true else { error = "上下文预算和最大输出不能为负数"; return false }
         do {
             try await store?.put(agent, kind: "agent", id: agent.id)
             if let index = agents.firstIndex(where: { $0.id == agent.id }) { agents[index] = agent } else { agents.append(agent) }
@@ -237,6 +238,7 @@ struct TopicDraft: Codable, Sendable {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard let store else { error = "本机数据库尚未就绪"; return false }
         guard !group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !group.memberIds.isEmpty else { error = "请填写群名并选择成员"; return false }
+        guard group.enableContextMessageWindow != true || (1...10_000).contains(group.contextMessageWindowSize ?? 100) else { error = "群聊历史窗口需为 1–10000 条消息"; return false }
         do {
             try await store.put(group, kind: "group", id: group.id)
             if let index = groups.firstIndex(where: { $0.id == group.id }) { groups[index] = group } else { groups.append(group) }
@@ -447,7 +449,7 @@ struct TopicDraft: Codable, Sendable {
                 let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: output, location: locationContext)
                 guard !room.cancelled else { return }
                 let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
-                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature)
+                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature, contextTokenLimit: built.contextTokenLimit, maxOutputTokens: built.maxOutputTokens)
                 var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"
                 try await store.reviseMessage(record)
                 message.text = prefix; message.reasoning = reasoning; message.status = "connecting"

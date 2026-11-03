@@ -161,6 +161,7 @@ struct AgentEditor: View {
     @State private var voiceOpen = false
     @State private var locationGuidance = ""
     @State private var locationOpen = false
+    @State private var contextOpen = false
     @Environment(\.dismiss) private var dismiss
     private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
     var existing: Bool { model.agents.contains { $0.id == agent.id } }
@@ -190,6 +191,14 @@ struct AgentEditor: View {
                     if agent.temperature != nil { HStack { Text("Temperature"); Spacer(); Text((agent.temperature ?? 0.8).formatted(.number.precision(.fractionLength(2)))) }; Slider(value: Binding(get: { agent.temperature ?? 0.8 },set: { agent.temperature = $0 }),in: 0...2) }
                     Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.system(size: 12)).foregroundStyle(palette.muted)
                 }
+                DisclosureGroup("上下文与输出",isExpanded: $contextOpen) {
+                    VStack(alignment: .leading,spacing: 14) {
+                        WorkspaceField(title: "上下文预算（VCP）",palette: palette) { TextField("留空沿用服务设置",value: $agent.contextTokenLimit,format: .number.grouping(.never)).accessibilityLabel("上下文预算") }
+                        WorkspaceField(title: "最大输出 Token",palette: palette) { TextField("留空或 0 不限制客户端参数",value: $agent.maxOutputTokens,format: .number.grouping(.never)).accessibilityLabel("最大输出 Token") }
+                        Text("默认发送完整历史和附件，不按消息条数自动截断。上下文预算随 VCP 工具模式请求交给服务处理；自动摘要与折叠需在 VCP 另行配置。OpenAI 兼容模式仅发送最大输出参数。").font(.caption).foregroundStyle(palette.muted)
+                        if (agent.contextTokenLimit ?? 0) < 0 || (agent.maxOutputTokens ?? 0) < 0 { Text("请输入非负整数，或留空。").foregroundStyle(.red).font(.caption) }
+                    }.padding(.top,14)
+                }
                 WorkspaceSeparator(palette: palette)
                 DisclosureGroup("这个 Agent 的声音",isExpanded: $voiceOpen) {
                     VStack(alignment: .leading,spacing: 18) {
@@ -211,7 +220,7 @@ struct AgentEditor: View {
                 if locationGuidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { settings.agentGuidance.removeValue(forKey: agent.id) }
                 else { settings.agentGuidance[agent.id] = locationGuidance }
                 if await model.persistLocationSettings(settings) { dismiss() }
-            } } }.workspaceAction(palette,primary: true).disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            } } }.workspaceAction(palette,primary: true).disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (agent.contextTokenLimit ?? 0) < 0 || (agent.maxOutputTokens ?? 0) < 0) }
         }.frame(minWidth: 340,minHeight: 530)
         .onAppear { locationGuidance = model.locationSettings.agentGuidance[agent.id] ?? "" }
         .sheet(isPresented: $regex) { RegexRulesView(title: "Agent 正则",rules: $agent.regexRules) {} }

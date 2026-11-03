@@ -6,6 +6,8 @@ public struct VCPAgent: Codable, Sendable, Identifiable, Equatable {
     public var systemPrompt: String
     public var model: String
     public var temperature: Double?
+    public var contextTokenLimit: Int?
+    public var maxOutputTokens: Int?
     public var createdAt: Double
     public var avatar: String
     public var avatarUrl: String
@@ -20,10 +22,12 @@ public struct VCPAgent: Codable, Sendable, Identifiable, Equatable {
         self.temperature = temperature; createdAt = Date().timeIntervalSince1970
         avatar = ""; avatarUrl = ""; description = ""; voice = ""; speechSpeed = 1; speechSpeedInherited = true; speechDirector = ""; regexRules = []
     }
-    enum CodingKeys: String, CodingKey { case id, name, systemPrompt, model, temperature, createdAt, avatar, avatarUrl, description, voice, speechSpeed, speechSpeedInherited, speechDirector, regexRules }
+    enum CodingKeys: String, CodingKey { case id, name, systemPrompt, model, temperature, contextTokenLimit, maxOutputTokens, createdAt, avatar, avatarUrl, description, voice, speechSpeed, speechSpeedInherited, speechDirector, regexRules }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(id: try c.decode(String.self, forKey: .id), name: try c.decode(String.self, forKey: .name), systemPrompt: try c.decodeIfPresent(String.self, forKey: .systemPrompt) ?? "", model: try c.decodeIfPresent(String.self, forKey: .model) ?? "", temperature: try c.decodeIfPresent(Double.self, forKey: .temperature))
+        contextTokenLimit = try c.decodeIfPresent(Int.self, forKey: .contextTokenLimit)
+        maxOutputTokens = try c.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt) ?? createdAt
         avatar = try c.decodeIfPresent(String.self, forKey: .avatar) ?? ""
         avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl) ?? ""

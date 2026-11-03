@@ -66,8 +66,11 @@ public struct ChatRequest: Sendable {
     public let apiKey: String
     public let messages: [ChatTurn]
     public let temperature: Double?
-    public init(configuration: ConnectionConfiguration, apiKey: String, messages: [ChatTurn], temperature: Double? = nil) {
+    public let contextTokenLimit: Int?
+    public let maxOutputTokens: Int?
+    public init(configuration: ConnectionConfiguration, apiKey: String, messages: [ChatTurn], temperature: Double? = nil, contextTokenLimit: Int? = nil, maxOutputTokens: Int? = nil) {
         self.configuration = configuration; self.apiKey = apiKey; self.messages = messages; self.temperature = temperature
+        self.contextTokenLimit = contextTokenLimit; self.maxOutputTokens = maxOutputTokens
     }
 }
 public enum SessionState: String, Codable, Sendable { case connecting, streaming, complete, stopped, interrupted, failed }

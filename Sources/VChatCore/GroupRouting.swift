@@ -46,6 +46,7 @@ public enum GroupRouting {
 public actor ConversationBuilder {
     public init() {}
     public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = [], output: OutputPreferences = .init(), location: LocationRequestContext? = nil) async throws -> ChatRequest {
+        guard agent.contextTokenLimit.map({ $0 >= 0 }) ?? true, agent.maxOutputTokens.map({ $0 >= 0 }) ?? true else { throw ClientError.server("上下文预算和最大输出不能为负数，请检查 Agent 资料") }
         var config = configuration
         config.model = ModelResolution.resolve(global: configuration.model,agent: agent,group: group)
         guard !config.model.isEmpty else { throw ClientError.server("「\(agent.name)」还没有模型，请先设置默认模型") }
@@ -84,6 +85,6 @@ public actor ConversationBuilder {
             else { content = transformed }
             turns.append(ChatTurn(role: ordinary ? originalRole : "user", content: content, attachments: message.attachments))
         }
-        return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil)
+        return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil, contextTokenLimit: config.endpointMode == .vcpTools ? agent.contextTokenLimit : nil, maxOutputTokens: agent.maxOutputTokens.flatMap { $0 > 0 ? $0 : nil })
     }
 }
