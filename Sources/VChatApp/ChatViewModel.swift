@@ -387,7 +387,7 @@ struct TopicDraft: Codable, Sendable {
                 let builder = ConversationBuilder()
                 for agent in speakers {
                     guard !room.cancelled else { break }
-                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: output, location: locationContext?.settings.shares(with: agent.id,preference: locationPreference) == true ? locationContext : nil)
+                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: output, location: locationContext?.settings == locationSettings && locationSettings.shares(with: agent.id,preference: locationPreference) ? locationContext : nil, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil)
                     guard !room.cancelled else { break }
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
@@ -446,7 +446,7 @@ struct TopicDraft: Codable, Sendable {
                 let locationPreference = room.locationPreference
                 let locationContext = await prepareLocation(for: [agent],preference: locationPreference)
                 room.locationPreference = .automatic
-                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: output, location: locationContext)
+                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: output, location: locationContext, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil)
                 guard !room.cancelled else { return }
                 let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
                 let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature, contextTokenLimit: built.contextTokenLimit, maxOutputTokens: built.maxOutputTokens)

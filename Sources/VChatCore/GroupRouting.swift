@@ -45,7 +45,7 @@ public enum GroupRouting {
 }
 public actor ConversationBuilder {
     public init() {}
-    public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = [], output: OutputPreferences = .init(), location: LocationRequestContext? = nil) async throws -> ChatRequest {
+    public func request(configuration: ConnectionConfiguration, apiKey: String, profile: UserProfile, agent: VCPAgent, group: VCPGroup?, messages: [StoredMessage], rules: [RegexRule] = [], output: OutputPreferences = .init(), location: LocationRequestContext? = nil, locationPolicy: String? = nil) async throws -> ChatRequest {
         guard agent.contextTokenLimit.map({ $0 >= 0 }) ?? true, agent.maxOutputTokens.map({ $0 >= 0 }) ?? true else { throw ClientError.server("上下文预算和最大输出不能为负数，请检查 Agent 资料") }
         var config = configuration
         config.model = ModelResolution.resolve(global: configuration.model,agent: agent,group: group)
@@ -58,9 +58,10 @@ public actor ConversationBuilder {
         }
         if !agent.systemPrompt.isEmpty { system.append(agent.systemPrompt) }
         if output.animatedBubbles { system.append("输出规范要求：{{VarDivRender}}") }
-        if let location = location?.forAgent(agent.id) {
-            system.append(location.policy)
-            system.append(try location.tray())
+        let scopedLocation = location?.forAgent(agent.id)
+        if let policy = locationPolicy ?? scopedLocation?.policy {
+            system.append(policy)
+            system.append(try scopedLocation?.tray() ?? LocationRequestContext.omittedTray)
         }
         var turns: [ChatTurn] = []
         if !system.isEmpty { turns.append(ChatTurn(role: "system", content: system.joined(separator: "\n\n"))) }
