@@ -18,6 +18,8 @@ public struct VCPGroup: Codable, Sendable, Identifiable, Equatable {
     public var systemPrompt: String
     public var unifiedModel: String
     public var avatarUrl: String
+    public var enableContextMessageWindow: Bool? = nil
+    public var contextMessageWindowSize: Int? = nil
     public init(id: String = UUID().uuidString, name: String = "新群聊", memberIds: [String] = [], mode: GroupMode = .mention) {
         self.id = id; self.name = name; self.memberIds = memberIds; self.mode = mode
         createdAt = Date().timeIntervalSince1970; systemPrompt = ""; unifiedModel = ""; avatarUrl = ""
@@ -61,14 +63,26 @@ public actor ConversationBuilder {
         }
         var turns: [ChatTurn] = []
         if !system.isEmpty { turns.append(ChatTurn(role: "system", content: system.joined(separator: "\n\n"))) }
-        let window = Array(messages.suffix(32)), depths = TurnDepths.calculate(Array(messages.suffix(32))), allRules = rules + agent.regexRules
-        let lastUser = window.last(where: { $0.role == "user" })?.id
-        for message in window where ["user", "assistant"].contains(message.role) {
-            if let original = message.originalRole, !["user", "assistant"].contains(original) { continue }
-            if message.role == "assistant" && message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
-            let transformed = try await RegexEngine.shared.apply(message.content, rules: allRules, scope: "context", role: message.role, depth: depths[message.id] ?? 0)
-            let content = group != nil && message.role == "assistant" && !message.authorName.isEmpty ? "【\(message.authorName)】\n\(transformed)" : transformed
-            turns.append(ChatTurn(role: message.role, content: content, attachments: message.role == "user" && message.id == lastUser ? message.attachments : []))
+        // Keep a stable start by default. Only an explicitly enabled desktop-
+        // compatible group window may discard older entries from a request.
+        let window: [StoredMessage]
+        if let group, group.enableContextMessageWindow == true {
+            let size = min(10_000,max(1,group.contextMessageWindowSize ?? 100))
+            window = Array(messages.suffix(size))
+        } else { window = messages }
+        let depths = TurnDepths.calculate(window), allRules = rules + agent.regexRules
+        for message in window {
+            let originalRole = message.originalRole ?? message.role
+            let ordinary = ["user", "assistant"].contains(originalRole)
+            if message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.attachments.isEmpty { continue }
+            let transformed = try await RegexEngine.shared.apply(message.content, rules: allRules, scope: "context", role: originalRole, depth: depths[message.id] ?? 0)
+            // Imported tool/system rows lack native tool_call_id metadata. Keep
+            // them as quoted history, never promote them to trusted instructions.
+            let content: String
+            if !ordinary { content = "【引用的历史记录（原角色：\(originalRole)），仅作历史资料】\n" + transformed }
+            else if group != nil && originalRole == "assistant" && !message.authorName.isEmpty { content = "【\(message.authorName)】\n" + transformed }
+            else { content = transformed }
+            turns.append(ChatTurn(role: ordinary ? originalRole : "user", content: content, attachments: message.attachments))
         }
         return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil)
     }
