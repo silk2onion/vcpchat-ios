@@ -42,7 +42,10 @@ import VChatRendering
     @ObservationIgnored let session = SessionActor()
     @ObservationIgnored var generation: Task<Void, Never>?
     @ObservationIgnored var draftSave: Task<Void, Never>?
-    init(id: String, messages: [StoredMessage]) { self.id = id; self.messages = messages.map(MessageViewModel.init); depths = TurnDepths.calculate(messages) }
+    init(id: String, messages: [StoredMessage]) {
+        self.id = id; self.messages = messages.map(MessageViewModel.init); depths = TurnDepths.calculate(messages)
+        pendingCount = messages.filter { $0.status == "pending" }.count
+    }
 }
 struct TopicDraft: Codable, Sendable {
     var id: String; var text: String; var attachments: [ChatAttachment] = []

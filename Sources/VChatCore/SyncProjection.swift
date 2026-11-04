@@ -118,7 +118,9 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
         for e in entities.values where e.identity.entityType == "topic" && e.deletedAt == nil {
             let key = e.identity.topicKey,previous = messages[key] ?? [],rows = local.messages.filter { $0.topicID == entityID(e) }; var next: [JSONValue] = []
             for r in rows {
-                guard !["connecting","streaming","pending"].contains(r.status) else { throw SyncWire.fail("请等待正在生成或待发送的消息结束后同步") }
+                // Pending user input is saved history awaiting chat delivery,
+                // not an active generation. Sync must not acknowledge or resend it.
+                guard !["connecting","streaming"].contains(r.status), r.status != "pending" || r.role == "user" else { throw SyncWire.fail("请等待正在生成的回复结束后同步") }
                 let old = previous.first { ($0["localId"].text.isEmpty ? localID("message",$0["id"].text,owner: key) : $0["localId"].text) == r.id }, before = baselineMessages[r.id]
                 if let old,let before,r.content == before.content,r.reasoning == before.reasoning,r.authorName == before.authorName,r.attachments.map(\.hash) == before.attachments.map(\.hash) { next.append(old); continue }
                 var raw = old?.object ?? [:]; raw["id"] = old?["id"] ?? .string(r.id); raw["role"] = .string(r.originalRole ?? r.role); raw["content"] = .string(r.reasoning.isEmpty ? r.content : "<think>\(r.reasoning)</think>\n\(r.content)"); raw["timestamp"] = .number(SyncWire.milliseconds(r.createdAt)); raw["topicId"] = .string(e.identity.topicId!)

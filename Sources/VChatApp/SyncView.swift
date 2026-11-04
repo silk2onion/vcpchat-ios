@@ -31,7 +31,7 @@ struct SyncView: View {
                     else if !progress.isEmpty { Label(progress,systemImage: "checkmark.circle").font(.system(size: 13)).foregroundStyle(palette.muted) }
                     if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
                 }
-                Text("头像单独传输；历史附件只同步身份与提取内容，原文件需要在文件页导入。桌面须启用 VCPMobileSync（Wire 1.5）。同步在前台运行。").font(.system(size: 13)).foregroundStyle(palette.muted)
+                Text("待确认消息只同步聊天记录，保留本机待确认状态，不会自动重发或标记送达。头像单独传输；历史附件同步身份与提取内容，原文件需在文件页导入。桌面须启用 VCPMobileSync（Wire 1.5），同步在前台运行。").font(.system(size: 13)).foregroundStyle(palette.muted)
                 if let selected,selected.lastSync > 0 { LabeledContent("上次完成",value: Date(timeIntervalSince1970: selected.lastSync/1000).formatted(date: .abbreviated,time: .shortened)); Text("\(selected.entities.values.filter { $0.identity.entityType == "owner" && $0.identity.ownerType == "agent" && $0.deletedAt == nil }.count) 位 Agent · \(selected.entities.values.filter { $0.identity.entityType == "topic" && $0.deletedAt == nil }.count) 个话题").font(.caption).foregroundStyle(palette.muted) }
                 VStack(alignment: .leading,spacing: 16) {
                     Text("本机恢复点").font(.system(size: 16,weight: .semibold))
