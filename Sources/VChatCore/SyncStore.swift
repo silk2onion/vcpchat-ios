@@ -21,6 +21,22 @@ extension ChatStore {
     public func commitSync(profile: SyncProfile,previous: SyncProfile,before: SyncSnapshot,after: SyncSnapshot,expectedSettings: MobileSyncSettings? = nil) async throws {
         guard profile.id == previous.id,profile.endpoint == previous.endpoint else { throw SyncWire.fail("同步来源身份不匹配") }
         try Task.checkCancellation()
+        // A synchronization acknowledgement is not a model-delivery receipt.
+        // Keep unacknowledged input and its local delivery state; if the desktop deleted
+        // or edited it, require a decision instead of silently discarding it.
+        var preserved = after
+        for pending in before.messages where pending.role == "user" && pending.status == "pending" {
+            guard let index = preserved.messages.firstIndex(where: { $0.id == pending.id }),
+                  preserved.messages[index].role == "user",
+                  preserved.messages[index].content == pending.content,
+                  preserved.messages[index].reasoning == pending.reasoning,
+                  preserved.messages[index].attachments.map(\.hash) == pending.attachments.map(\.hash) else {
+                let title = before.topics.first { $0.id == pending.topicID }?.title ?? "此话题"
+                throw SyncWire.fail("桌面改动与「\(title)」的待确认消息冲突，已保留本机内容；请先处理这条消息再同步")
+            }
+            preserved.messages[index] = pending
+        }
+        let committed = preserved
         try await pool.write { db in
             try Task.checkCancellation()
             let current = try Self.snapshot(db).managed(by: previous)
@@ -31,8 +47,8 @@ extension ChatStore {
             if let expectedSettings,let raw = try Data.fetchOne(db,sql: "SELECT payload FROM library WHERE kind='services' AND id='settings'") {
                 guard try JSONDecoder().decode(ServiceSettings.self,from: raw).sync == expectedSettings else { throw SyncWire.fail("同步设置已改变，本次未写入") }
             }
-            let checkpoint = SyncCheckpoint(id: UUID().uuidString,profileID: profile.id,at: Date().timeIntervalSince1970,before: before,after: after,previous: previous)
-            try Self.replaceSync(db,profile: profile,before: current,after: after)
+            let checkpoint = SyncCheckpoint(id: UUID().uuidString,profileID: profile.id,at: Date().timeIntervalSince1970,before: before,after: committed,previous: previous)
+            try Self.replaceSync(db,profile: profile,before: current,after: committed)
             try Self.putSync(db,checkpoint,kind: "sync-checkpoint",id: checkpoint.id)
             try Self.putSync(db,profile,kind: "sync-profile",id: profile.id)
         }
@@ -73,6 +89,9 @@ extension ChatStore {
                 if mime.hasPrefix("image/"),mime != "image/svg+xml",data.count <= 1_500_000 { m.attachments[i].dataUrl = "data:\(mime);base64," + data.base64EncodedString(); m.attachments[i].desktopOnly = false }
                 else if (mime.hasPrefix("text/") || ["application/json","application/xml"].contains(mime)),data.count <= 200_000,let text = String(data: data,encoding: .utf8) { m.attachments[i].text = text; m.attachments[i].desktopOnly = false }
             }; try m.save(db)
+            if m.role == "user",m.status == "pending" {
+                try db.execute(sql: "INSERT INTO outbox(id,payload,state) VALUES(?,?,'pending') ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,state=excluded.state",arguments: [m.id,try JSONEncoder().encode(m)])
+            }
         }
     }
 }
