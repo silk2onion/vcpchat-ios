@@ -24,7 +24,7 @@ struct ConnectionView: View {
                     if let error = model.error { Text(error).font(.system(size: 14)).foregroundStyle(.red).textSelection(.enabled) }
                     if model.savingConnection { ProgressView(model.credentialsInMemory ? "正在应用本次连接…" : "正在保存到系统钥匙串…") }
                     if model.credentialsLocked {
-                        Button(model.unlockingCredentials ? "正在等待系统确认…" : "解锁已有连接") { Task { await model.loadCredentials(allowInteraction: true) } }.workspaceAction(palette).disabled(model.unlockingCredentials)
+                        Button(model.unlockingCredentials ? "正在读取连接…" : "解锁已有连接") { Task { await model.loadCredentials(allowInteraction: true) } }.workspaceAction(palette).disabled(model.unlockingCredentials)
                     }
                     if !focusLogs {
                         VStack(alignment: .leading,spacing: 20) {
@@ -47,7 +47,7 @@ struct ConnectionView: View {
                             WorkspaceField(title: "日志地址（留空使用聊天服务器）",palette: palette) { TextField("日志服务器",text: $model.services.logServer).autocorrectionDisabled() }
                             WorkspaceField(title: "VCPLog Key",palette: palette) { SecureField("与聊天 Key 分开",text: $model.logKey).accessibilityLabel("VCPLog Key") }
                             Button(model.connectingPush ? "正在保存并连接…" : "保存并连接 WebSocket") { Task { await model.saveAndConnectPush() } }.workspaceAction(palette,primary: true).disabled(model.connectingPush || model.savingConnection)
-                            Text("记住连接状态；回到前台自动重连。重开 App 后，解锁已有连接即可恢复。").font(.caption).foregroundStyle(palette.muted)
+                            Text("记住连接状态；打开 App 或回到前台时自动恢复。仅系统需要授权时才手动解锁。").font(.caption).foregroundStyle(palette.muted)
                             ForEach(PushChannel.allCases,id: \.self) { channel in LabeledContent(channel.title,value: model.activity.statuses[channel] ?? "未连接").font(.system(size: 13)) }
                         }.padding(18).workspaceGlass(palette,radius: 20)
                     }

@@ -35,12 +35,14 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
             if identity.entityType == "owner" && identity.ownerType == "agent" {
                 var a = extras.agents.first { $0.id == id } ?? VCPAgent(id: id)
                 a.name = d["name"].text.isEmpty ? "未命名 Agent" : d["name"].text; a.systemPrompt = d["systemPrompt"].text; a.model = d["model"].text; a.temperature = d["temperature"].number
+                a.contextTokenLimit = Self.contextInteger(d["contextTokenLimit"]); a.maxOutputTokens = Self.contextInteger(d["maxOutputTokens"])
                 a.createdAt = ((try? SyncWire.time(d["createdAt"])) ?? e.updatedAt)/1000; if let avatar { a.avatarUrl = avatar["image"].text }; out.agents.append(a)
             } else if identity.entityType == "owner" {
                 var g = extras.groups.first { $0.id == id } ?? VCPGroup(id: id)
                 g.name = d["name"].text.isEmpty ? "未命名群组" : d["name"].text; g.memberIds = d["members"].array.compactMap { agents[$0.text] }
                 g.mode = d["mode"].text == "sequential" ? .all : d["mode"].text == "random" ? .random : .inviteOnly
                 g.systemPrompt = d["groupPrompt"].text; g.unifiedModel = d["useUnifiedModel"].bool == true ? d["unifiedModel"].text : ""
+                g.enableContextMessageWindow = d["enableContextMessageWindow"].bool; g.contextMessageWindowSize = Self.contextInteger(d["contextMessageWindowSize"])
                 g.createdAt = ((try? SyncWire.time(d["createdAt"])) ?? e.updatedAt)/1000; if let avatar { g.avatarUrl = avatar["image"].text }; out.groups.append(g)
             } else {
                 guard let owner = entities[identity.owner.key],owner.deletedAt == nil else { continue }
@@ -64,6 +66,10 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
             }
         }; return out
     }
+    private static func contextInteger(_ value: JSONValue) -> Int? {
+        if let number = value.number { return Int(exactly: number) }
+        return Int(value.text)
+    }
     public mutating func refreshRoots() {
         for (key,var e) in entities where e.identity.entityType == "topic" && e.deletedAt == nil {
             e.contentHash = SyncWire.aggregate((messages[e.identity.topicKey] ?? []).map { SyncWire.hash(.object(["id":$0["id"],"hash":$0["contentHash"]])) }); entities[key] = e
@@ -84,11 +90,16 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
             } else if e.identity.ownerType == "agent" {
                 kind = "agent"; guard let a = local.agents.first(where: { $0.id == id }) else { e.deletedAt = now; entities[key] = e; continue }
                 next["name"] = .string(a.name); next["systemPrompt"] = .string(a.systemPrompt); next["model"] = .string(a.model)
+                let before = baseline.agents.first { $0.id == id }
+                if a.contextTokenLimit != before?.contextTokenLimit { next["contextTokenLimit"] = a.contextTokenLimit.map { .number(Double($0)) } ?? .null }
+                if a.maxOutputTokens != before?.maxOutputTokens { next["maxOutputTokens"] = a.maxOutputTokens.map { .number(Double($0)) } ?? .null }
                 // Leave an absent temperature absent until it is actually changed locally.
                 if a.temperature != baseline.agents.first(where: { $0.id == id })?.temperature { next["temperature"] = a.temperature.map(JSONValue.number) ?? .null }
             } else {
                 kind = "group"; guard let g = local.groups.first(where: { $0.id == id }) else { e.deletedAt = now; entities[key] = e; continue }
                 let b = baseline.groups.first { $0.id == id }; next["name"] = .string(g.name)
+                if g.enableContextMessageWindow != b?.enableContextMessageWindow { next["enableContextMessageWindow"] = g.enableContextMessageWindow.map(JSONValue.bool) ?? .null }
+                if g.contextMessageWindowSize != b?.contextMessageWindowSize { next["contextMessageWindowSize"] = g.contextMessageWindowSize.map { .number(Double($0)) } ?? .null }
                 if g.memberIds != b?.memberIds { next["members"] = .array(try g.memberIds.map { guard let remote = remoteAgents[$0] else { throw SyncWire.fail("群组含未加入此同步来源的成员，请先在桌面加入") }; return .string(remote) }) }
                 if g.mode != b?.mode { guard g.mode != .rotate,g.mode != .mention else { throw SyncWire.fail("此群组模式不能写回桌面，请选依次、随机或仅点名") }; next["mode"] = .string(g.mode == .all ? "sequential" : g.mode.rawValue) }
                 if g.systemPrompt != b?.systemPrompt { next["groupPrompt"] = .string(g.systemPrompt) }

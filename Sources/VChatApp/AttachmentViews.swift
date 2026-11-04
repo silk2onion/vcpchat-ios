@@ -25,6 +25,8 @@ struct AttachmentComposer: View {
         Menu {
             Button("图库", systemImage: "photo.on.rectangle") { photoTopic = model.activeTopicID; choosingPhotos = true }
             Button("文件", systemImage: "folder") { importTopic = model.activeTopicID; importing = true }
+            Button(model.activeGroup == nil ? "附带当前位置" : "向本次群聊成员附带位置",systemImage: "location") { model.includeLocationOnce() }
+            if model.locationEnabledInChat { Button("这条消息不附带位置",systemImage: "location.slash") { model.omitLocationOnce() } }
             #if os(iOS)
             Button("相机", systemImage: "camera") { beginCamera() }
             #endif

@@ -2,7 +2,7 @@ import Foundation
 import VChatCore
 
 extension ChatViewModel {
-    /// Loading saved credentials is exclusively an explicit user action.
+    /// Startup and foreground restoration are silent; only the unlock button allows system UI.
     /// Session-only stores never call the system Keychain.
     func loadCredentials(allowInteraction: Bool) async {
         guard !unlockingCredentials else { return }
@@ -25,7 +25,7 @@ extension ChatViewModel {
             catch { locked = true; if allowInteraction { self.error = error.localizedDescription } }
         }
         credentialsLocked = locked
-        if !locked { await restoreRequestedConnections() }
+        await restoreRequestedConnections()
     }
 }
 
@@ -82,7 +82,7 @@ extension ChatViewModel {
         } catch { self.error = error.localizedDescription }
     }
 
-    /// Never reads the Keychain. A cold launch waits for explicit credential unlock.
+    /// Uses credentials already restored in memory; preserves explicit stop/disconnect choices.
     func restoreRequestedConnections() async {
         guard store != nil, !backgrounded, !restoringConnections else { return }
         restoringConnections = true

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import VChatCore
 
 public struct RenderOptions: Codable, Sendable, Equatable {
@@ -30,4 +31,21 @@ public enum RenderBlock: Sendable, Equatable {
     case table([[[InlineRun]]])
     case rule
     case math(String)
+}
+
+private struct MessageEmphasisKey: EnvironmentKey { static let defaultValue = Color.accentColor }
+public extension EnvironmentValues {
+    var messageEmphasisColor: Color {
+        get { self[MessageEmphasisKey.self] }
+        set { self[MessageEmphasisKey.self] = newValue }
+    }
+}
+public enum MarkdownTextStyle {
+    public static func emphasized(_ source: AttributedString,color: Color) -> AttributedString {
+        var result = source
+        for run in source.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true && run.inlinePresentationIntent?.contains(.code) != true {
+            result[run.range].foregroundColor = color
+        }
+        return result
+    }
 }

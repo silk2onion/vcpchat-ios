@@ -12,6 +12,8 @@ private struct GlyphPath: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         switch name {
+        case "location":
+            p.move(to: .init(x: 21,y: 3)); p.addLine(to: .init(x: 14,y: 21)); p.addLine(to: .init(x: 11,y: 13)); p.addLine(to: .init(x: 3,y: 10)); p.closeSubpath()
         case "folder":
             p.move(to: .init(x: 3,y: 7))
             p.addLine(to: .init(x: 3,y: 4))

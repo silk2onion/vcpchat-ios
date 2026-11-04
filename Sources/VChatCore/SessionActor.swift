@@ -68,8 +68,8 @@ public actor SessionActor {
             call.setValue("Bearer \(request.apiKey)", forHTTPHeaderField: "Authorization")
             call.setValue("application/json", forHTTPHeaderField: "Content-Type")
             call.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            struct Body: Encodable { let model: String; let messages: [ChatTurn]; let temperature: Double?; let stream = true }
-            call.httpBody = try JSONEncoder().encode(Body(model: request.configuration.model, messages: request.messages, temperature: request.temperature))
+            struct Body: Encodable { let model: String; let messages: [ChatTurn]; let temperature: Double?; let contextTokenLimit: Int?; let max_tokens: Int?; let stream = true }
+            call.httpBody = try JSONEncoder().encode(Body(model: request.configuration.model, messages: request.messages, temperature: request.temperature, contextTokenLimit: request.configuration.endpointMode == .vcpTools ? request.contextTokenLimit : nil, max_tokens: request.maxOutputTokens))
             let (bytes, response) = try await network.bytes(for: call)
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
             guard (200..<300).contains(response.statusCode) else { throw ClientError.http(response.statusCode) }

@@ -30,6 +30,7 @@ import VChatRendering
     var depths: [String: Int] = [:]
     var draft = ""
     var attachments: [ChatAttachment] = []
+    var locationPreference: LocationMessagePreference = .automatic
     var busy = false
     var cancellation: SessionState?
     var cancelled: Bool { cancellation != nil }
@@ -60,6 +61,9 @@ struct TopicDraft: Codable, Sendable {
     var appearance = AppearanceSettings()
     var inputPreferences = InputPreferences()
     var outputPreferences = OutputPreferences()
+    var locationSettings = LocationSharingSettings() { didSet { locationSettingsRevision = UUID() } }
+    @ObservationIgnored var locationSettingsRevision = UUID()
+    var location: DeviceLocationService
     var regexRules: [RegexRule] = []
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
@@ -114,7 +118,8 @@ struct TopicDraft: Codable, Sendable {
             }
         }
     }
-    init(vault: CredentialVault? = nil) {
+    init(vault: CredentialVault? = nil, location: DeviceLocationService? = nil) {
+        self.location = location ?? DeviceLocationService()
         let storage = CredentialVault.Persistence(rawValue: Bundle.main.object(forInfoDictionaryKey: "VChatCredentialPersistence") as? String ?? "") ?? .keychain
         self.vault = vault ?? CredentialVault(persistence: storage)
         if let data = UserDefaults.standard.data(forKey: "native.connection"), let saved = try? JSONDecoder().decode(ConnectionConfiguration.self, from: data) { configuration = saved }
@@ -136,6 +141,7 @@ struct TopicDraft: Codable, Sendable {
             regexRules = try await database.records([RegexRule].self, kind: "regex-global").first ?? []
             inputPreferences = try await database.records(InputPreferences.self, kind: "input-options").first ?? InputPreferences()
             outputPreferences = try await database.records(OutputPreferences.self, kind: "output-options").first ?? OutputPreferences()
+            locationSettings = try await database.records(LocationSharingSettings.self,kind: "location-options").first ?? LocationSharingSettings()
             services = try await database.records(ServiceSettings.self, kind: "services").first ?? ServiceSettings()
             appearance = try await database.records(AppearanceSettings.self, kind: "appearance").first ?? AppearanceSettings()
             renderOptions = try await database.records(RenderOptions.self, kind: "render-options").first ?? RenderOptions()
@@ -154,9 +160,9 @@ struct TopicDraft: Codable, Sendable {
             await activity.load(store: database)
             await loadCatalog()
             loading = false
-            // Do not call Security APIs on startup, even with a no-interaction hint.
-            credentialsLocked = !credentialsInMemory && (UserDefaults.standard.data(forKey: "native.connection") != nil || UserDefaults.standard.bool(forKey: "native.secrets-exist"))
-            await restoreRequestedConnections()
+            credentialsLocked = true
+            await loadCredentials(allowInteraction: false)
+            prefetchLocation()
         } catch { self.error = error.localizedDescription }
         loading = false
     }
@@ -198,6 +204,7 @@ struct TopicDraft: Codable, Sendable {
     func saveAgent(_ agent: VCPAgent) async -> Bool {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard !agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = "给 Agent 起一个名字"; return false }
+        guard agent.contextTokenLimit.map({ $0 >= 0 }) ?? true, agent.maxOutputTokens.map({ $0 >= 0 }) ?? true else { error = "上下文预算和最大输出不能为负数"; return false }
         do {
             try await store?.put(agent, kind: "agent", id: agent.id)
             if let index = agents.firstIndex(where: { $0.id == agent.id }) { agents[index] = agent } else { agents.append(agent) }
@@ -231,6 +238,7 @@ struct TopicDraft: Codable, Sendable {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard let store else { error = "本机数据库尚未就绪"; return false }
         guard !group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !group.memberIds.isEmpty else { error = "请填写群名并选择成员"; return false }
+        guard group.enableContextMessageWindow != true || (1...10_000).contains(group.contextMessageWindowSize ?? 100) else { error = "群聊历史窗口需为 1–10000 条消息"; return false }
         do {
             try await store.put(group, kind: "group", id: group.id)
             if let index = groups.firstIndex(where: { $0.id == group.id }) { groups[index] = group } else { groups.append(group) }
@@ -373,10 +381,13 @@ struct TopicDraft: Codable, Sendable {
                 if topic.title == "新对话" { await renameTopic(topic, title: String(content.prefix(24))) }
                 if speakers.isEmpty { throw ClientError.server(group?.mode == .inviteOnly ? "用 @名字 邀请群成员发言" : "这个会话没有可发言的 Agent，请在通讯录检查成员") }
                 var accepted = false
+                let locationPreference = room.locationPreference
+                let locationContext = await prepareLocation(for: speakers,preference: locationPreference)
+                room.locationPreference = .automatic
                 let builder = ConversationBuilder()
                 for agent in speakers {
                     guard !room.cancelled else { break }
-                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: output)
+                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: output, location: locationContext?.settings == locationSettings && locationSettings.shares(with: agent.id,preference: locationPreference) ? locationContext : nil, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil)
                     guard !room.cancelled else { break }
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
@@ -432,10 +443,13 @@ struct TopicDraft: Codable, Sendable {
         room.generation = Task {
             defer { room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count; if room.needsExternalReload { Task { await self.reloadTopicTools(changedID: room.id) } } }
             do {
-                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: output)
+                let locationPreference = room.locationPreference
+                let locationContext = await prepareLocation(for: [agent],preference: locationPreference)
+                room.locationPreference = .automatic
+                let built = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: output, location: locationContext, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil)
                 guard !room.cancelled else { return }
                 let prompt = ChatTurn(role: "user", content: "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。")
-                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature)
+                let request = ChatRequest(configuration: built.configuration, apiKey: built.apiKey, messages: built.messages + (continuing && !prefix.isEmpty ? [prompt] : []), temperature: built.temperature, contextTokenLimit: built.contextTokenLimit, maxOutputTokens: built.maxOutputTokens)
                 var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"
                 try await store.reviseMessage(record)
                 message.text = prefix; message.reasoning = reasoning; message.status = "connecting"
@@ -491,7 +505,10 @@ struct TopicDraft: Codable, Sendable {
         let wasBackgrounded = backgrounded
         backgrounded = false
         for room in Array(rooms.values) { await room.session.setBackgroundPacing(false) }
-        if wasBackgrounded { await restoreRequestedConnections() }
+        if wasBackgrounded {
+            if credentialsLocked { await loadCredentials(allowInteraction: false) }
+            else { await restoreRequestedConnections() }
+        }
     }
     func suspend() async { await enterBackground(); await interruptForBackground() }
     func searchLocal() async {

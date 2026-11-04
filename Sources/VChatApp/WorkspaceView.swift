@@ -53,6 +53,7 @@ struct WorkspaceView: View {
         }
         .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
         .environment(\.workspaceMotion,motion).environment(\.workspaceTheme,model.appearance.theme)
+        .environment(\.messageEmphasisColor,model.appearance.theme.tint)
         .tint(palette.accent).foregroundStyle(palette.ink)
         .sheet(item: $editing) { AgentEditor(model: model,agent: $0) }
         .sheet(item: $editingGroup) { GroupEditor(model: model,group: $0) }
@@ -158,6 +159,9 @@ struct AgentEditor: View {
     @State private var avatar = false
     @State private var deleting = false
     @State private var voiceOpen = false
+    @State private var locationGuidance = ""
+    @State private var locationOpen = false
+    @State private var contextOpen = false
     @Environment(\.dismiss) private var dismiss
     private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
     var existing: Bool { model.agents.contains { $0.id == agent.id } }
@@ -172,10 +176,28 @@ struct AgentEditor: View {
                 WorkspaceField(title: "简介",palette: palette) { TextField("它擅长什么",text: $agent.description,axis: .vertical).lineLimit(1...4).accessibilityLabel("简介") }
                 WorkspaceModelField(model: model,selection: $agent.model)
                 WorkspaceField(title: "系统提示",palette: palette) { TextEditor(text: $agent.systemPrompt).scrollContentBackground(.hidden).frame(minHeight: 110).accessibilityLabel("系统提示") }
+                DisclosureGroup("位置相关指引",isExpanded: $locationOpen) {
+                    VStack(alignment: .leading,spacing: 12) {
+                        Text("可选。定义如何使用已获授权的位置，例如附近搜索或出行。服务器需已有相应工具；这里不安装插件，也不授予定位权限。").font(.caption).foregroundStyle(palette.muted)
+                        TextEditor(text: $locationGuidance).scrollContentBackground(.hidden).frame(minHeight: 120).accessibilityLabel("位置相关指引")
+                        Button { locationGuidance += (locationGuidance.isEmpty ? "" : "\n\n") + LocationSharingSettings.travelTemplate } label: {
+                            Text("插入出行指引模板").frame(maxWidth: .infinity,minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.bordered)
+                        Text("可补充城市、真实工具名称、常坐线路或步行偏好；留空则不附加专门行为。").font(.caption).foregroundStyle(palette.muted)
+                    }.padding(.top,12)
+                }
                 VStack(alignment: .leading,spacing: 12) {
                     Toggle("独立 Temperature",isOn: Binding(get: { agent.temperature != nil },set: { agent.temperature = $0 ? model.configuration.temperature : nil }))
                     if agent.temperature != nil { HStack { Text("Temperature"); Spacer(); Text((agent.temperature ?? 0.8).formatted(.number.precision(.fractionLength(2)))) }; Slider(value: Binding(get: { agent.temperature ?? 0.8 },set: { agent.temperature = $0 }),in: 0...2) }
                     Text("只有全局打开“发送 Temperature”时才发送此参数。").font(.system(size: 12)).foregroundStyle(palette.muted)
+                }
+                DisclosureGroup("上下文与输出",isExpanded: $contextOpen) {
+                    VStack(alignment: .leading,spacing: 14) {
+                        WorkspaceField(title: "上下文预算（VCP）",palette: palette) { TextField("留空沿用服务设置",value: $agent.contextTokenLimit,format: .number.grouping(.never)).accessibilityLabel("上下文预算") }
+                        WorkspaceField(title: "最大输出 Token",palette: palette) { TextField("留空或 0 不限制客户端参数",value: $agent.maxOutputTokens,format: .number.grouping(.never)).accessibilityLabel("最大输出 Token") }
+                        Text("默认发送完整历史和附件，不按消息条数自动截断。上下文预算随 VCP 工具模式请求交给服务处理；自动摘要与折叠需在 VCP 另行配置。OpenAI 兼容模式仅发送最大输出参数。").font(.caption).foregroundStyle(palette.muted)
+                        if (agent.contextTokenLimit ?? 0) < 0 || (agent.maxOutputTokens ?? 0) < 0 { Text("请输入非负整数，或留空。").foregroundStyle(.red).font(.caption) }
+                    }.padding(.top,14)
                 }
                 WorkspaceSeparator(palette: palette)
                 DisclosureGroup("这个 Agent 的声音",isExpanded: $voiceOpen) {
@@ -193,8 +215,14 @@ struct AgentEditor: View {
                 }
             }.font(.system(size: 15))
         } footer: {
-            HStack(spacing: 10) { Button("取消") { dismiss() }.workspaceAction(palette); Button("保存") { Task { if await model.saveAgent(agent) { dismiss() } } }.workspaceAction(palette,primary: true).disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            HStack(spacing: 10) { Button("取消") { dismiss() }.workspaceAction(palette); Button("保存") { Task { if await model.saveAgent(agent) {
+                var settings = model.locationSettings
+                if locationGuidance.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { settings.agentGuidance.removeValue(forKey: agent.id) }
+                else { settings.agentGuidance[agent.id] = locationGuidance }
+                if await model.persistLocationSettings(settings) { dismiss() }
+            } } }.workspaceAction(palette,primary: true).disabled(agent.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (agent.contextTokenLimit ?? 0) < 0 || (agent.maxOutputTokens ?? 0) < 0) }
         }.frame(minWidth: 340,minHeight: 530)
+        .onAppear { locationGuidance = model.locationSettings.agentGuidance[agent.id] ?? "" }
         .sheet(isPresented: $regex) { RegexRulesView(title: "Agent 正则",rules: $agent.regexRules) {} }
         .sheet(isPresented: $avatar) { AvatarEditor(image: $agent.avatarUrl,name: agent.name) }
         .confirmationDialog("删除这个 Agent？聊天记录将保留。",isPresented: $deleting,titleVisibility: .visible) { Button("删除 Agent",role: .destructive) { Task { await model.removeAgent(agent.id); if model.error == nil { dismiss() } } } }

@@ -138,10 +138,12 @@ private struct CopyCode: View {
     }
 }
 private struct InlineBody: View {
+    @Environment(\.messageEmphasisColor) private var emphasisColor
+    private func emphasized(_ value: AttributedString) -> AttributedString { MarkdownTextStyle.emphasized(value,color: emphasisColor) }
     var runs: [InlineRun]
     var animations = true
     var text: AttributedString {
-        runs.reduce(into: AttributedString()) { result, run in if case .text(let text) = run { result.append(text) } }
+        runs.reduce(into: AttributedString()) { result, run in if case .text(let text) = run { result.append(emphasized(text)) } }
     }
     var hasMath: Bool { runs.contains { if case .math = $0 { return true }; return false } }
     var pieces: [InlineRun] {
@@ -160,13 +162,13 @@ private struct InlineBody: View {
     var body: some View {
         if runs.contains(where: { if case .media = $0 { true } else { false } }) {
             VStack(alignment: .leading,spacing: 10) { ForEach(Array(runs.enumerated()),id: \.offset) { _,run in
-                switch run { case .text(let value): Text(value).modifier(MessageTextSelection()).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+                switch run { case .text(let value): Text(emphasized(value)).modifier(MessageTextSelection()).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
             } }
         } else if !hasMath { Text(text).modifier(MessageTextSelection()).lineSpacing(4) }
         else {
             InlineFlow {
                 ForEach(Array(pieces.enumerated()), id: \.offset) { _, part in
-                    switch part { case .text(let value): Text(value).modifier(MessageTextSelection()); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+                    switch part { case .text(let value): Text(emphasized(value)).modifier(MessageTextSelection()); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
                 }
             }
         }

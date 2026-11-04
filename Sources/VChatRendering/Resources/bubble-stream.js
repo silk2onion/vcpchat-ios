@@ -41,6 +41,7 @@
                 return true;
             }
         });
+        VCPBubbleMarkdown.colorize(mount);
         // A partial <script> is parsed inertly. Activate only fully received
         // inline scripts, once; further text chunks keep the same live nodes.
         const closed = new Set();

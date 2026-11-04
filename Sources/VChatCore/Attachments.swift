@@ -103,9 +103,22 @@ public struct APIContentPart: Codable, Sendable, Equatable {
 }
 public enum AttachmentContext {
     public static func parts(text: String, attachments: [ChatAttachment]) -> [APIContentPart] {
-        let active = attachments.filter { $0.desktopOnly != true && ($0.kind == "image" ? ($0.bytes?.count ?? Int.max) <= AttachmentBudget.sentImage : ($0.text?.utf8.count ?? Int.max) <= AttachmentBudget.text) }
-        let blocks = [text.trimmingCharacters(in: .whitespacesAndNewlines)] + active.compactMap { a in a.kind == "text" ? a.text.map { "附件 \(a.name):\n\($0)" } : nil }
+        var blocks = [text.trimmingCharacters(in: .whitespacesAndNewlines)]
+        var images: [APIContentPart] = []
+        for attachment in attachments {
+            if attachment.kind == "text", let body = attachment.text, body.utf8.count <= AttachmentBudget.text {
+                // Synced extracted text is usable even before the original file
+                // has downloaded. desktopOnly applies to the missing binary.
+                blocks.append("附件 \(attachment.name):\n\(body)")
+            } else if attachment.kind == "image", attachment.desktopOnly != true,
+                      let url = attachment.dataUrl, let bytes = attachment.bytes, bytes.count <= AttachmentBudget.sentImage {
+                images.append(.image(url))
+            } else {
+                let reason = attachment.desktopOnly == true ? "原件尚未下载" : "内容不可用或超过单个附件大小限制"
+                blocks.append("【附件 \(attachment.name)：\(reason)，本次未附带内容】")
+            }
+        }
         let merged = blocks.filter { !$0.isEmpty }.joined(separator: "\n\n")
-        return (merged.isEmpty ? [] : [.text(merged)]) + active.compactMap { $0.kind == "image" ? $0.dataUrl.map(APIContentPart.image) : nil }
+        return (merged.isEmpty ? [] : [.text(merged)]) + images
     }
 }
