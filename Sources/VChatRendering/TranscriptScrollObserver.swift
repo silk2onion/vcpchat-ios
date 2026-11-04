@@ -1,6 +1,7 @@
 import SwiftUI
 
 public enum TranscriptScrollEvent: Equatable, Sendable {
+    case layoutChanged
     case began
     case ended(atLatest: Bool)
 }
@@ -25,30 +26,63 @@ private struct NativeScrollObserver: UIViewRepresentable {
     var action: ((TranscriptScrollEvent) -> Void)?
     private weak var scroll: UIScrollView?
     private var observation: NSKeyValueObservation?
+    private var sizeObservation: NSKeyValueObservation?
+    private var layoutPending = false
     private var displayLink: CADisplayLink?
     private var active = false
-    override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { disconnect() } else { connect() } }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { disconnect() }
+        else { connect(); DispatchQueue.main.async { [weak self] in self?.connect() } }
+    }
     override func didMoveToSuperview() { super.didMoveToSuperview(); connect() }
     func connect() {
         guard window != nil,scroll == nil else { return }
         var parent = superview
+        var target: UIScrollView?
         while let view = parent {
-            if let target = view as? UIScrollView {
-                scroll = target
-                target.panGestureRecognizer.addTarget(self,action: #selector(panned(_:)))
-                observation = target.observe(\.contentOffset,options: [.new]) { [weak self] _,_ in
-                    // UIKit scroll geometry and this target are confined to the main run loop.
-                    MainActor.assumeIsolated {
-                        if let view = self?.scroll,view.isTracking || view.isDragging || view.isDecelerating { self?.begin() }
-                    }
-                }
-                return
-            }
+            if let enclosing = view as? UIScrollView { target = enclosing; break }
             parent = view.superview
         }
+        // List backgrounds are siblings of the UIKit list, not descendants of it.
+        if target == nil {
+            parent = superview
+            while let view = parent {
+                if let list = nativeList(in: view) { target = list; break }
+                parent = view.superview
+            }
+        }
+        guard let target else { return }
+        scroll = target
+        sizeObservation = target.observe(\.contentSize,options: [.new]) { [weak self] _,_ in
+            MainActor.assumeIsolated { self?.layoutChanged() }
+        }
+        layoutChanged()
+        target.panGestureRecognizer.addTarget(self,action: #selector(panned(_:)))
+        observation = target.observe(\.contentOffset,options: [.new]) { [weak self] _,_ in
+            MainActor.assumeIsolated {
+                if let view = self?.scroll,view.isTracking || view.isDragging || view.isDecelerating { self?.begin() }
+            }
+        }
     }
+    private func layoutChanged() {
+        guard !layoutPending else { return }; layoutPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }; layoutPending = false
+            guard window != nil,scroll != nil else { return }
+            action?(.layoutChanged)
+        }
+    }
+    override func layoutSubviews() { super.layoutSubviews(); connect() }
+    private func nativeList(in view: UIView) -> UIScrollView? {
+        if let list = view as? UIScrollView,(list is UICollectionView || list is UITableView),!list.isHidden { return list }
+        for child in view.subviews { if let list = nativeList(in: child) { return list } }
+        return nil
+    }
+
     func disconnect() {
         observation?.invalidate(); observation = nil
+        sizeObservation?.invalidate(); sizeObservation = nil
         scroll?.panGestureRecognizer.removeTarget(self,action: #selector(panned(_:)))
         displayLink?.invalidate(); displayLink = nil; scroll = nil; active = false
     }

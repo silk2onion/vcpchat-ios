@@ -117,46 +117,78 @@ private struct ChatTimeline: View {
         var topicID: String
         var messageCount: Int
         var frame: Int
-        var contentHeight: Int
+        var layoutVersion: Int
         var following: Bool
     }
     let model: ChatViewModel
     @State private var following = TranscriptFollowing()
     @State private var openSettings = false
     @State private var viewport = CGRect.zero
-    @State private var contentHeight = 0
+    @State private var layoutVersion = 0
     var body: some View {
                 ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 24) {
+                    Group {
+                        #if os(iOS)
+                        List {
                             if model.messages.isEmpty && !model.loading {
-                                VStack(spacing: 14) {
-                                    ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 70)
-                                    Text("和\(model.ownerName)聊聊").font(.system(size: 23,weight: .bold)).padding(.top,8)
-                                    Text(model.activeAgent?.description.isEmpty == false ? model.activeAgent!.description : "新的会话，新的想法。").font(.system(size: 14)).foregroundStyle(.secondary)
-                                    if model.apiKey.isEmpty { Button(model.credentialsLocked ? "解锁已有连接" : "连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(model.appearance.theme.tint) }
-                                }.frame(maxWidth: .infinity).containerRelativeFrame(.vertical) { length,_ in max(240,length - 44) }
+                                emptyState
+                                    .listRowInsets(EdgeInsets(top: 22,leading: 20,bottom: 22,trailing: 20))
+                                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
                             }
-                            ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }
+                            ForEach(model.messages) { message in
+                                NativeMessageRow(message: message,model: model)
+                                    .id(message.id)
+                                    .listRowInsets(EdgeInsets(top: 12,leading: 20,bottom: 12,trailing: 20))
+                                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                            }
                             Color.clear.frame(height: 1).id("latest")
-                        }.padding(.horizontal, 20).padding(.vertical, 22)
-                            .background {
-                                TranscriptScrollObserver { event in
-                                    switch event {
-                                    case .began: following.beginInteraction()
-                                    case .ended(let atLatest): following.endInteraction(atLatest: atLatest)
-                                    }
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .buttonStyle(.plain)
+                        .background {
+                            TranscriptScrollObserver { event in
+                                switch event {
+                                case .layoutChanged: if following.canScrollToLatest { layoutVersion += 1 }
+                                case .began: following.beginInteraction()
+                                case .ended(let atLatest): following.endInteraction(atLatest: atLatest)
                                 }
                             }
-                            .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { contentHeight = $0 }
+                        }
+                        .id(model.activeTopicID)
+                        #else
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 24) {
+                                if model.messages.isEmpty && !model.loading {
+                                    emptyState
+                                }
+                                ForEach(model.messages) { message in NativeMessageRow(message: message, model: model).id(message.id) }
+                                Color.clear.frame(height: 1).id("latest")
+                            }.padding(.horizontal, 20).padding(.vertical, 22)
+                                .background {
+                                    TranscriptScrollObserver { event in
+                                        switch event {
+                                        case .layoutChanged: if following.canScrollToLatest { layoutVersion += 1 }
+                                        case .began: following.beginInteraction()
+                                        case .ended(let atLatest): following.endInteraction(atLatest: atLatest)
+                                        }
+                                    }
+                                }
+                                .onGeometryChange(for: Int.self,of: { Int($0.size.height.rounded(.up)) }) { _ in layoutVersion += 1 }
+                        }
+                        #endif
                     }
                     .environment(\.messageViewport, viewport)
                     .coordinateSpace(name: "vcp-message-viewport")
                     .onGeometryChange(for: CGSize.self,of: { $0.size }) { viewport = CGRect(origin: .zero,size: $0) }
+                    #if os(macOS)
                     .defaultScrollAnchor(model.messages.isEmpty ? .top : (following.canScrollToLatest ? .bottom : nil))
-                    // Record reflow as data, then scroll outside the layout callback.
-                    // Scrolling synchronously there can re-enter lazy measurement.
-                    .task(id: ScrollRequest(topicID: model.activeTopicID,messageCount: model.messages.count,frame: model.frames,contentHeight: contentHeight,following: following.canScrollToLatest)) {
+                    #endif
+                    // Native list size changes and streaming frames share one coalesced
+                    // request. Never reposition during a user drag or deceleration.
+                    .task(id: ScrollRequest(topicID: model.activeTopicID,messageCount: model.messages.count,frame: model.frames,layoutVersion: layoutVersion,following: following.canScrollToLatest)) {
                         guard following.canScrollToLatest,!model.messages.isEmpty else { return }
                         // Coalesce automatic requests outside the layout transaction.
                         await Task.yield()
@@ -173,6 +205,14 @@ private struct ChatTimeline: View {
                     }
                 }
             .sheet(isPresented: $openSettings) { ConnectionView(model: model) }
+    }
+    private var emptyState: some View {
+        VStack(spacing: 14) {
+            ContactAvatar(name: model.ownerName,image: model.activeGroup?.avatarUrl ?? model.activeAgent?.avatarUrl ?? "",kind: model.activeGroup == nil ? .agent : .group,size: 70)
+            Text("和\(model.ownerName)聊聊").font(.system(size: 23,weight: .bold)).padding(.top,8)
+            Text(model.activeAgent?.description.isEmpty == false ? model.activeAgent!.description : "新的会话，新的想法。").font(.system(size: 14)).foregroundStyle(.secondary)
+            if model.apiKey.isEmpty { Button(model.credentialsLocked ? "解锁已有连接" : "连接服务器") { openSettings = true }.buttonStyle(.borderedProminent).tint(model.appearance.theme.tint) }
+        }.frame(maxWidth: .infinity).containerRelativeFrame(.vertical) { length,_ in max(240,length - 44) }
     }
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
         var transaction = Transaction(); transaction.disablesAnimations = true
