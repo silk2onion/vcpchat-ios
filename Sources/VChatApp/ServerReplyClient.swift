@@ -120,7 +120,7 @@ import VChatCore
         try await vault.save(String(decoding:try JSONEncoder().encode(grant),as:UTF8.self),name:Self.account(id))
         access=grant
     }
-    func start(initial: URLRequest? = nil, route: String = "chatvcp", downloadExists: Bool = false) {
+    func start(initial: (@Sendable () async throws -> URLRequest)? = nil, route: String = "chatvcp", downloadExists: Bool = false) {
         scheduled=downloadExists; accepted=downloadExists
         let own=epoch
         worker=Task { [self] in
@@ -138,7 +138,9 @@ import VChatCore
                     guard let access, !done, !Task.isCancelled, epoch==own else { return }
                     if let initial=create {
                         create=nil // even a lost acknowledgement must not replay the POST
-                        var req=access.request(method:"PUT"); req.httpBody=initial.httpBody
+                        let call = try await initial()
+                        guard !done, !stopping, !Task.isCancelled, epoch == own else { return }
+                        var req=access.request(method:"PUT"); req.httpBody=call.httpBody
                         req.setValue(route,forHTTPHeaderField:"X-VChat-Route")
                         req.setValue("application/json",forHTTPHeaderField:"Content-Type")
                         let (data,response)=try await network.data(for:req); try check(response)

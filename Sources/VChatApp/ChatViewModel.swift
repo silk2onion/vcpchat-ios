@@ -124,9 +124,11 @@ struct TopicDraft: Codable, Sendable {
         (outputPreferences, nil)
         #endif
     }
-    var locationSettings = LocationSharingSettings() { didSet { locationSettingsRevision = UUID() } }
+    var locationSettings = LocationSharingSettings() { didSet { locationSettingsRevision = UUID(); prefetchLocation(); location.cancelChatDemands() } }
     @ObservationIgnored var locationSettingsRevision = UUID()
-    var location: DeviceLocationService
+    let locationCoordinator: LocationAcquisitionCoordinator
+    var location: DeviceLocationService { locationCoordinator.chatService }
+    var footprint: FootprintTracker { locationCoordinator.footprintTracker }
     var regexRules: [RegexRule] = []
     var activeTopicID = "legacy"
     var rooms: [String: ChatRoom] = [:]
@@ -201,14 +203,18 @@ struct TopicDraft: Codable, Sendable {
             }
         }
     }
-    init(vault: CredentialVault? = nil, location: DeviceLocationService? = nil) {
-        self.location = location ?? DeviceLocationService()
+    init(vault: CredentialVault? = nil, location: DeviceLocationService? = nil, coordinator: LocationAcquisitionCoordinator? = nil) {
+        self.locationCoordinator = coordinator ?? LocationAcquisitionCoordinator(chatService: location)
         let storage = CredentialVault.Persistence(rawValue: Bundle.main.object(forInfoDictionaryKey: "VChatCredentialPersistence") as? String ?? "") ?? .keychain
         self.vault = vault ?? CredentialVault(persistence: storage)
         if let data = UserDefaults.standard.data(forKey: "native.connection"), let saved = try? JSONDecoder().decode(ConnectionConfiguration.self, from: data) { configuration = saved }
         else { configuration = ConnectionConfiguration() }
         if let value = UserDefaults.standard.string(forKey: Self.endpointModePreference),
            let mode = EndpointMode(rawValue: value) { configuration.endpointMode = mode }
+        self.locationCoordinator.footprintTracker.setHomePlaceProvider { [weak self] in
+            guard let self else { return nil }
+            return LocalMovementSemanticCalculator.findHomePlace(in: self.locationSettings.places)
+        }
     }
     func load() async {
         if let loadTask { await loadTask.value; return }
@@ -430,7 +436,7 @@ struct TopicDraft: Codable, Sendable {
                 let room = ChatRoom(id: topic.id, messages: messages); room.draft = saved?.text ?? ""; room.attachments = saved?.attachments ?? []; rooms[topic.id] = room
             }
             guard openingID == opening else { return }
-            activeTopicID = topic.id; UserDefaults.standard.set(topic.id, forKey: "native.active-topic")
+            activeTopicID = topic.id; prefetchLocation(); UserDefaults.standard.set(topic.id, forKey: "native.active-topic")
         } catch { self.error = error.localizedDescription }
     }
     func flushDraft() async {
@@ -561,17 +567,17 @@ struct TopicDraft: Codable, Sendable {
                 if speakers.isEmpty { throw ClientError.server(group?.mode == .inviteOnly ? "用 @名字 邀请群成员发言" : "这个会话没有可发言的 Agent，请在通讯录检查成员") }
                 var accepted = false
                 let locationPreference = room.locationPreference
-                let locationContext = await prepareLocation(for: speakers,preference: locationPreference)
-                room.locationPreference = .automatic
+                let locationContext = await prepareLocation(for: speakers, preference: locationPreference, group: group)
+                room.locationPreference = .automatic; prefetchLocation()
                 let builder = ConversationBuilder()
                 for agent in speakers {
                     guard !room.cancelled else { break }
-                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: replies.legacy, location: locationContext?.settings == locationSettings && locationSettings.shares(with: agent.id,preference: locationPreference) ? locationContext : nil, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil, advancedReplies: replies.advanced, currentUserMessageID: user.id)
+                    let request = try await builder.request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: room.messages.map(\.record), rules: rules, output: replies.legacy, location: nil, locationPolicy: nil, advancedReplies: replies.advanced, currentUserMessageID: user.id)
                     guard !room.cancelled else { break }
                     let assistant = MessageViewModel(StoredMessage(topicID: room.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: "", status: "connecting"))
                     currentReply = assistant; room.messages.append(assistant); try await store.save(assistant.record)
                     noteSavedUtterance(assistant.record)
-                    try await receive(request, into: assistant, room: room, store: store, acceptedUser: accepted ? nil : user.id)
+                    try await receive(request, locationText: { try self.outboundLocation(locationContext, for: agent.id, preference: locationPreference) }, into: assistant, room: room, store: store, acceptedUser: accepted ? nil : user.id)
                     if room.messages.first(where: { $0.id == user.id })?.status == "complete" { accepted = true }
                     if assistant.status != "complete" { break }
                 }
@@ -593,7 +599,7 @@ struct TopicDraft: Codable, Sendable {
             }
         }
     }
-    func receive(_ request: ChatRequest, into assistant: MessageViewModel, room: ChatRoom, store: ChatStore, prefix: String = "", reasoningPrefix: String = "", acceptedUser: String? = nil) async throws {
+    func receive(_ request: ChatRequest, locationText: @escaping ChatRequest.LocationText, into assistant: MessageViewModel, room: ChatRoom, store: ChatStore, prefix: String = "", reasoningPrefix: String = "", acceptedUser: String? = nil) async throws {
         if let cancellation = room.cancellation {
             assistant.status = cancellation.rawValue; room.connection = cancellation == .stopped ? "已停止" : "已中断"
             try await store.save(assistant.record); return
@@ -603,13 +609,13 @@ struct TopicDraft: Codable, Sendable {
             if room.backgroundJobID == nil { reserveReply(in:room) }
             let job = BackgroundReplyJob(id: room.backgroundJobID!, messageID: assistant.id, topicID: room.id, userID: acceptedUser)
             room.connection = "正在接收回复"
-            let ticket = try await replyTransfers.submit(job, request: request, room: room, store: store)
+            let ticket = try await replyTransfers.submit(job, request: request, locationText: locationText, room: room, store: store)
             await collectBackgroundReply(job, ticket: ticket, room: room, store: store)
             return
         }
         #endif
         var lastSaved = ContinuousClock.now, accepted = false
-        for try await update in try await room.session.stream(request, prefix: prefix, reasoningPrefix: reasoningPrefix) {
+        for try await update in try await room.session.stream(request, prefix: prefix, reasoningPrefix: reasoningPrefix, locationText: locationText) {
             assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
             room.frames += 1
             let next: String = switch update.state {
@@ -636,16 +642,16 @@ struct TopicDraft: Codable, Sendable {
             defer { finishReplyTurn(in:room); room.busy = false; room.generation = nil; room.pendingCount = room.messages.filter { $0.status == "pending" }.count; if room.needsExternalReload { Task { await self.reloadTopicTools(changedID: room.id) } } }
             do {
                 let locationPreference = room.locationPreference
-                let locationContext = await prepareLocation(for: [agent],preference: locationPreference)
-                room.locationPreference = .automatic
+                let locationContext = await prepareLocation(for: [agent], preference: locationPreference, group: group)
+                room.locationPreference = .automatic; prefetchLocation()
                 let prompt = continuing && !prefix.isEmpty ? "上一条回复在传输中断开了。请从断开的地方直接接着写，不要重复已经写过的内容，也不要解释。" : nil
-                let request = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: replies.legacy, location: locationContext, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil, advancedReplies: replies.advanced, currentUserMessageID: history.last { ($0.originalRole ?? $0.role) == "user" }?.id, transientUserPrompt: prompt)
+                let request = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: replies.legacy, location: nil, locationPolicy: nil, advancedReplies: replies.advanced, currentUserMessageID: history.last { ($0.originalRole ?? $0.role) == "user" }?.id, transientUserPrompt: prompt)
                 guard !room.cancelled else { return }
                 var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"
                 try await store.reviseMessage(record)
                 message.text = prefix; message.reasoning = reasoning; message.status = "connecting"
                 let pending = room.messages.last { $0.role == "user" && $0.status == "pending" }?.id
-                try await receive(request, into: message, room: room, store: store, prefix: prefix, reasoningPrefix: reasoning, acceptedUser: pending)
+                try await receive(request, locationText: { try self.outboundLocation(locationContext, for: agent.id, preference: locationPreference) }, into: message, room: room, store: store, prefix: prefix, reasoningPrefix: reasoning, acceptedUser: pending)
             } catch {
                 message.status = room.cancellation?.rawValue ?? "interrupted"; room.error = error.localizedDescription
                 do { try await store.save(message.record) } catch { room.error = "本机保存失败：\(error.localizedDescription)" }

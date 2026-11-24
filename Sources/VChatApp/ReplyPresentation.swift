@@ -72,7 +72,15 @@ import VChatCore
 }
 
 @MainActor final class ReplyAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    let model = ChatViewModel()
+    let model = ChatViewModel(coordinator: .shared)
+    nonisolated(unsafe) private var protectedDataObserver: (any NSObjectProtocol)?
+
+    deinit {
+        if let protectedDataObserver {
+            NotificationCenter.default.removeObserver(protectedDataObserver)
+        }
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // Scene-based apps do not get the legacy app-delegate foreground callbacks.
         NotificationCenter.default.addObserver(self, selector: #selector(leavingForeground),
@@ -80,6 +88,25 @@ import VChatCore
         NotificationCenter.default.addObserver(self, selector: #selector(returningToForeground),
             name: UIApplication.didBecomeActiveNotification, object: nil)
         UNUserNotificationCenter.current().delegate = self
+        let hasLocationKey = launchOptions?[.location] != nil
+        let isBackgroundLaunch = hasLocationKey || (application.applicationState == .background)
+        protectedDataObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                _ = await LocationAcquisitionCoordinator.shared.handleProtectedDataBecameAvailable()
+            }
+        }
+        if isBackgroundLaunch {
+            Task { @MainActor in
+                _ = await LocationAcquisitionCoordinator.shared.handleDidFinishLaunching(
+                    launchHadLocationKey: hasLocationKey,
+                    isBackgroundLaunch: true
+                )
+            }
+        }
         return true
     }
     @objc private func leavingForeground() {

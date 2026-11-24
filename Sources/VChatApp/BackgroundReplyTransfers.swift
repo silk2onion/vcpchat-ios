@@ -136,11 +136,9 @@ import VChatCore
         tickets[id] = ticket
         return ticket
     }
-    nonisolated private static func prepare(_ request: ChatRequest, directory: URL) async throws -> URLRequest {
-        let call = try request.urlRequest(streaming: true)
+    nonisolated private static func prepareDirectory(_ directory: URL) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
-        return call
     }
     private func serverClient(_ id: String,ticket: Ticket,vault: CredentialVault) -> ServerReplyClient {
         ServerReplyClient(id:id,directory:ticket.directory,vault:vault,changed:{ ticket.output.yield(.bytesAvailable) },
@@ -152,13 +150,16 @@ import VChatCore
             },finish:{ [weak self] receipt in self?.deliver(receipt,for:id) })
     }
 
-    func submit(_ job: BackgroundReplyJob, request: ChatRequest, room: ChatRoom, store: ChatStore) async throws -> Ticket {
+    func submit(_ job: BackgroundReplyJob, request: ChatRequest, locationText: ChatRequest.LocationText? = nil, room: ChatRoom, store: ChatStore) async throws -> Ticket {
         guard let root else { throw ClientError.server("后台收回复尚未就绪，请重新打开 App") }
         try await store.registerBackgroundReply(job)
         let ticket = makeTicket(job.id, root: root)
         room.backgroundJobID = job.id
         do {
-            let call = try await Self.prepare(request, directory: ticket.directory)
+            try await Self.prepareDirectory(ticket.directory)
+            let makeRequest: @Sendable () async throws -> URLRequest = {
+                try await request.urlRequest(streaming: true, locationText: locationText)
+            }
             if room.cancelled {
                 cancel(job.id)
                 return ticket
@@ -169,9 +170,11 @@ import VChatCore
                 try await client.prepare(request)
                 if room.cancelled { client.close(); cancel(job.id); return ticket } // no PUT was issued
                 remote[job.id]=client
-                client.start(initial:call,route:request.configuration.endpointMode == .vcpTools ? "chatvcp" : "chat")
+                client.start(initial:makeRequest,route:request.configuration.endpointMode == .vcpTools ? "chatvcp" : "chat")
                 return ticket
             }
+            let call = try await makeRequest()
+            if room.cancelled { cancel(job.id); return ticket }
             let task = session.dataTask(with: call)
             task.prefersIncrementalDelivery = true
             task.taskDescription = job.id; tasks[job.id] = task

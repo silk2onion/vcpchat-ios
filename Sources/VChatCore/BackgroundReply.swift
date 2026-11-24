@@ -2,7 +2,24 @@ import Foundation
 import GRDB
 
 extension ChatRequest {
+    public typealias LocationText = @MainActor @Sendable () throws -> String?
+
     public func urlRequest(streaming: Bool) throws -> URLRequest {
+        try urlRequest(streaming: streaming, turns: messages)
+    }
+
+    public func urlRequest(streaming: Bool, locationText: LocationText?) async throws -> URLRequest {
+        guard let locationText, let text = try await locationText() else { return try urlRequest(streaming: streaming) }
+        var turns = messages
+        if turns.first?.role == "system", turns.first?.parts == nil {
+            turns[0].content += "\n\n" + text
+        } else {
+            turns.insert(ChatTurn(role: "system", content: text), at: 0)
+        }
+        return try urlRequest(streaming: streaming, turns: turns)
+    }
+
+    private func urlRequest(streaming: Bool, turns: [ChatTurn]) throws -> URLRequest {
         guard !apiKey.isEmpty else { throw ClientError.missingKey }
         guard !configuration.model.isEmpty else { throw ClientError.missingModel }
         var call = URLRequest(url: try configuration.chatEndpoint())
@@ -14,7 +31,7 @@ extension ChatRequest {
         struct Body: Encodable {
             let model: String, messages: [ChatTurn], temperature: Double?, contextTokenLimit: Int?, max_tokens: Int?, stream: Bool
         }
-        call.httpBody = try JSONEncoder().encode(Body(model: configuration.model, messages: messages,
+        call.httpBody = try JSONEncoder().encode(Body(model: configuration.model, messages: turns,
             temperature: temperature, contextTokenLimit: configuration.endpointMode == .vcpTools ? contextTokenLimit : nil,
             max_tokens: maxOutputTokens, stream: streaming))
         return call

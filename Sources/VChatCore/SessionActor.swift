@@ -23,7 +23,7 @@ public actor SessionActor {
         configuration.timeoutIntervalForRequest = 30; configuration.timeoutIntervalForResource = 600
         network = URLSession(configuration: configuration)
     }
-    public func stream(_ request: ChatRequest, prefix: String = "", reasoningPrefix: String = "") throws -> AsyncThrowingStream<SessionUpdate, Error> {
+    public func stream(_ request: ChatRequest, prefix: String = "", reasoningPrefix: String = "", locationText: ChatRequest.LocationText? = nil) throws -> AsyncThrowingStream<SessionUpdate, Error> {
         guard !request.apiKey.isEmpty else { throw ClientError.missingKey }
         guard !request.configuration.model.isEmpty else { throw ClientError.missingModel }
         _ = try request.configuration.chatEndpoint()
@@ -34,7 +34,7 @@ public actor SessionActor {
         chatContinuation = continuation
         continuation.onTermination = { [weak self] _ in Task { await self?.terminate(id) } }
         emit(.connecting)
-        chatTask = Task { await self.receiveChat(request, id: id) }
+        chatTask = Task { await self.receiveChat(request, id: id, locationText: locationText) }
         let foregroundInterval = FramePacer(framesPerSecond: request.configuration.framesPerSecond).interval
         pacingTask = Task {
             var deadline = ContinuousClock.now
@@ -59,9 +59,10 @@ public actor SessionActor {
         state = next; sequence += 1; emittedEvents = rawEvents
         chatContinuation?.yield(SessionUpdate(state: next, text: text, reasoning: reasoning, sequence: sequence, rawEvents: rawEvents, parserWasOffMainThread: allParsingOffMain))
     }
-    private func receiveChat(_ request: ChatRequest, id: UUID) async {
+    private func receiveChat(_ request: ChatRequest, id: UUID, locationText: ChatRequest.LocationText?) async {
         do {
-            let call = try request.urlRequest(streaming: true)
+            let call = try await request.urlRequest(streaming: true, locationText: locationText)
+            try Task.checkCancellation(); guard chatID == id else { return }
             let (bytes, response) = try await network.bytes(for: call)
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
             guard (200..<300).contains(response.statusCode) else { throw ClientError.http(response.statusCode) }

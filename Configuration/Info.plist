@@ -7,15 +7,16 @@
 <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.3.6</string>
-<key>CFBundleVersion</key><string>13</string>
+<key>CFBundleVersion</key><string>14</string>
 <key>NSSupportsLiveActivities</key><true/>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>vchat</string></array></dict></array>
 <key>LSRequiresIPhoneOS</key><true/>
-<key>UIBackgroundModes</key><array><string>audio</string></array>
+<key>UIBackgroundModes</key><array><string>audio</string><string>location</string></array>
 <key>UILaunchScreen</key><dict/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
-<key>NSLocationWhenInUseUsageDescription</key><string>允许后，向你选定的 Agent 提供发送消息时的位置，用于附近地点与出行建议。不会在后台持续追踪。</string>
-<key>NSLocationUsageDescription</key><string>向你选定的 Agent 提供发送消息时的位置，用于附近地点与出行建议。</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>在使用 VChat 时获取位置，用于保存地点或随本条消息分享给选定的 Agent。</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>在主动开启「本地足迹记录」后，用于在后台记录移动轨迹与行程变化；该功能默认关闭，足迹仅保存在本机，除非你手动开启外部同步。</string>
+<key>NSLocationUsageDescription</key><string>向你选定的 Agent 提供位置与周边空间语义，用于附近地点与出行建议。</string>
 <key>NSLocalNetworkUsageDescription</key><string>用于连接你自己的 VCP 服务器</string>
 <key>NSPhotoLibraryAddUsageDescription</key><string>允许将你选择的聊天图片保存到系统照片。</string>
 <key>NSCameraUsageDescription</key><string>拍摄照片并添加到当前对话；确认发送后才会上传给你配置的服务器。</string>
