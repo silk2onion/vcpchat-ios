@@ -1,6 +1,10 @@
 import SwiftUI
 import VChatRendering
 import UniformTypeIdentifiers
+#if os(iOS)
+import UserNotifications
+import UIKit
+#endif
 
 struct SettingsView: View {
     @Bindable var model: ChatViewModel
@@ -34,6 +38,8 @@ struct SettingsView: View {
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { RenderingSettings(model: model).workspaceDetailNavigation() } label: { row("高级渲染","render",model.renderOptions.enabled ? "已开启" : "轻量模式",purple: true) }
                         #if os(iOS)
+                        WorkspaceSeparator(palette: palette)
+                        NavigationLink { BackgroundReplySettings().workspaceDetailNavigation() } label: { row("后台回复与提醒","chat","锁屏收回复、通知与灵动岛",blue: true) }
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { AdvancedReplySettingsView(model: model).workspaceDetailNavigation() } label: { row("高级回复","chat","气泡与工具提示词 · 注入位置和覆盖",purple: true) }.disabled(model.loading)
                         #endif
@@ -165,3 +171,49 @@ private struct RenderingSettings: View {
     }
     private func toggle(_ title: String,_ subtitle: String,_ binding: Binding<Bool>) -> some View { VStack(spacing: 0) { Toggle(isOn: binding) { VStack(alignment: .leading,spacing: 4) { Text(title).font(.system(size: 15,weight: .semibold)); Text(subtitle).font(.system(size: 13)).foregroundStyle(palette.muted) } }.toggleStyle(.switch).accessibilityLabel(title).padding(17); WorkspaceSeparator(palette: palette) } }
 }
+
+#if os(iOS)
+private struct BackgroundReplySettings: View {
+    @AppStorage(ReplyPresentation.modeKey) private var enabled = false
+    @AppStorage(ReplyPresentation.islandKey) private var island = true
+    @AppStorage(ServerReplyClient.preference) private var serverSync = false
+    @AppStorage(ReplyPresentation.activityNoticeKey) private var activityNotice = ""
+    @State private var permission: UNAuthorizationStatus = .notDetermined
+    @State private var notice = ""
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("后台收回复", isOn: $enabled)
+                if enabled { Toggle("使用 VCP 回复续传插件",isOn:$serverSync) }
+            } footer: {
+                Text(enabled && serverSync ? "请先在自己的 VCP 安装 VChatReplySync。服务器继续生成，手机断线或重开后会补齐这条回复。未安装不会发起普通聊天请求。" : "前台实时显示回复。直连时，锁屏后 iOS 可能挂起连接；如需退出 App 后仍能补齐原回复，请安装并开启 VCP 回复续传插件。")
+            }
+            Section {
+                Toggle("在锁屏与灵动岛显示进度", isOn: $island)
+                if island && !activityNotice.isEmpty { Text(activityNotice).font(.caption).foregroundStyle(.secondary) }
+                if permission == .notDetermined {
+                    Button("允许回复完成通知") {
+                        Task {
+                            do { _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+                            catch { notice = error.localizedDescription }
+                            await refresh()
+                        }
+                    }
+                } else {
+                    Button(permission == .denied ? "前往系统设置允许通知" : "管理回复通知") {
+                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
+                    }
+                }
+                if !notice.isEmpty { Text(notice).foregroundStyle(.secondary) }
+            } footer: {
+                Text("在其他 App 或锁屏时，轻点回复通知或实时活动可打开原话题。灵动岛需机型支持。即使不允许通知，回复也会保存。")
+            }.disabled(!enabled)
+        }.navigationTitle("后台回复与提醒").task { await refresh() }
+        .onChange(of: phase) { _, value in if value == .active { Task { await refresh() } } }
+    }
+    private func refresh() async { permission = await ReplyPresentation.authorizationStatus() }
+}
+#endif

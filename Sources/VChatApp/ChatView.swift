@@ -54,6 +54,8 @@ struct ChatView: View {
             }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(WorkspacePalette(theme: model.appearance.theme).solid, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             #endif
             .toolbar {
                 #if os(iOS)
@@ -152,6 +154,7 @@ private struct ChatTimeline: View {
                                 .listRowBackground(Color.clear).listRowSeparator(.hidden)
                         }
                         .listStyle(.plain)
+                        .clipped()
                         .scrollDismissesKeyboard(.interactively)
                         .scrollContentBackground(.hidden)
                         .buttonStyle(.plain)
@@ -245,13 +248,13 @@ private struct NativeMessageRow: View {
             VStack(alignment: .leading,spacing: 9) {
                 if message.role == "assistant" {
                     let author = model.authorAgent(for: message),name = message.authorName.isEmpty ? author?.name ?? "助手" : message.authorName
-                    HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
+                    HStack(spacing: 8) { ContactAvatar(name: name,image: author?.avatarUrl ?? "",size: 24); Text(name).font(.system(size: 13,weight: .semibold)).accessibilityIdentifier("assistant-author-" + message.id); Spacer(); if streaming { Circle().fill(palette.accent).frame(width: 6,height: 6); Text("正在回复").font(.system(size: 11)) } else if ["interrupted","stopped"].contains(message.status) { Text(message.status == "interrupted" ? "已中断 · 内容已保留" : "已停止").font(.system(size: 11)) } }.foregroundStyle(palette.muted)
                 }
                 MessageActions(message: message,model: model) {
                     VStack(alignment: .leading,spacing: 12) {
                         if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
                         if let notice = message.syncNotice { Label(notice,systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(palette.muted) }
-                        if !message.reasoning.isEmpty { DisclosureGroup("思考过程") { Text(message.reasoning).font(.callout).foregroundStyle(palette.muted).textSelection(.disabled) } }
+                        if !message.reasoning.isEmpty { MessageDisclosure(kind:"reasoning",title:"思考过程",motion:motion) { Label("思考过程",systemImage:"sparkles").font(.callout.weight(.semibold)) } content: { Text(verbatim:message.reasoning).font(.callout).foregroundStyle(palette.muted).lineLimit(nil).fixedSize(horizontal:false,vertical:true).textSelection(.disabled) } }
                         RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user").font(.system(size: 16)).lineSpacing(5)
                     }.environment(\.messageTextSelectionEnabled,false)
                     .padding(.horizontal,message.role == "user" ? 16 : 17).padding(.vertical,message.role == "user" ? 10 : 15)

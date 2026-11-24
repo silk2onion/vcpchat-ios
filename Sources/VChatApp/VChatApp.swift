@@ -6,7 +6,12 @@ import UIKit
 #endif
 
 @main struct VChatApp: App {
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(ReplyAppDelegate.self) private var delegate
+    private var model: ChatViewModel { delegate.model }
+    #else
     @State private var model = ChatViewModel()
+    #endif
     @State private var lifetime = BackgroundLifetime()
     @Environment(\.scenePhase) private var phase
     #if os(iOS)
@@ -29,6 +34,9 @@ import UIKit
     var body: some Scene {
         WindowGroup {
             WorkspaceView(model: model)
+                #if os(iOS)
+                .onOpenURL { if let topic = ReplyActivityAttributes.topic(in: $0) { model.requestedReplyTopic = topic } }
+                #endif
                 .task { if model.loading { await model.load() } }
                 .onChange(of: phase) { _, next in
                     if next != .inactive { model.locationForeground(next == .active) }

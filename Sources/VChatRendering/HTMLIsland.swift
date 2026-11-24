@@ -208,7 +208,7 @@ public enum HTMLIslandPolicy {
         let emphasis = emphasisColor ?? (dark ? "#88d6b0" : "#278752")
         let noMotion = motion ? "" : "*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}"
         return """
-        <!doctype html><html data-vcp-host-theme="\(color)"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src \(image); media-src \(media ? "https: data:" : "'none'"); font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>:root{color-scheme:\(color)}html,body{background:transparent;color:CanvasText;margin:0;padding:0;font:16px -apple-system;overflow-wrap:anywhere}#vcp-root{max-width:100%;box-sizing:border-box}img,video,svg,canvas{max-width:100%}img.vcp-standalone-photo{display:block;width:100%!important;height:auto!important;max-height:720px;object-fit:contain}pre{white-space:pre-wrap}:root{--vcp-md-emphasis:\(emphasis)}strong.vcp-md-strong{color:var(--vcp-md-emphasis);font-weight:700}\(noMotion)</style></head><body>\(source)</body></html>
+        <!doctype html><html data-vcp-host-theme="\(color)"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src \(image); media-src \(media ? "https: data:" : "'none'"); font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>:root{color-scheme:\(color)}html,body{background:transparent;color:CanvasText;margin:0;padding:0;font:16px -apple-system;overflow-wrap:anywhere}#vcp-root{max-width:100%;box-sizing:border-box}img,video,svg,canvas{max-width:100%}img{-webkit-touch-callout:none}img.vcp-standalone-photo{display:block;width:100%!important;height:auto!important;max-height:720px;object-fit:contain}pre{white-space:pre-wrap}:root{--vcp-md-emphasis:\(emphasis)}strong.vcp-md-strong{color:var(--vcp-md-emphasis);font-weight:700}\(noMotion)</style></head><body>\(source)</body></html>
         """
     }
 }
@@ -363,6 +363,9 @@ struct HTMLIsland: View {
     var streaming = false
     @State private var controller = IslandController()
     @State private var bounds = CGRect.zero
+    #if os(iOS)
+    @State private var selectedPhoto: CardPhoto?
+    #endif
     @State private var appeared = false
     @Environment(\.messageViewport) private var viewport
     @Environment(\.colorScheme) private var scheme
@@ -376,12 +379,38 @@ struct HTMLIsland: View {
         let hex = String(format: "#%02x%02x%02x",Int(min(1,max(0,color.red)) * 255),Int(min(1,max(0,color.green)) * 255),Int(min(1,max(0,color.blue)) * 255))
         return HTMLIslandPolicy.document("",motion: options.motion && !reduceMotion,media: options.media,dark: scheme == .dark,emphasisColor: hex)
     }
-    var body: some View {
-        Group {
-            if let view = controller.view { IslandNativeView(view: view,showActions: showMessageActions).frame(height: controller.height) }
-            else if controller.failed { Label(controller.failureMessage, systemImage: "arrow.clockwise").font(.callout).frame(height: controller.height) }
-            else { Label(visible ? "等待加载视觉气泡" : "视觉气泡已暂停", systemImage: "rectangle.inset.filled").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).frame(height: controller.height) }
+    #if os(iOS)
+    private var selectCardPhoto: (@MainActor (CardPhoto) -> Void)? {
+        guard options.media else { return nil }
+        return { (photo: CardPhoto) in selectedPhoto = photo }
+    }
+    #endif
+    @ViewBuilder private var surface: some View {
+        if let view = controller.view {
+            #if os(iOS)
+            IslandNativeView(view: view, showActions: showMessageActions, selectPhoto: selectCardPhoto)
+                .id(ObjectIdentifier(view)).frame(height: controller.height)
+            #else
+            IslandNativeView(view: view, showActions: showMessageActions)
+                .id(ObjectIdentifier(view)).frame(height: controller.height)
+            #endif
+        } else if controller.failed {
+            Label(controller.failureMessage, systemImage: "arrow.clockwise").font(.callout).frame(height: controller.height)
+        } else {
+            Label(visible ? "等待加载视觉气泡" : "视觉气泡已暂停", systemImage: "rectangle.inset.filled").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).frame(height: controller.height)
         }
+    }
+    private var photoSurface: some View {
+        #if os(iOS)
+        surface.sheet(item: $selectedPhoto) { (photo: CardPhoto) in
+            CardPhotoPreview(photo: photo, stickers: stickers)
+        }
+        #else
+        surface
+        #endif
+    }
+    var body: some View {
+        photoSurface
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .onGeometryChange(for: CGRect.self,of: { $0.frame(in: .named("vcp-message-viewport")) }) { bounds = $0 }
         .onAppear { appeared = true; refresh() }.onDisappear { appeared = false; controller.unmount() }
@@ -400,21 +429,33 @@ struct HTMLIsland: View {
 private struct IslandNativeView: UIViewRepresentable {
     var view: WKWebView
     var showActions: (@MainActor @Sendable () -> Void)?
+    var selectPhoto: (@MainActor (CardPhoto) -> Void)?
     func makeCoordinator() -> IslandPressHandler { IslandPressHandler() }
     func makeUIView(context: Context) -> WKWebView { context.coordinator.attach(to: view); return view }
-    func updateUIView(_ uiView: WKWebView, context: Context) { context.coordinator.showActions = showActions; context.coordinator.gesture?.isEnabled = showActions != nil }
+    func updateUIView(_ uiView: WKWebView, context: Context) { context.coordinator.showActions = showActions; context.coordinator.selectPhoto = selectPhoto; context.coordinator.gesture?.isEnabled = showActions != nil || selectPhoto != nil }
     static func dismantleUIView(_ uiView: WKWebView, coordinator: IslandPressHandler) { coordinator.detach(from: uiView) }
 }
 @MainActor private final class IslandPressHandler: NSObject, UIGestureRecognizerDelegate {
     var showActions: (@MainActor @Sendable () -> Void)?
+    var selectPhoto: (@MainActor (CardPhoto) -> Void)?
     var gesture: UILongPressGestureRecognizer?
     func attach(to view: WKWebView) {
         let press = UILongPressGestureRecognizer(target: self,action: #selector(pressed(_:)))
         press.minimumPressDuration = 0.5; press.allowableMovement = 10; press.delegate = self
         gesture = press; view.addGestureRecognizer(press)
     }
-    func detach(from view: WKWebView) { if let gesture { view.removeGestureRecognizer(gesture) }; gesture = nil; showActions = nil }
-    @objc private func pressed(_ gesture: UILongPressGestureRecognizer) { if gesture.state == .began { showActions?() } }
+    func detach(from view: WKWebView) { if let gesture { view.removeGestureRecognizer(gesture) }; gesture = nil; showActions = nil; selectPhoto = nil }
+    @objc private func pressed(_ press: UILongPressGestureRecognizer) {
+        guard press.state == .began, let web = press.view as? WKWebView else { return }
+        guard selectPhoto != nil, web.bounds.width > 0 else { showActions?(); return }
+        let location = press.location(in: web), width = web.bounds.width
+        web.__callAsyncJavaScript(CardPhoto.hitTest, arguments: ["x": location.x / width, "y": location.y / width],
+                                  inFrame: nil, in: .defaultClient) { [weak self, weak press] value, _ in
+            guard let self, let press, self.gesture === press else { return }
+            if let hit = value as? [String], let photo = CardPhoto(hit: hit) { self.selectPhoto?(photo) }
+            else { self.showActions?() }
+        }
+    }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
 }
 #else

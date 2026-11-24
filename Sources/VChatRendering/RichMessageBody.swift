@@ -120,7 +120,7 @@ private struct NativeBlocks: View, Equatable {
     @ViewBuilder func blockView(_ block: RenderBlock) -> some View {
         switch block {
         case .html(let source): HTMLIsland(source: source, options: options,streaming: streaming)
-        case .diagram(let source,let raster): VStack(alignment: .leading,spacing: 8) { NativeDiagram(source: source,raster: raster); DisclosureGroup("图表源码") { NativeCode(language: "mermaid",source: source,spans: []) } }
+        case .diagram(let source,let raster): VStack(alignment: .leading,spacing: 8) { NativeDiagram(source: source,raster: raster); MessageDisclosure(kind:"diagram",title:"图表源码") { Text("图表源码") } content: { NativeCode(language: "mermaid",source: source,spans: []) } }
         case .vcp(let segment): VCPCardView(segment: segment, options: options)
         case .literal(let text): Text(verbatim: text).modifier(MessageTextSelection())
         case .paragraph(let runs): InlineBody(runs: runs,animations: options.motion)

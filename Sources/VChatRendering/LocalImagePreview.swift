@@ -25,6 +25,6 @@ public struct LocalImagePreview: View {
             do { let value = try await NativeMediaLoader.shared.localImage(data); if !Task.isCancelled { raster = value } }
             catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }.onAppear { visible = true }.onDisappear { visible = false; raster = nil }
-        .sheet(isPresented: $viewing) { if let raster { RasterViewer(image: raster.image,title: title,animation: raster.animation) } }
+        .sheet(isPresented: $viewing) { if let raster { RasterViewer(image: raster.image,title: title,animation: raster.animation,original: data) } }
     }
 }

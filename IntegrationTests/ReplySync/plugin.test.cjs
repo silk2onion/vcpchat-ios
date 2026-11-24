@@ -1,0 +1,54 @@
+const test=require('node:test'), assert=require('node:assert/strict'), crypto=require('node:crypto');
+const {fixture}=require('./fixture.cjs');
+const fetch=(url,options={})=>globalThis.fetch(url,{signal:AbortSignal.timeout(15000),...options});
+test('subscriber loss, duplicate creation, cold restart, isolation and cancel',{timeout:30000},async t=>{
+  const f=await fixture(); t.after(()=>f.close());
+  const headers={'Content-Type':'application/json',Authorization:'Bearer fixture','X-VChat-Proof':crypto.randomBytes(32).toString('hex'),'X-VChat-Route':'chatvcp'};
+  const url=f.base+f.prefix+'/jobs/'+crypto.randomUUID();
+  const body=JSON.stringify({model:'case',stream:true,messages:[{role:'user',content:'fixture'}]});
+  const put=(u=url,b=body)=>fetch(u,{method:'PUT',headers,body:b});
+  const read=(u=url)=>fetch(u,{headers}).then(r=>r.json());
+  const [a,b]=await Promise.all([put(),put()]);assert.equal(a.status,200);assert.equal(b.status,200);
+  assert.equal((await put(url,body.replace('"case"','"other"'))).status,409);
+  console.log("duplicate requests resolved");
+  const first=await read();assert.equal(first.state,'running');assert.match(Buffer.from(first.data,'base64').toString(),/首段/);
+  assert.equal((await fetch(url,{headers:{...headers,'X-VChat-Proof':'1'.repeat(64)}})).status,404);
+  assert.equal((await fetch(url,{headers:{...headers,Authorization:'Bearer wrong'}})).status,401);
+  console.log("prefix and access checks passed");
+  const ac=new AbortController(), listener=await fetch(url+'/result',{headers,signal:ac.signal});assert.equal(listener.status,200);ac.abort();
+  assert.equal(await (await fetch(f.base+'/release/case')).text(),'1');
+  let all=Buffer.from(first.data,'base64'), cursor=first.next,page;
+  do {page=await read(url+'?offset='+cursor);assert.equal(page.offset,cursor);cursor=page.next;all=Buffer.concat([all,Buffer.from(page.data,'base64')]);} while(page.state==='running');
+  assert.equal(page.state,'complete');assert.match(all.toString(),/后台完成/);
+  assert.equal((await fetch(url+'?offset=9999999',{headers})).status,416);
+  console.log("subscriber detached; server result complete");
+  await f.restart();
+  const final=await read(url+'/result');assert.equal(final.state,'complete');assert.equal(final.next,all.length);assert.deepEqual(Buffer.from(final.data,'base64'),all);
+  assert.equal((await put()).status,200);assert.equal(f.requests.length,1);
+  const stopped=f.base+f.prefix+'/jobs/'+crypto.randomUUID();
+  assert.equal((await fetch(stopped,{method:'DELETE',headers})).status,200);
+  assert.equal((await (await put(stopped)).json()).state,'stopped');assert.equal(f.requests.length,1);
+  console.log("stored result recovered; cancellation tombstone intact");
+  const busy=f.base+f.prefix+'/jobs/'+crypto.randomUUID();await put(busy,body.replace('"case"','"busy"'));await read(busy);
+  await f.restart();assert.equal((await read(busy+'/result')).state,'interrupted');assert.equal(f.requests.length,2);
+  const cut=f.base+f.prefix+'/jobs/'+crypto.randomUUID();await put(cut,body.replace('"case"','"cut"'));await read(cut);
+  f.runs.get('cut').end();assert.equal((await read(cut+'/result')).state,'interrupted');
+});
+
+test('byte cursors page a large Unicode reply and the downloaded archive matches all pages',{timeout:30000},async t=>{
+  const f=await fixture(); t.after(()=>f.close());
+  const headers={'Content-Type':'application/json',Authorization:'Bearer fixture','X-VChat-Proof':'7'.repeat(64),'X-VChat-Route':'chat'};
+  const url=f.base+f.prefix+'/jobs/'+crypto.randomUUID();
+  await fetch(url,{method:'PUT',headers,body:JSON.stringify({model:'large',messages:[{role:'user',content:'demo'}],stream:true})});
+  const first=await (await fetch(url,{headers})).json();
+  const payload='data: '+JSON.stringify({choices:[{delta:{content:'字'.repeat(130000)}}]})+'\n\ndata: [DONE]\n\n';
+  f.runs.get('large').end(payload);
+  const archive=await (await fetch(url+'/result',{headers})).json();
+  let offset=first.next, parts=[],page;
+  do {
+    page=await (await fetch(url+'?offset='+offset,{headers})).json();
+    assert.equal(page.offset,offset);parts.push(Buffer.from(page.data,'base64'));offset=page.next;
+  } while(page.state==='running');
+  assert.ok(parts.length>=3);assert.equal(Buffer.concat(parts).toString(),payload);
+  assert.deepEqual(Buffer.from(archive.data,'base64'),Buffer.concat([Buffer.from(first.data,'base64'),...parts]));
+});

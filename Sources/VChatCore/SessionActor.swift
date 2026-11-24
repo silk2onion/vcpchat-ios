@@ -26,7 +26,7 @@ public actor SessionActor {
     public func stream(_ request: ChatRequest, prefix: String = "", reasoningPrefix: String = "") throws -> AsyncThrowingStream<SessionUpdate, Error> {
         guard !request.apiKey.isEmpty else { throw ClientError.missingKey }
         guard !request.configuration.model.isEmpty else { throw ClientError.missingModel }
-        let url = try request.configuration.chatEndpoint()
+        _ = try request.configuration.chatEndpoint()
         guard prefix.utf8.count + reasoningPrefix.utf8.count <= 8_000_000 else { throw ClientError.tooLarge }
         stop()
         let id = UUID(); chatID = id; text = prefix; reasoning = reasoningPrefix; sequence = 0; rawEvents = 0; emittedEvents = 0; allParsingOffMain = true
@@ -34,7 +34,7 @@ public actor SessionActor {
         chatContinuation = continuation
         continuation.onTermination = { [weak self] _ in Task { await self?.terminate(id) } }
         emit(.connecting)
-        chatTask = Task { await self.receiveChat(request, url: url, id: id) }
+        chatTask = Task { await self.receiveChat(request, id: id) }
         let foregroundInterval = FramePacer(framesPerSecond: request.configuration.framesPerSecond).interval
         pacingTask = Task {
             var deadline = ContinuousClock.now
@@ -59,17 +59,9 @@ public actor SessionActor {
         state = next; sequence += 1; emittedEvents = rawEvents
         chatContinuation?.yield(SessionUpdate(state: next, text: text, reasoning: reasoning, sequence: sequence, rawEvents: rawEvents, parserWasOffMainThread: allParsingOffMain))
     }
-    private func receiveChat(_ request: ChatRequest, url: URL, id: UUID) async {
+    private func receiveChat(_ request: ChatRequest, id: UUID) async {
         do {
-            var call = URLRequest(url: url); call.httpMethod = "POST"
-            // Tool execution may pause the SSE body longer than the short model-
-            // discovery timeout. Keep the chat request within its 10-minute budget.
-            call.timeoutInterval = 600
-            call.setValue("Bearer \(request.apiKey)", forHTTPHeaderField: "Authorization")
-            call.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            call.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            struct Body: Encodable { let model: String; let messages: [ChatTurn]; let temperature: Double?; let contextTokenLimit: Int?; let max_tokens: Int?; let stream = true }
-            call.httpBody = try JSONEncoder().encode(Body(model: request.configuration.model, messages: request.messages, temperature: request.temperature, contextTokenLimit: request.configuration.endpointMode == .vcpTools ? request.contextTokenLimit : nil, max_tokens: request.maxOutputTokens))
+            let call = try request.urlRequest(streaming: true)
             let (bytes, response) = try await network.bytes(for: call)
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
             guard (200..<300).contains(response.statusCode) else { throw ClientError.http(response.statusCode) }

@@ -53,6 +53,8 @@ public struct MessageMedia: Sendable,Equatable,Identifiable {
 }
 public struct MediaRaster: Sendable {
     public var image: CGImage; public var animation: Data?
+    var original: Data? = nil
+    var memoryCost: Int { image.bytesPerRow * image.height + (original?.count ?? animation?.count ?? 0) }
     public var width: Double { Double(image.width) }; public var height: Double { Double(image.height) }
 }
 public struct VideoResource: Sendable { public var url: URL; var temporary: Bool }
@@ -76,9 +78,9 @@ public actor NativeMediaLoader {
         try Task.checkCancellation()
         guard generation == imageGeneration else { throw CancellationError() }
         if let value = cache[source], expiration[source,default: .distantPast] > Date() { return value }
-        if let old = cache.removeValue(forKey: source) { recent.removeAll { $0 == source }; expiration[source] = nil; bytes -= old.image.bytesPerRow * old.image.height + (old.animation?.count ?? 0) }
-        let value = try localImage(data),image = value.image,cost = image.bytesPerRow*image.height + (value.animation?.count ?? 0)
-        while !recent.isEmpty && (recent.count >= 8 || bytes+cost > 32_000_000) { let old = recent.removeFirst(); expiration[old] = nil; if let v = cache.removeValue(forKey: old) { bytes -= v.image.bytesPerRow*v.image.height + (v.animation?.count ?? 0) } }
+        if let old = cache.removeValue(forKey: source) { recent.removeAll { $0 == source }; expiration[source] = nil; bytes -= old.memoryCost }
+        let value = try localImage(data),cost = value.memoryCost
+        while !recent.isEmpty && (recent.count >= 8 || bytes+cost > 32_000_000) { let old = recent.removeFirst(); expiration[old] = nil; if let v = cache.removeValue(forKey: old) { bytes -= v.memoryCost } }
         if cost <= 32_000_000 && expires > Date() { expiration[source] = expires; cache[source] = value; recent.append(source); bytes += cost }; return value
     }
     public func clearImageCache() async {
@@ -90,7 +92,7 @@ public actor NativeMediaLoader {
         guard let input = CGImageSourceCreateWithData(data as CFData,nil),let props = CGImageSourceCopyPropertiesAtIndex(input,0,nil) as? [CFString:Any],let w = props[kCGImagePropertyPixelWidth] as? Double,let h = props[kCGImagePropertyPixelHeight] as? Double,w > 0,h > 0,w*h <= 60_000_000,
               let image = CGImageSourceCreateThumbnailAtIndex(input,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2560,kCGImageSourceShouldCacheImmediately:true] as CFDictionary) else { throw ClientError.server("无法读取图片，可打开原链接查看") }
         let animated = CGImageSourceGetCount(input) > 1 && [UTType.gif.identifier,UTType.png.identifier,UTType.webP.identifier].contains(CGImageSourceGetType(input) as String? ?? "")
-        return MediaRaster(image: image,animation: animated ? data : nil)
+        return MediaRaster(image: image,animation: animated ? data : nil, original: data)
     }
     public func video(_ source: String) throws -> VideoResource {
         guard MessageMedia.isSafe(source) else { throw ClientError.server("视频地址无效") }

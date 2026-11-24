@@ -85,6 +85,14 @@ public actor ChatStore {
                 t.primaryKey(["archiveID","kind","id"])
             }
         }
+        migrations.registerMigration("native-v8-background-replies") { db in
+            try db.create(table: "backgroundReplies") { t in
+                t.column("id", .text).primaryKey()
+                t.column("messageID", .text).notNull().unique().references("messages", onDelete: .cascade)
+                t.column("topicID", .text).notNull()
+                t.column("userID", .text)
+            }
+        }
         try migrations.migrate(pool)
     }
     public static func open(path: String) async throws -> ChatStore { try ChatStore(path: path) }
@@ -104,7 +112,7 @@ public actor ChatStore {
     }
     public func markSent(_ id: String) async throws { try await pool.write { db in try db.execute(sql: "DELETE FROM outbox WHERE id = ?", arguments: [id]); try db.execute(sql: "UPDATE messages SET status='complete' WHERE id = ?", arguments: [id]) } }
     public func pending() async throws -> Int { try await pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM outbox") ?? 0 } }
-    public func recoverInterrupted() async throws { try await pool.write { try $0.execute(sql: "UPDATE messages SET status='interrupted' WHERE status IN ('streaming','connecting')") } }
+    public func recoverInterrupted() async throws { try await pool.write { try $0.execute(sql: "UPDATE messages SET status='interrupted' WHERE status IN ('streaming','connecting') AND id NOT IN (SELECT messageID FROM backgroundReplies)") } }
     public func search(_ text: String) async throws -> [StoredMessage] {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         // Quote the literal query; user input is not an FTS expression or SQL fragment.

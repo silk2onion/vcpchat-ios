@@ -34,7 +34,8 @@ struct ConnectionView: View {
                             Toggle("显示密钥",isOn: $showKey).font(.system(size: 14))
                         }.padding(18).workspaceGlass(palette,radius: 20)
                         VStack(alignment: .leading,spacing: 24) {
-                            WorkspaceField(title: "接口",palette: palette) { Picker("接口模式",selection: $model.configuration.endpointMode) { ForEach(EndpointMode.allCases,id: \.self) { Text($0.title).tag($0) } }.labelsHidden().frame(maxWidth: .infinity,alignment: .leading) }
+                            WorkspaceField(title: "接口",palette: palette) { Picker("接口模式",selection: Binding(get: { model.configuration.endpointMode }, set: { model.selectEndpointMode($0) })) { ForEach(EndpointMode.allCases,id: \.self) { Text($0.title).tag($0) } }.labelsHidden().frame(maxWidth: .infinity,alignment: .leading) }
+                            Text(model.configuration.endpointMode == .vcpTools ? "接口模式已自动保存。新回复会请求工具结果正文，可在消息中展开查看。" : "接口模式自动保存。如果只收到工具摘要，可切换到「VCP 工具模式」查看后续调用的详细结果。").font(.caption).foregroundStyle(palette.muted)
                             WorkspaceModelField(model: model,selection: $model.configuration.model,title: "默认模型",prompt: "模型 ID")
                             Toggle(isOn: $model.configuration.sendTemperature) { VStack(alignment: .leading,spacing: 4) { Text("发送 Temperature").font(.system(size: 15,weight: .semibold)); Text("部分模型不接受此参数").font(.system(size: 13)).foregroundStyle(palette.muted) } }.toggleStyle(.switch).accessibilityLabel("发送 Temperature")
                             if model.configuration.sendTemperature { LabeledContent("Temperature",value: model.configuration.temperature.formatted(.number.precision(.fractionLength(2)))); Slider(value: $model.configuration.temperature,in: 0...2) }

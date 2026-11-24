@@ -58,10 +58,25 @@ public enum VCPMarkup {
         for domain in ToolBatchMarkup.split(source, streaming: streaming) {
             switch domain {
             case .prose(let prose):
-                output += parseLegacy(prose, protectingHTMLLiterals: protectingHTMLLiterals, markers: markers)
+                // Older servers omit the batch envelope but put its summary
+                // directly after the results. Never associate across prose or a call.
+                var preceding: [Receipt] = []
+                func flushResults() {
+                    for case .result(let value, let done) in preceding { output.append(.result(value, done)) }
+                    preceding.removeAll(keepingCapacity: true)
+                }
+                for block in parseLegacy(prose, tokens: protectingHTMLLiterals ? proseWithHTML : proseTokens) {
+                    switch block {
+                    case .result(let value, let done): preceding.append(.result(value, done))
+                    case .summary(let items, let done) where !preceding.isEmpty:
+                        output.append(.batch(preceding + [.summary(items, done)], done)); preceding.removeAll(keepingCapacity: true)
+                    default: flushResults(); output.append(block)
+                    }
+                }
+                flushResults()
             case .receipt(let body, let closed):
                 // Only summaries and results are structural inside a receipt; other tool output is inert text.
-                let parts: [Receipt] = parseLegacy(body, protectingHTMLLiterals: true, markers: [resultStart, "[本轮工具调用摘要:]"]).compactMap {
+                let parts: [Receipt] = parseLegacy(body, tokens: receiptTokens).compactMap {
                     switch $0 {
                     case .text(let text): return .note(text.trimmingCharacters(in:.whitespacesAndNewlines))
                     case .summary(let items, let complete): return items.isEmpty ? nil : .summary(items,complete)
@@ -74,35 +89,50 @@ public enum VCPMarkup {
         }
         return output
     }
-    private static func parseLegacy(_ source: String, protectingHTMLLiterals: Bool, markers: [String]) -> [Segment] {
+    // Match whole backtick runs within a paragraph. A tag mentioned in Markdown
+    // code is text, so it must never start an HTML range outside that code span.
+    private static let inlineCode = #"(?<![\\`])(`++)(?:(?!\r?\n[ \t]*\r?\n)[\s\S])*?(?<!`)\1(?!`)"#
+    private static func tokens(_ markers: [String], html: Bool) -> NSRegularExpression {
+        let raw = #"(?i:<!--|<(script|style|pre|code|textarea)\b(?:"[^"]*"|'[^']*'|[^'">])*>)"#
+        let protocolTokens = markers.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+        return try! NSRegularExpression(pattern: inlineCode + "|" + (html ? raw + "|" : "") + protocolTokens)
+    }
+    private static let proseTokens = tokens(markers, html: false)
+    private static let proseWithHTML = tokens(markers, html: true)
+    private static let receiptTokens = tokens([resultStart, "[本轮工具调用摘要:]"], html: true)
+    private static let closingTags = Dictionary(uniqueKeysWithValues: ["script","style","pre","code","textarea"].map {
+        ($0, try! NSRegularExpression(pattern: "</" + $0 + #"\s*>"#, options: .caseInsensitive))
+    })
+
+    private static func parseLegacy(_ source: String, tokens: NSRegularExpression) -> [Segment] {
         let s = source as NSString
-        var literalRanges = fences(source)
-        if protectingHTMLLiterals {
-            // Script/style source, comments and HTML code samples belong to the
-            // visual island, not to the surrounding VCP display protocol.
-            let pattern = #"<!--[\s\S]*?(?:-->|$)|<(script|style|pre|code|textarea)\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?(?:</\1\s*>|$)"#
-            if let regex = try? NSRegularExpression(pattern: pattern,options: .caseInsensitive) {
-                literalRanges += regex.matches(in: source,range: NSRange(location: 0,length: s.length)).map(\.range)
-            }
-        }
         var result: [Segment] = [], cursor = 0, textFrom = 0
-        while cursor < s.length {
-            var best: (String, Int)?
-            for marker in markers {
-                var from = cursor
-                while from < s.length {
-                    let r = s.range(of: marker, range: NSRange(location: from, length: s.length - from))
-                    if r.location == NSNotFound { break }
-                    let wrapped = (r.location > 0 && s.character(at: r.location - 1) == 96) || (NSMaxRange(r) < s.length && s.character(at: NSMaxRange(r)) == 96)
-                    if !wrapped && !literalRanges.contains(where: { NSLocationInRange(r.location, $0) }) { if best == nil || r.location < best!.1 { best = (marker, r.location) }; break }
-                    from = NSMaxRange(r)
+        // Scan in source order: inline code cannot open HTML, HTML cannot open
+        // tools, and a tool's payload cannot hide the next sibling block.
+        for fence in fences(source) + [NSRange(location: s.length, length: 0)] {
+            guard fence.location >= cursor else { continue } // inside a consumed payload
+            while cursor < fence.location {
+                let gap = NSRange(location: cursor, length: fence.location - cursor)
+                guard let token = tokens.firstMatch(in: source, options: [.withTransparentBounds], range: gap) else { break }
+                let at = token.range.location
+                cursor = NSMaxRange(token.range)
+                if token.range(at: 1).location != NSNotFound { continue } // inline code
+                let marker = s.substring(with: token.range)
+                let remaining = NSRange(location: cursor, length: s.length - cursor)
+                if marker == "<!--" {
+                    let end = s.range(of: "-->", range: remaining)
+                    cursor = end.location == NSNotFound ? s.length : NSMaxRange(end)
+                } else if token.numberOfRanges > 2, token.range(at: 2).location != NSNotFound {
+                    let tag = s.substring(with: token.range(at: 2)).lowercased()
+                    let end = closingTags[tag]?.firstMatch(in: source, range: remaining)
+                    cursor = end.map { NSMaxRange($0.range) } ?? s.length
+                } else if let (segment, end) = parseOne(s, marker: marker, at: at) {
+                    let prose = s.substring(with: NSRange(location: textFrom, length: at - textFrom))
+                    if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.append(.text(prose)) }
+                    result.append(segment); cursor = end; textFrom = end
                 }
             }
-            guard let (marker, at) = best else { break }
-            guard let (segment, end) = parseOne(s, marker: marker, at: at) else { cursor = at + marker.utf16.count; continue }
-            let prose = s.substring(with: NSRange(location: textFrom, length: at - textFrom))
-            if !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.append(.text(prose)) }
-            result.append(segment); cursor = end; textFrom = end
+            if cursor <= fence.location { cursor = NSMaxRange(fence) }
         }
         if textFrom < s.length { let text = s.substring(from: textFrom); if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.append(.text(text)) } }
         return result
@@ -172,14 +202,26 @@ public enum VCPMarkup {
     public static func resultFields(_ source: String) -> Result {
         let textKeys = ["返回内容", "内容", "Result", "返回结果", "output"]
         let known = ["工具名称", "执行状态", "命令", "参数", "可访问URL", "url", "image"] + textKeys
-        var fields: [Field] = []
-        for line in source.components(separatedBy: .newlines) {
-            if let m = match("^\\s*-?\\s*([^:：\\n]{1,24}?)\\s*[:：]\\s?(.*)$", line), known.contains(m[1].trimmingCharacters(in: .whitespaces)) || match("^\\s*-\\s", line) != nil { fields.append(Field(key: m[1].trimmingCharacters(in: .whitespaces), value: m[2])) }
-            else if !fields.isEmpty { fields[fields.count - 1].value += "\n" + line }
+        var fields: [Field] = [], content: [String] = []
+        var inOutput = false
+        for line in source.replacingOccurrences(of:"\r\n",with:"\n").components(separatedBy:"\n") {
+            // VCP puts the plugin's return value last. Its Markdown bullets, JSON
+            // and status-looking lines are payload, not a second set of headers.
+            if inOutput { content.append(line); continue }
+            if let m = match("^\\s*-?\\s*([^:：\\n]{1,24}?)\\s*[:：]\\s?(.*)$", line) {
+                let key = m[1].trimmingCharacters(in:.whitespaces)
+                if textKeys.contains(key) { inOutput = true; content.append(m[2]); continue }
+                if known.contains(key) || match("^\\s*-\\s", line) != nil {
+                    fields.append(Field(key:key,value:m[2])); continue
+                }
+            }
+            if let last = fields.last, !["工具名称","执行状态"].contains(last.key) {
+                fields[fields.count - 1].value += "\n" + line
+            } else { content.append(line) }
         }
         fields = fields.map { Field(key: $0.key, value: $0.value.trimmingCharacters(in: .whitespacesAndNewlines)) }
         let status = fields.first { $0.key == "执行状态" }?.value ?? ""
         let ok: Bool? = status.isEmpty ? nil : (match("❌|error|fail|失败", status, options: .caseInsensitive) != nil ? false : match("✅|success|成功", status, options: .caseInsensitive) != nil)
-        return Result(tool: fields.first { $0.key == "工具名称" }?.value ?? "", status: status, ok: ok, fields: fields.filter { !(["工具名称", "执行状态"] + textKeys).contains($0.key) }, content: fields.first { textKeys.contains($0.key) }?.value ?? (fields.isEmpty ? source : ""))
+        return Result(tool: fields.first { $0.key == "工具名称" }?.value ?? "", status: status, ok: ok, fields: fields.filter { !["工具名称", "执行状态"].contains($0.key) }, content: content.joined(separator:"\n").trimmingCharacters(in:.whitespacesAndNewlines))
     }
 }

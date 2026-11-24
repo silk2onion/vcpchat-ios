@@ -41,6 +41,7 @@ struct RasterViewer: View {
     var title = "图表"
     var animation: Data?
     var animations = true
+    var original: Data? = nil
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var zoom: CGFloat = 1
@@ -57,7 +58,12 @@ struct RasterViewer: View {
                 }
                 Divider()
                 HStack(spacing: 20) { Button("缩小",systemImage: "minus.magnifyingglass") { zoom = max(0.5,zoom/1.5) }; Button("还原") { zoom = 1 }; Button("放大",systemImage: "plus.magnifyingglass") { zoom = min(6,zoom*1.5) } }.padding(12)
-            }.navigationTitle(title).toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+            }.navigationTitle(title).toolbar {
+                #if os(iOS)
+                if let original { ToolbarItem(placement: .topBarLeading) { PhotoSaveButton(data: original) } }
+                #endif
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+            }
         }.frame(minWidth: 350,minHeight: 450)
     }
 }

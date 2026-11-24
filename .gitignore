@@ -10,3 +10,7 @@ xcuserdata/
 .env.*
 *.sqlite*
 node_modules
+
+# Local VCP jobs and deployment configuration must never be published.
+PluginData/
+Companion/**/config.env

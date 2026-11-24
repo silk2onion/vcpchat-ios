@@ -1,0 +1,11 @@
+{
+  "manifestVersion": "1.0.0",
+  "name": "VChatReplySync",
+  "version": "1.0.0",
+  "displayName": "VChat 回复续传",
+  "description": "在 VCP 内独立接收一轮聊天输出，允许持有该轮凭据的客户端断线续读。",
+  "pluginType": "service",
+  "entryPoint": { "type": "nodejs", "script": "index.js" },
+  "communication": { "protocol": "direct" },
+  "hasApiRoutes": true
+}

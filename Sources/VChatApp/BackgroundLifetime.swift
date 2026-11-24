@@ -32,7 +32,7 @@ import UIKit
                 do { try await Task.sleep(for: grace) } catch { return }
                 expire(own,model: model)
             }
-        } else if phase == .active && background {
+        } else if phase == .active && (background || model.backgrounded) {
             background = false; generation = UUID(); let own = generation
             let previous = preparation, saving = expiry; previous?.cancel(); preparation = nil; endLease()
             Task { await previous?.value; await saving?.value; guard generation == own,!background else { return }; await model.enterForeground() }
