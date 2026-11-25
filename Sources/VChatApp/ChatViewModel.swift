@@ -541,13 +541,28 @@ struct TopicDraft: Codable, Sendable {
         #endif
     }
     func send(onDraftCleared: @escaping @MainActor () -> Void = {}) {
+        send(preset: nil, onDraftCleared: onDraftCleared)
+    }
+
+    func sendPreset(_ text: String) {
+        send(preset: text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func send(preset: String?, onDraftCleared: @escaping @MainActor () -> Void = {}) {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
-        guard let room, let topic = activeTopic, !room.busy, (!room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !room.attachments.isEmpty), let store else { return }
-        let content = room.draft
+        guard let room else { return }
+        guard !room.busy else {
+            if preset != nil { error = "请等待当前回复完成后再发送" }
+            return
+        }
+        let content = preset ?? room.draft
+        let attachments = preset == nil ? room.attachments : []
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
+        guard let topic = activeTopic, let store else { return }
         let group = activeGroup
         let speakers = group.map { GroupRouting.speakers(group: $0, agents: agents, text: content, turn: topic.turnIndex) } ?? activeAgent.map { [$0] } ?? []
         guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
-        let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending", attachments: room.attachments)
+        let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending", attachments: attachments)
         let config = configuration, key = apiKey, profile = profile, rules = regexRules, replies = replySettings
         room.busy = true; room.receivesInBackground = prefersBackgroundReplies; room.serverOwnsReply = room.receivesInBackground && prefersServerReplies; room.cancellation = nil; room.error = nil
         if room.receivesInBackground && !speakers.isEmpty { reserveReply(in:room) }
@@ -557,7 +572,7 @@ struct TopicDraft: Codable, Sendable {
                 if speakers.isEmpty { var local = user; local.status = "complete"; try await store.save(local); room.messages.append(MessageViewModel(local)) }
                 else { try await store.enqueue(user); room.messages.append(MessageViewModel(user)) }
                 noteSavedUtterance(user)
-                if room.draft == content && room.attachments == user.attachments {
+                if preset == nil, room.draft == content, room.attachments == user.attachments {
                     room.draftSave?.cancel()
                     room.draft = ""; room.attachments = []
                     if self.room === room { onDraftCleared() }

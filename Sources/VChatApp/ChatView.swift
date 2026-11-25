@@ -191,6 +191,7 @@ private struct ChatTimeline: View {
                         #endif
                     }
                     .environment(\.messageViewport, viewport)
+                    .environment(\.messageSendAction) { [weak model] text in model?.sendPreset(text) }
                     .coordinateSpace(name: "vcp-message-viewport")
                     .onGeometryChange(for: CGSize.self,of: { $0.size }) { viewport = CGRect(origin: .zero,size: $0) }
                     #if os(macOS)

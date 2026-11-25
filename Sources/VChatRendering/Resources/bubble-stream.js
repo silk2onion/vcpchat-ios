@@ -31,6 +31,37 @@
     }
     const executed = new WeakMap();
     const epoch = window.VCPBubbleEpoch;
+    const touchStyle = document.createElement('style');
+    touchStyle.textContent = ':where([data-send]) { cursor: pointer; touch-action: manipulation; }';
+    document.head.appendChild(touchStyle);
+
+    document.addEventListener('click', event => {
+        // Authored card scripts share the DOM; only a user's click may send a message.
+        if (!event.isTrusted) return;
+        const btn = event.target?.closest?.('button, [data-send]');
+        if (!btn || !mount.contains(btn) ||
+            btn.closest('.vcp-tool-result-header, .code-copy-toolbar, .mermaid-viewer-toolbar')) return;
+        // A nested [data-send] must not turn its system/disabled parent into a send button.
+        if (btn.closest('[data-vcp-system-control], .code-copy-btn, .mermaid-viewer-btn, .vcp-tool-result-delete-btn, :disabled, [aria-disabled="true"]') ||
+            btn.dataset?.vcpSystemControl === 'true' || btn.disabled) return;
+        const text = (btn.getAttribute('data-send') || btn.textContent || '').trim();
+        if (!text) return;
+
+        const prefix = '[[点击按钮:';
+        let finalSendText = text.startsWith(prefix) ? text : prefix + text + ']]';
+        if (finalSendText.length > 500) {
+            // Reserve the closing brackets and avoid splitting a UTF-16 surrogate pair.
+            finalSendText = finalSendText.slice(0, 498).replace(/[\uD800-\uDBFF]$/, '') + ']]';
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
+        btn.insertAdjacentText('beforeend', ' ✓');
+        window.webkit?.messageHandlers?.vcpAction?.postMessage({
+            type: 'send', text: finalSendText, epoch: window.VCPBubbleEpoch || epoch
+        });
+    }, true);
     let pending, frame, lifecycleStarted = false, lifecycleDelivered = false;
     // Model scripts run in the page world, while the renderer stays isolated.
     // Deliver their normal document-ready lifecycle once, after the final frame.

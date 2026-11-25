@@ -236,6 +236,16 @@ enum IslandScripts {
     }
 }
 
+private struct MessageSendActionKey: EnvironmentKey {
+    static let defaultValue: (@MainActor @Sendable (String) -> Void)? = nil
+}
+public extension EnvironmentValues {
+    var messageSendAction: (@MainActor @Sendable (String) -> Void)? {
+        get { self[MessageSendActionKey.self] }
+        set { self[MessageSendActionKey.self] = newValue }
+    }
+}
+
 private struct ViewportKey: EnvironmentKey { static let defaultValue: CGRect? = nil }
 extension EnvironmentValues { public var messageViewport: CGRect? { get { self[ViewportKey.self] } set { self[ViewportKey.self] = newValue } } }
 @MainActor @Observable private final class IslandPool {
@@ -278,13 +288,14 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
         revision += 1
     }
 }
-@MainActor @Observable private final class IslandController: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+@MainActor @Observable final class IslandController: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private struct Input: Equatable { var source: String; var streaming: Bool }
     let id = UUID()
     var view: WKWebView?
     var height: CGFloat = 180
     var failed = false
     var failureMessage = "气泡已暂停，重新进入可加载"
+    @ObservationIgnored var onSendAction: (@MainActor @Sendable (String) -> Void)?
     @ObservationIgnored private var document = ""
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var navigation: WKNavigation?
@@ -309,7 +320,7 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
         web.configuration.userContentController.removeAllScriptMessageHandlers()
         web.configuration.userContentController.removeAllUserScripts()
         web.configuration.userContentController.add(self,contentWorld: .defaultClient,name: "vcpHeight")
-        // The isolated host world exposes only measured height, never native commands.
+        web.configuration.userContentController.add(self,contentWorld: .defaultClient,name: "vcpAction")
         let epoch = generation.uuidString
         let script = "window.VCPBubbleEpoch='" + epoch + "';\n" + runtime + "\n;" + """
         (()=>{let previous=0;const epoch='\(epoch)';const measure=()=>{let h=Math.ceil(document.body.getBoundingClientRect().height);if(h!==previous){previous=h;window.webkit.messageHandlers.vcpHeight.postMessage({height:h,epoch})}};new ResizeObserver(measure).observe(document.body);measure()})();
@@ -342,12 +353,22 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
     }
     func unmount() {
         generation = UUID(); updateTask?.cancel(); updateTask = nil; pending = nil; latest = nil; ready = false; navigation = nil
-        view = nil; document = ""; IslandPool.shared.release(id)
+        onSendAction = nil; view = nil; document = ""; IslandPool.shared.release(id)
     }
     func userContentController(_ userContentController: WKUserContentController,didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame,let payload = message.body as? [String:Any],payload["epoch"] as? String == generation.uuidString,let number = payload["height"] as? NSNumber else { return }
-        let value = number.doubleValue
-        if value.isFinite { height = max(44,value) }
+        guard message.frameInfo.isMainFrame, let payload = message.body as? [String:Any],
+              payload["epoch"] as? String == generation.uuidString else { return }
+        switch message.name {
+        case "vcpAction":
+            guard payload["type"] as? String == "send", let text = payload["text"] as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            onSendAction?(text)
+        case "vcpHeight":
+            guard let number = payload["height"] as? NSNumber else { return }
+            let value = number.doubleValue
+            if value.isFinite { height = max(44,value) }
+        default: break
+        }
     }
     func webView(_ webView: WKWebView,decidePolicyFor navigationAction: WKNavigationAction,decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         decisionHandler(navigationAction.request.url?.absoluteString == "about:blank" && navigationAction.navigationType == .other ? .allow : .cancel)
@@ -357,6 +378,7 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
 
 struct HTMLIsland: View {
     @Environment(\.self) private var environment
+    @Environment(\.messageSendAction) private var sendAction
     @Environment(\.messageEmphasisColor) private var emphasisColor
     var source: String
     var options: RenderOptions
@@ -421,7 +443,11 @@ struct HTMLIsland: View {
         .onChange(of: streaming) { _, _ in refresh() }
         .onChange(of: IslandPool.shared.revision) { _, _ in if visible && controller.view == nil && !controller.failed { refresh() } }
     }
-    private func refresh() { if visible { controller.mount(document,source: source,streaming: streaming,media: options.media,stickers: stickers) } else { controller.unmount() } }
+    private func refresh() {
+        controller.onSendAction = sendAction
+        if visible { controller.mount(document,source: source,streaming: streaming,media: options.media,stickers: stickers) }
+        else { controller.unmount() }
+    }
 }
 // WebKit consumes SwiftUI ancestor gestures. Keep the recognizer native and
 // remove only this host's recognizer when the pooled view is released.
