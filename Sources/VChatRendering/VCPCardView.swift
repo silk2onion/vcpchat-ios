@@ -1,5 +1,8 @@
 import SwiftUI
 import VChatCore
+import Markdown
+import struct SwiftUI.Text
+import struct SwiftUI.Image
 
 struct VCPCardView: View {
     var segment: VCPMarkup.Segment
@@ -11,7 +14,7 @@ struct VCPCardView: View {
                 Label("正在接收工具结果", systemImage: "ellipsis").font(.caption).foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(rows(for: parts)) { row in
+                    ForEach(ToolPresentation.receiptRows(for: parts)) { row in
                         switch row.part {
                         case .summary(let items, let done): ToolSummary(items:items, closed:done, options:options,
                             results: row.results)
@@ -54,30 +57,7 @@ struct VCPCardView: View {
             FoldedCard(kind:"push",title: "桌面推送", icon: "desktopcomputer", subtitle: closed ? "仅展示，不执行" : "接收中", initiallyOpen: false,motion: options.motion) { Text(verbatim: text).font(.callout.monospaced()).modifier(MessageTextSelection()) }
         }
     }
-    private struct ReceiptRow: Identifiable {
-        let id: Int
-        let part: VCPMarkup.Receipt
-        var results: [VCPMarkup.Result] = []
-    }
-    // VCP sends detail records immediately before their summary. Give each
-    // record exactly one home; keep standalone or unfinished results visible.
-    private func rows(for parts: [VCPMarkup.Receipt]) -> [ReceiptRow] {
-        var rows: [ReceiptRow] = [], pending: [ReceiptRow] = []
-        for (index, part) in parts.enumerated() {
-            var row = ReceiptRow(id: index, part: part)
-            switch part {
-            case .result(_, true):
-                pending.append(row); continue
-            case .summary:
-                row.results = pending.compactMap { if case .result(let result, _) = $0.part { return result }; return nil }
-            default:
-                rows.append(contentsOf: pending)
-            }
-            pending.removeAll(keepingCapacity: true)
-            rows.append(row)
-        }
-        return rows + pending
-    }
+
     @ViewBuilder private func resultCard(_ result: VCPMarkup.Result, closed: Bool, receipt: Bool) -> some View {
         let title = result.tool.isEmpty ? "工具结果" : "工具结果 · " + result.tool
         let icon = result.ok == false ? "exclamationmark.triangle" : "doc.text"
@@ -100,6 +80,116 @@ struct VCPCardView: View {
             }.frame(maxWidth:.infinity,alignment:.leading)
         }
     }
+}
+
+/// The timeline owns disclosure; its payload never installs a second header.
+struct ToolPayload: View {
+    let segment: VCPMarkup.Segment
+    let options: RenderOptions
+    var streaming = false
+    var receipt = false
+    var results: [VCPMarkup.Result] = []
+
+    @ViewBuilder var body: some View {
+        switch segment {
+        case .tool(_, _, let source, _):
+            Text(verbatim: source).font(.callout.monospaced()).modifier(MessageTextSelection())
+        case .result(let value, let closed):
+            resultBody(value, closed: closed, receipt: receipt)
+        case .summary(let items, let closed):
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in Text(verbatim: item).font(.callout) }
+            ForEach(Array(results.enumerated()), id: \.offset) { _, result in
+                Divider()
+                HStack {
+                    Text(result.tool.isEmpty ? "返回结果" : result.tool).font(.caption.bold())
+                    Text(result.status).font(.caption).foregroundStyle(.secondary)
+                }
+                resultBody(result, closed: true, receipt: true)
+            }
+            if closed && results.isEmpty { Text("这条摘要没有附带结果正文。").font(.caption).foregroundStyle(.secondary) }
+        case .batch(let parts, _):
+            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                if case .note(let note) = part { valueView(note, receipt: true) }
+            }
+            if parts.isEmpty { Text("正在接收工具结果").font(.caption) }
+        case .text, .think, .diary, .divider, .push:
+            VCPCardView(segment: segment, options: options)
+        }
+    }
+
+    private func resultBody(_ result: VCPMarkup.Result, closed: Bool, receipt: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(result.fields.enumerated()), id: \.offset) { _, field in
+                Text(field.key).font(.caption).foregroundStyle(.secondary)
+                valueView(field.value, caption: field.key, receipt: true)
+            }
+            if !result.content.isEmpty {
+                valueView(result.content, receipt: receipt, live: streaming && !closed)
+            } else if result.fields.isEmpty {
+                Text(closed ? "服务端没有返回结果正文。" : "正在接收结果…").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private func valueView(_ value: String, caption: String = "", receipt: Bool, live: Bool = false) -> some View {
+        if options.media, let media = ToolPresentation.directMedia(value, caption: caption) {
+            NativeMessageMedia(item: media, animations: options.motion)
+            if !value.hasPrefix("data:") { Text(verbatim: value).font(.caption).modifier(MessageTextSelection()) }
+        } else if receipt {
+            RichMessageBody(receipt: value, options: options)
+            if options.media, ToolReceiptVideos.mayContainVideo(value) {
+                ToolReceiptVideos(source: value, motion: options.motion)
+            }
+        } else {
+            RichMessageBody(value, options: options, streaming: live)
+        }
+    }
+}
+
+/// Receipts are inert. Recognize video links in prose, never in examples or scripts;
+/// retain the original receipt text and the existing native image/save path.
+struct ToolReceiptVideos: View {
+    let source: String
+    let motion: Bool
+    @State private var videos: [MessageMedia] = []
+
+    static func mayContainVideo(_ value: String) -> Bool {
+        ["<video", ".mp4", ".mov", ".m4v", ".webm", ".ogv", "data:video/"].contains { value.localizedCaseInsensitiveContains($0) }
+    }
+
+    nonisolated static func extract(_ source: String) -> [MessageMedia] {
+        var result: [MessageMedia] = [], seen = Set<String>()
+        func append(_ media: MessageMedia?) {
+            if let media, media.kind == "video", seen.insert(media.source).inserted { result.append(media) }
+        }
+        func visit(_ node: any Markup) {
+            switch node {
+            case let link as Markdown.Link:
+                append(MessageMedia(source: link.destination ?? "", caption: link.plainText, videoOnly: true))
+            case let image as Markdown.Image:
+                append(MessageMedia(source: image.source ?? "", caption: image.plainText, videoOnly: true))
+            case let html as HTMLBlock: append(MessageMedia.html(html.rawHTML))
+            case let html as InlineHTML: append(MessageMedia.html(html.rawHTML))
+            case let text as Markdown.Text:
+                for word in text.string.split(whereSeparator: \.isWhitespace) {
+                    append(MessageMedia(source: String(word), videoOnly: true))
+                }
+            default: for child in node.children { visit(child) }
+            }
+        }
+        visit(Document(parsing: source))
+        return result
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) { ForEach(videos) { NativeMessageMedia(item: $0, animations: motion) } }
+            .task(id: source) {
+                let value = await Self.extractOffMain(source)
+                if !Task.isCancelled { videos = value }
+            }
+    }
+
+    private nonisolated static func extractOffMain(_ source: String) async -> [MessageMedia] { extract(source) }
 }
 
 private struct ToolSummary: View {

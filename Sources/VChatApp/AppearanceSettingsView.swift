@@ -27,6 +27,19 @@ struct AppearanceSettingsView: View {
                         }.accessibilityAddTraits(model.appearance.theme == theme ? [.isSelected] : [])
                     }
                 }
+                VStack(alignment: .leading,spacing: 0) {
+                    toolSetting("工具呈现","原有卡片、紧凑单行，或按调用过程折叠") {
+                        Picker("工具呈现",selection: $model.appearance.tools.mode) {
+                            ForEach(ToolPresentationMode.allCases,id: \.self) { Text($0.title).tag($0) }
+                        }.pickerStyle(.menu).labelsHidden().accessibilityLabel("工具呈现")
+                    }
+                    Divider()
+                    toolSetting("工具默认展开","应用于折叠样式；收起也能查看图片与媒体") {
+                        Picker("工具默认展开",selection: $model.appearance.tools.expansion) {
+                            ForEach(ToolDefaultExpansion.allCases,id: \.self) { Text($0.title).tag($0) }
+                        }.pickerStyle(.menu).labelsHidden().accessibilityLabel("工具默认展开")
+                    }
+                }.workspaceGlass(palette)
                 feature("壁纸","也可以使用自己的照片。",icon: "image")
                 LazyVGrid(columns: [GridItem(.flexible()),GridItem(.flexible())],spacing: 12) {
                     choice(.forest); choice(.leaves); choice(.none)
@@ -45,6 +58,7 @@ struct AppearanceSettingsView: View {
         }.buttonStyle(WorkspacePress()).tint(palette.accent).foregroundStyle(palette.ink)
         .background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("外观")
         .onChange(of: Choice(theme: model.appearance.theme, wallpaper: model.appearance.wallpaper, custom: model.appearance.wallpaperCustom)) { _, _ in Task { await model.saveAppearance() } }
+        .onChange(of: model.appearance.tools) { _, _ in Task { await model.saveAppearance() } }
         .onDisappear { Task { await model.saveAppearance() } }
         .onChange(of: photo) { _, item in
             guard let item else { return }
@@ -69,6 +83,15 @@ struct AppearanceSettingsView: View {
                 } catch { self.error = error.localizedDescription }
             }
         }
+    }
+    private func toolSetting<Control: View>(_ title: String,_ subtitle: String,@ViewBuilder control: () -> Control) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading,spacing: 5) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(subtitle).font(.caption).foregroundStyle(palette.muted).fixedSize(horizontal: false,vertical: true)
+            }.frame(maxWidth: .infinity,alignment: .leading)
+            control().fixedSize(horizontal: true,vertical: false)
+        }.padding(.leading,14).padding(.trailing,4).padding(.vertical,10)
     }
     private struct Choice: Equatable { var theme: AppTheme; var wallpaper: AppWallpaper; var custom: String }
     private func persistSlider(_ editing: Bool) { if !editing { Task { await model.saveAppearance() } } }

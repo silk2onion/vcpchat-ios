@@ -78,6 +78,7 @@ public struct RichMessageBody: View {
     @State private var rendering = RenderState()
     @State private var visible = false
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.toolDisplay) private var toolDisplay
     @Environment(\.scenePhase) private var phase
     public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0, expandsToFill: Bool = true) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth; self.expandsToFill = expandsToFill }
     init(receipt source: String, options: RenderOptions) {
@@ -93,7 +94,7 @@ public struct RichMessageBody: View {
         Group {
             if plain { Text(verbatim: source).modifier(MessageTextSelection()) }
             else if !rendering.hasRendered && rendering.blocks.isEmpty { Text("正在排版…").font(.caption).foregroundStyle(.secondary).frame(minHeight: 44) }
-            else { NativeBlocks(blocks: rendering.blocks, options: options,streaming: rendering.streaming).equatable() }
+            else { NativeBlocks(blocks: rendering.blocks, options: options,streaming: rendering.streaming, display: toolDisplay).equatable() }
         }
         .frame(maxWidth: expandsToFill ? .infinity : nil, alignment: .leading)
         .onChange(of: input, initial: true) { _, input in
@@ -112,9 +113,15 @@ private struct NativeBlocks: View, Equatable {
     var blocks: [RenderBlock]
     var options: RenderOptions
     var streaming = false
+    var display: ToolDisplay
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in blockView(block) }
+            if display.mode == .legacy {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in blockView(block) }
+            } else {
+                ToolTimeline(items: ToolPresentation.project(blocks, display: display, streaming: streaming, media: options.media),
+                             display: display, options: options, streaming: streaming, blockView: blockView)
+            }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     @ViewBuilder func blockView(_ block: RenderBlock) -> some View {
@@ -125,9 +132,9 @@ private struct NativeBlocks: View, Equatable {
         case .literal(let text): Text(verbatim: text).modifier(MessageTextSelection())
         case .paragraph(let runs): InlineBody(runs: runs,animations: options.motion)
         case .heading(let level, let text): InlineBody(runs: text,animations: options.motion).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
-        case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options,streaming: streaming).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
+        case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options,streaming: streaming, display: display).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
         case .list(let items, let start):
-            VStack(alignment: .leading, spacing: 8) { ForEach(Array(items.enumerated()), id: \.offset) { index, blocks in HStack(alignment: .top, spacing: 8) { Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary); NativeBlocks(blocks: blocks, options: options,streaming: streaming) } } }
+            VStack(alignment: .leading, spacing: 8) { ForEach(Array(items.enumerated()), id: \.offset) { index, blocks in HStack(alignment: .top, spacing: 8) { Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary); NativeBlocks(blocks: blocks, options: options,streaming: streaming, display: display) } } }
         case .rule: Divider()
         case .math(let source): ScrollView(.horizontal) { NativeMath(source).fixedSize().padding(.vertical, 3) }
         case .code(let language, let code, let spans): NativeCode(language: language, source: code, spans: spans)

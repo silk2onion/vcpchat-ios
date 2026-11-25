@@ -54,6 +54,7 @@ struct WorkspaceView: View {
         .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
         .environment(\.workspaceMotion,motion).environment(\.workspaceTheme,model.appearance.theme)
         .environment(\.messageEmphasisColor,model.appearance.theme.tint)
+        .environment(\.toolDisplay, model.appearance.tools)
         .environment(\.stickerContext,model.stickers)
         .task(id: model.stickerDeployment) {
             guard let origin=model.stickerDeployment else { return }
