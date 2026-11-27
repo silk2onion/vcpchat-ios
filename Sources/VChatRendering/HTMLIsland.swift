@@ -454,7 +454,7 @@ private struct IslandNativeView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) { (uiView as? IslandWebView)?.ask = ask; context.coordinator.showActions = showActions; context.coordinator.selectPhoto = selectPhoto; context.coordinator.gesture?.isEnabled = showActions != nil || selectPhoto != nil }
     static func dismantleUIView(_ uiView: WKWebView, coordinator: IslandPressHandler) { (uiView as? IslandWebView)?.ask = nil; coordinator.detach(from: uiView) }
 }
-@MainActor private final class IslandPressHandler: NSObject, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
+@MainActor private final class IslandPressHandler: NSObject, UIGestureRecognizerDelegate, @preconcurrency UIEditMenuInteractionDelegate {
     private var editMenu: UIEditMenuInteraction?
     private var heldText: (quote: String, point: CGPoint)?
     private var released = false
