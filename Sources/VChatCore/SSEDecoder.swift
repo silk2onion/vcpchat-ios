@@ -4,6 +4,12 @@ public struct TokenDelta: Sendable, Equatable {
     public var text = ""
     public var reasoning = ""
     public var done = false
+    var callParts: [JSONValue] = []
+    var completeCalls = false
+    var closesBatch = false
+    var callBytes: Int { callParts.reduce(0) { sum, p in
+        sum + p["id"].text.utf8.count + p["type"].text.utf8.count + p["function"]["name"].text.utf8.count + p["function"]["arguments"].text.utf8.count
+    } }
 }
 /// Used only from SessionActor; preserves multiline SSE data and fragmented Unicode lines.
 public struct SSEDecoder: Sendable {
@@ -28,15 +34,19 @@ public struct SSEDecoder: Sendable {
         if payload.trimmingCharacters(in: .whitespacesAndNewlines) == "[DONE]" { return TokenDelta(done: true) }
         let object = try JSONDecoder().decode(Completion.self, from: Data(payload.utf8))
         if let error = object.error { throw ClientError.server(error.message ?? "模型服务返回错误") }
-        guard let choice = object.choices?.first else { return TokenDelta() }
+        guard let choice = object.choices?.first(where: { ($0.index ?? 0) == 0 }) else { return TokenDelta() }
         // VCP forwards each model round's finish_reason before executing its tools
         // and continuing on this same stream. Only [DONE] ends the whole request.
-        return TokenDelta(text: choice.delta?.content ?? choice.message?.content ?? "", reasoning: choice.delta?.reasoning_content ?? choice.delta?.reasoning ?? "")
+        let frame = choice.message ?? choice.delta
+        let parts = frame?.tool_calls ?? []
+        let complete = choice.message?.tool_calls != nil
+        return TokenDelta(text: frame?.content ?? "", reasoning: frame?.reasoning_content ?? frame?.reasoning ?? "",
+                          callParts: parts, completeCalls: complete, closesBatch: complete || ["tool_calls","stop"].contains(choice.finish_reason))
     }
     private struct Completion: Decodable {
         struct APIError: Decodable { let message: String? }
-        struct Delta: Decodable { let content: String?; let reasoning_content: String?; let reasoning: String? }
-        struct Choice: Decodable { let delta: Delta?; let message: Delta? }
+        struct Delta: Decodable { let content: String?; let reasoning_content: String?; let reasoning: String?; let tool_calls: [JSONValue]? }
+        struct Choice: Decodable { let index: Int?; let finish_reason: String?; let delta: Delta?; let message: Delta? }
         let choices: [Choice]?; let error: APIError?
     }
 }

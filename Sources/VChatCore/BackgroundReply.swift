@@ -32,18 +32,21 @@ public struct BackgroundReplyJob: Codable, Sendable, FetchableRecord, Persistabl
 
 public struct FinishedReply: Sendable {
     public let text: String, reasoning: String
-    public init(text: String, reasoning: String) { self.text = text; self.reasoning = reasoning }
+    public let segments: [HostedSegment]?
+    public init(text: String, reasoning: String, segments: [HostedSegment]? = nil) { self.text = text; self.reasoning = reasoning; self.segments = segments }
     public init(data: Data) throws {
         struct Response: Decodable {
             struct Choice: Decodable {
-                struct Message: Decodable { let content: String?, reasoning_content: String?, reasoning: String? }
-                let message: Message?
+                struct Message: Decodable { let content: String?, reasoning_content: String?, reasoning: String?, tool_calls: [JSONValue]? }
+                let index: Int?, message: Message?
             }
             let choices: [Choice]?
         }
-        guard let message = try JSONDecoder().decode(Response.self, from: data).choices?.first?.message,
-              message.content != nil || message.reasoning_content != nil || message.reasoning != nil else { throw ClientError.invalidResponse }
-        text = message.content ?? ""; reasoning = message.reasoning_content ?? message.reasoning ?? ""
+        guard let message = try JSONDecoder().decode(Response.self, from: data).choices?.first(where: { ($0.index ?? 0) == 0 })?.message,
+              message.content != nil || message.reasoning_content != nil || message.reasoning != nil || message.tool_calls?.isEmpty == false else { throw ClientError.invalidResponse }
+        var stream = HostedReplyStream()
+        try stream.append(TokenDelta(text: message.content ?? "", reasoning: message.reasoning_content ?? message.reasoning ?? "", callParts: message.tool_calls ?? [], completeCalls: true, closesBatch: true))
+        self.init(text: stream.text, reasoning: stream.reasoning, segments: stream.snapshot)
     }
 }
 
@@ -60,7 +63,8 @@ extension ChatStore {
             guard try BackgroundReplyJob.deleteOne(db, key: job.id),
                   var message = try StoredMessage.fetchOne(db, key: job.messageID), message.topicID == job.topicID else { return nil }
             if let reply {
-                guard message.content.utf8.count + message.reasoning.utf8.count + reply.text.utf8.count + reply.reasoning.utf8.count <= 8_000_000 else { throw ClientError.tooLarge }
+                guard message.content.utf8.count + message.reasoning.utf8.count + reply.text.utf8.count + reply.reasoning.utf8.count + HostedHistory.callBytes(message.assistantSegments) + HostedHistory.callBytes(reply.segments) <= 8_000_000 else { throw ClientError.tooLarge }
+                message.assistantSegments = HostedHistory.joining(message.assistantSegments, text: message.content, tail: reply.segments, suffix: reply.text)
                 message.content += reply.text; message.reasoning += reply.reasoning
             }
             if reply != nil && !interrupted && !stopped {

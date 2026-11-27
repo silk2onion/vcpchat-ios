@@ -27,6 +27,7 @@ private struct TopicToolReceipt: Codable {
     var topicID: String
 }
 public enum MobileTopicTool {
+    public static let memoCommands = ["ListTopics","OutlineTopic","SearchTopic","GetTopicContent"]
     public static let sponsorCommands = ["CreateTopic","ReadUnlockedTopics","CheckNewTopics","CheckUnreadMessages","ReplyToTopic","CheckTopicOwnership","ListUnlockedTopics","ReadTopicContent"]
     public static func manifests(deviceID: String, policy: TopicToolPolicy) throws -> [JSONValue] {
         let suffix = deviceID.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
@@ -36,7 +37,7 @@ public enum MobileTopicTool {
         }
         let common = "仅访问本机用户授权的Agent。maid用准确名字，重名时用agentId；topic_id必须来自本设备列表，不能混用Mac编号。offset/limit分页返回next_offset；读取正文时若next_content_offset非空，须同时携带next_offset与content_offset继续读取同条长消息。ReadUnlockedTopics的外层offset是话题偏移，history分页可用GetTopicContent继续读取。不覆盖已有消息，不恢复已删除话题。"
         var tools: [JSONValue] = []
-        if policy.memo { tools.append(manifest("TopicMemo",["ListTopics","GetTopicContent"],common)) }
+        if policy.memo { tools.append(manifest("TopicMemo",memoCommands,common + " OutlineTopic默认列出最新50楼，可指定startSeq/endSeq；SearchTopic用query查找楼层，支持isRegex、caseSensitive、maxResults。楼层从1开始；GetTopicContent用startSeq/endSeq点读原文，或保留原有offset/limit翻页。")) }
         if policy.deepMemo { tools.append(manifest("DeepMemo",["DeepMemo"],common + " keyword必需，支持短语、(关键词:权重)、[排除词]、{词1|词2:权重}；window_size为1–20，默认10。检索本机历史并返回前后上下文，不检索服务器日记。rerank:true需要用户配置精排服务。")) }
         if policy.sponsor { tools.append(manifest("TopicSponsor",sponsorCommands,common + " CreateTopic用topic_name、initial_message；ReplyToTopic用topic_id、message、sender_name；CheckNewTopics可用days；ReadUnlockedTopics可用include_read；CheckTopicOwnership用caller_name。写入需单独授权。锁定且已读的话题不可追加，生成或待发送中的话题不可追加。重复requestId不会重复写入。不提供心流自动生成。")) }
         return tools
@@ -64,6 +65,44 @@ public enum MobileTopicTool {
 }
 
 extension ChatStore {
+    private static func topicIndex(_ db: Database, topic: ChatTopic, search: Bool, args: JSONValue) throws -> JSONValue {
+        let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM messages WHERE topicID=?", arguments: [topic.id]) ?? 0
+        let limit = try MobileTopicTool.integer(args[search ? "maxResults" : "limit"], default: search ? 20 : 50, range: 1...100)
+        let start = try MobileTopicTool.integer(args["startSeq"], default: search ? 1 : max(1,total-limit+1), range: 1...Int(Int32.max))
+        let end = try MobileTopicTool.integer(args["endSeq"], default: max(start,total), range: start...Int(Int32.max))
+        let count = min(max(0,min(end,total)-start+1),search ? total : limit)
+        let sql = "SELECT role,authorName,createdAt,\(search ? "content" : "substr(content,1,160) AS content,length(content) AS characters") FROM messages WHERE topicID=? ORDER BY createdAt,rowid LIMIT ? OFFSET ?"
+        let cursor = try Row.fetchCursor(db, sql: sql, arguments: [topic.id,count,start-1])
+        let query = search ? try MobileTopicTool.text(args["query"]) : ""
+        func flag(_ key: String) -> Bool { args[key].bool == true || args[key].text.lowercased() == "true" }
+        let sensitive = flag("caseSensitive"), wantsRegex = flag("isRegex")
+        let risky = #"\((?:[^()\\]|\\.)*[+*}\]]\s*\)\s*(?:[+*?]|\{\d+,)"#
+        let regex = wantsRegex && query.count <= 300 && query.range(of: risky, options: .regularExpression) == nil
+            ? try? NSRegularExpression(pattern: query, options: sensitive ? [] : .caseInsensitive) : nil
+        var results: [JSONValue] = [], seq = start
+        while let row = try cursor.next() {
+            defer { seq += 1 }
+            let body: String = row["content"], name: String = row["authorName"], role: String = row["role"]
+            var item: [String:JSONValue] = ["seq": .number(Double(seq)), "role": .string(role), "speaker": .string(name), "timestamp": .number((row["createdAt"] as Double)*1000)]
+            if search {
+                let match: Range<String.Index>?
+                if let regex { match = regex.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)).flatMap { Range($0.range, in: body) } }
+                else { match = body.range(of: query, options: sensitive ? .literal : [.literal,.caseInsensitive]) }
+                guard let match else { continue }
+                let lo = body.index(match.lowerBound, offsetBy: -60, limitedBy: body.startIndex) ?? body.startIndex
+                let hi = body.index(match.lowerBound, offsetBy: 160, limitedBy: body.endIndex) ?? body.endIndex
+                item["snippet"] = .string(String(body[lo..<hi]))
+            } else {
+                item["preview"] = .string(String(body.split(whereSeparator: \.isNewline).first?.prefix(100) ?? ""))
+                item["characters"] = .number(Double(row["characters"] as Int))
+            }
+            results.append(.object(item))
+            if results.count == limit { break }
+        }
+        var result: [String:JSONValue] = ["topic_id": .string(topic.id),"total": .number(Double(total)),search ? "hits" : "outline": .array(results)]
+        if wantsRegex && regex == nil { result["matchMode"] = .string("literal") }
+        return .object(result)
+    }
     private static func toolRecord<T: Decodable>(_ type: T.Type,_ db: Database,kind: String,id: String) throws -> T? {
         try Data.fetchOne(db,sql: "SELECT payload FROM library WHERE kind=? AND id=?",arguments: [kind,id]).map { try JSONDecoder().decode(type,from: $0) }
     }
@@ -112,6 +151,16 @@ extension ChatStore {
         let agent = try await topicAgent(args,policy: policy,writing: writing)
         let offset = try MobileTopicTool.integer(args["offset"],default: 0,range: 0...10_000_000)
         let limit = try MobileTopicTool.integer(args["limit"],default: 40,range: 1...100)
+        if command == "OutlineTopic" || command == "SearchTopic" {
+            guard policy.memo else { throw ClientError.server("TopicMemo未启用") }
+            let topicID = args["topic_id"].text.isEmpty ? args["topicId"].text : args["topic_id"].text
+            return try await pool.read { db in
+                guard try Self.toolRecord(VCPAgent.self,db,kind: "agent",id: agent.id) != nil,
+                      let topic = try Self.toolRecord(ChatTopic.self,db,kind: "topic",id: topicID),
+                      topic.ownerType == "agent", topic.ownerId == agent.id else { throw ClientError.server("话题不在该Agent范围内") }
+                return TopicToolReply(value: try Self.topicIndex(db,topic: topic,search: command == "SearchTopic",args: args),changedTopicID: nil)
+            }
+        }
         return try await pool.write { db in
             guard try Self.toolRecord(VCPAgent.self,db,kind: "agent",id: agent.id) != nil else { throw ClientError.server("Agent已移除") }
             let topics = try Data.fetchAll(db,sql: "SELECT payload FROM library WHERE kind='topic'").map { try JSONDecoder().decode(ChatTopic.self,from: $0) }.filter { $0.ownerType == "agent" && $0.ownerId == agent.id }.sorted { $0.updatedAt > $1.updatedAt }
@@ -126,24 +175,24 @@ extension ChatStore {
                 let count = try Int.fetchOne(db,sql: "SELECT COUNT(*) FROM messages WHERE topicID=?",arguments: [topic.id]) ?? 0
                 return .object(["id": .string(topic.id),"topic_id": .string(topic.id),"name": .string(topic.title),"topic_name": .string(topic.title),"createdAt": .number(topic.createdAt * 1000),"created_at": .number(topic.createdAt * 1000),"last_message_time": .number(topic.updatedAt * 1000),"message_count": .number(Double(count)),"locked": .bool(s.locked),"unread": .bool(s.unread),"agent_id": .string(agent.id)])
             }
-            func page(_ messages: [StoredMessage]) throws -> JSONValue {
+            func page(_ messages: [StoredMessage], raw: Bool = false, firstSeq: Int = 1, rangeCount: Int? = nil) throws -> JSONValue {
                 let messageOffset = command == "ReadUnlockedTopics" ? 0 : offset
                 let contentOffset = command == "ReadUnlockedTopics" ? 0 : try MobileTopicTool.integer(args["content_offset"],default: 0,range: 0...8_000_000)
                 var used = 0, selected: [JSONValue] = []
                 var next = messageOffset, nextContent: Int?
-                for message in messages.dropFirst(messageOffset).prefix(limit) {
-                    let body = MobileTopicTool.plain(message.content)
+                for message in messages.dropFirst(rangeCount == nil ? messageOffset : 0).prefix(limit) {
+                    let body = raw ? message.content : MobileTopicTool.plain(message.content)
                     let start = selected.isEmpty ? contentOffset : 0
                     guard start <= body.unicodeScalars.count else { throw ClientError.server("正文偏移超过消息长度") }
                     let slice = String(body.unicodeScalars.dropFirst(start).prefix(40_000))
                     guard used + slice.utf8.count <= 240_000 else { break }
                     used += slice.utf8.count
-                    selected.append(.object(["id": .string(message.id),"role": .string(message.role),"name": .string(message.authorName),"content": .string(slice),"content_offset": .number(Double(start)),"timestamp": .number(message.createdAt * 1000)]))
+                    selected.append(.object(["id": .string(message.id),"role": .string(message.role),"name": .string(message.authorName),"seq": .number(Double(firstSeq + next)),"content": .string(slice),"content_offset": .number(Double(start)),"timestamp": .number(message.createdAt * 1000)]))
                     let end = start + slice.unicodeScalars.count
                     if end < body.unicodeScalars.count { nextContent = end; break }
                     next += 1
                 }
-                return .object(["messages": .array(selected),"total": .number(Double(messages.count)),"offset": .number(Double(messageOffset)),"next_offset": next < messages.count ? .number(Double(next)) : .null,"next_content_offset": nextContent.map { .number(Double($0)) } ?? .null])
+                return .object(["messages": .array(selected),"total": .number(Double(rangeCount ?? messages.count)),"offset": .number(Double(messageOffset)),"next_offset": next < (rangeCount ?? messages.count) ? .number(Double(next)) : .null,"next_content_offset": nextContent.map { .number(Double($0)) } ?? .null])
             }
             if writing {
                 guard !requestID.isEmpty, requestID.count <= 160 else { throw ClientError.server("缺少有效requestId") }
@@ -188,7 +237,17 @@ extension ChatStore {
                     value = .object(["is_owner": .bool(!creator.isEmpty && creator == caller),"creator_name": .string(creator.isEmpty ? "unknown" : creator),"topic_name": .string(topic.title)])
                 } else {
                     var info = try metadata(topic).object
-                    let history = try page(rows(topic.id)); info["history"] = history
+                    let history: JSONValue
+                    if command == "GetTopicContent", args["startSeq"] != .null || args["endSeq"] != .null {
+                        let total = Int(info["message_count"]?.number ?? 0)
+                        let start = try MobileTopicTool.integer(args["startSeq"], default: 1, range: 1...Int(Int32.max))
+                        let end = try MobileTopicTool.integer(args["endSeq"], default: max(start,total), range: start...Int(Int32.max))
+                        let count = max(0,min(end,total) - start + 1)
+                        // Fetch only this page; offset and content_offset remain relative to the selected range.
+                        let selected = try StoredMessage.fetchAll(db, sql: "SELECT * FROM messages WHERE topicID=? ORDER BY createdAt,rowid LIMIT ? OFFSET ?", arguments: [topic.id, min(limit,max(0,count-offset)),start-1+offset])
+                        history = try page(selected, raw: true, firstSeq: start, rangeCount: count)
+                    } else { history = try page(rows(topic.id)) }
+                    info["history"] = history
                     info["messages"] = history["messages"]; info["next_offset"] = history["next_offset"]; info["next_content_offset"] = history["next_content_offset"]
                     if command == "ReadTopicContent" {
                         let format = args["format"].text.lowercased()

@@ -22,11 +22,46 @@ extension Color {
     init(rgb: UInt32) { self.init(red: Double((rgb >> 16) & 255) / 255,green: Double((rgb >> 8) & 255) / 255,blue: Double(rgb & 255) / 255) }
 }
 private struct WorkspaceMotionKey: EnvironmentKey { static let defaultValue = true }
-private struct WorkspaceThemeKey: EnvironmentKey { static let defaultValue = AppTheme.ink }
+private struct WorkspaceAppearanceKey: EnvironmentKey { static let defaultValue = AppearanceSettings() }
 extension EnvironmentValues {
     var workspaceMotion: Bool { get { self[WorkspaceMotionKey.self] } set { self[WorkspaceMotionKey.self] = newValue } }
-    var workspaceTheme: AppTheme { get { self[WorkspaceThemeKey.self] } set { self[WorkspaceThemeKey.self] = newValue } }
+    var workspaceAppearance: AppearanceSettings { get { self[WorkspaceAppearanceKey.self] } set { self[WorkspaceAppearanceKey.self] = newValue } }
+    var workspaceTheme: AppTheme { workspaceAppearance.theme }
 }
+/// Pages and sheets use the same wallpaper, dimming and row colors as Settings.
+private struct WorkspaceBackdrop: View {
+    @Environment(\.workspaceAppearance) private var appearance
+    @Environment(\.workspaceMotion) private var motion
+    var body: some View { ThemeWallpaper(appearance, animations: motion).ignoresSafeArea() }
+}
+
+extension View {
+    func workspacePageSurface() -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity).background { WorkspaceBackdrop() }
+    }
+}
+
+struct WorkspaceList<Content: View>: View {
+    var embedded = false
+    @ViewBuilder var content: () -> Content
+    @Environment(\.workspaceTheme) private var theme
+    var body: some View {
+        List { content().listRowBackground(WorkspacePalette(theme: theme).glass) }
+            .scrollContentBackground(.hidden)
+            .background { if !embedded { WorkspaceBackdrop() } }
+    }
+}
+
+struct WorkspaceForm<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    @Environment(\.workspaceTheme) private var theme
+    var body: some View {
+        Form { content().listRowBackground(WorkspacePalette(theme: theme).glass) }
+            .scrollContentBackground(.hidden)
+            .background { WorkspaceBackdrop() }
+    }
+}
+
 struct WorkspacePress: ButtonStyle {
     @Environment(\.workspaceMotion) private var motion
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -156,7 +191,7 @@ struct WorkspacePanel<Content: View,Footer: View>: View {
             HStack { Text(title).font(.system(size: 22,weight: .bold)); Spacer(); Button(action: close) { WorkspaceGlyph("close",size: 20).foregroundStyle(palette.muted).frame(width: 44,height: 44) }.accessibilityLabel("关闭面板") }.padding(.horizontal,20).padding(.top,10).padding(.bottom,12)
             ScrollView { content().padding(.horizontal,20).padding(.bottom,20).frame(maxWidth: .infinity,alignment: .leading) }.scrollDismissesKeyboard(.interactively)
             footer().padding(.horizontal,20).padding(.vertical,14).frame(maxWidth: .infinity).overlay(alignment: .top) { palette.line.frame(height: 0.5) }
-        }.foregroundStyle(palette.ink).buttonStyle(WorkspacePress()).background(palette.solid).tint(palette.accent)
+        }.foregroundStyle(palette.ink).buttonStyle(WorkspacePress()).workspacePageSurface().tint(palette.accent)
         .presentationCornerRadius(24).presentationDragIndicator(.visible)
     }
 }

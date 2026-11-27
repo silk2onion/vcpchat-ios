@@ -16,7 +16,7 @@ struct AppearanceSettingsView: View {
         ScrollView {
             VStack(alignment: .leading,spacing: 24) {
                 if let error { Text(error).foregroundStyle(.red) }
-                feature("主题","让文字、面板和壁纸彼此衬托。",icon: "palette")
+                sectionHeading("主题", icon: "palette")
                 HStack(spacing: 10) {
                     ForEach(AppTheme.allCases,id: \.self) { theme in
                         Button { model.appearance.theme = theme } label: {
@@ -27,7 +27,7 @@ struct AppearanceSettingsView: View {
                         }.accessibilityAddTraits(model.appearance.theme == theme ? [.isSelected] : [])
                     }
                 }
-                feature("壁纸","也可以使用自己的照片。",icon: "image")
+                sectionHeading("壁纸", icon: "image")
                 LazyVGrid(columns: [GridItem(.flexible()),GridItem(.flexible())],spacing: 12) {
                     choice(.forest); choice(.leaves); choice(.none)
                     if !model.appearance.wallpaperCustom.isEmpty { choice(.custom) }
@@ -73,7 +73,12 @@ struct AppearanceSettingsView: View {
     private struct Choice: Equatable { var theme: AppTheme; var wallpaper: AppWallpaper; var custom: String }
     private func persistSlider(_ editing: Bool) { if !editing { Task { await model.saveAppearance() } } }
     private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
-    private func feature(_ title: String,_ subtitle: String,icon: String) -> some View { HStack(spacing: 12) { WorkspaceGlyph(icon).foregroundStyle(palette.accent); VStack(alignment: .leading,spacing: 4) { Text(title).font(.system(size: 19,weight: .semibold)); Text(subtitle).font(.system(size: 13)).foregroundStyle(palette.muted) } } }
+    private func sectionHeading(_ title: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            WorkspaceGlyph(icon).foregroundStyle(palette.accent)
+            Text(title).font(.system(size: 19, weight: .semibold))
+        }.accessibilityAddTraits(.isHeader)
+    }
     private func themePreview(_ theme: AppTheme) -> some View { VStack(alignment: .leading,spacing: 12) { Capsule().fill(theme == .paper ? .black.opacity(0.1) : .white.opacity(0.15)).frame(width: 65,height: 13); HStack { Spacer(); Capsule().fill(theme.tint.opacity(0.5)).frame(width: 55,height: 14) }; Capsule().fill(theme == .paper ? .black.opacity(0.1) : .white.opacity(0.15)).frame(width: 80,height: 14); Spacer() }.padding(10).background(theme.background) }
     private func choice(_ wallpaper: AppWallpaper) -> some View {
         Button { model.appearance.wallpaper = wallpaper } label: {

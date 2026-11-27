@@ -9,7 +9,7 @@ public actor SessionActor {
     private var chatID: UUID?
     private var chatContinuation: AsyncThrowingStream<SessionUpdate, Error>.Continuation?
     private var state: SessionState = .complete
-    private var text = "", reasoning = ""
+    private var reply = HostedReplyStream()
     private var sequence = 0, rawEvents = 0
     private var allParsingOffMain = true
     private var backgroundPacing = false
@@ -23,13 +23,13 @@ public actor SessionActor {
         configuration.timeoutIntervalForRequest = 30; configuration.timeoutIntervalForResource = 600
         network = URLSession(configuration: configuration)
     }
-    public func stream(_ request: ChatRequest, prefix: String = "", reasoningPrefix: String = "") throws -> AsyncThrowingStream<SessionUpdate, Error> {
+    public func stream(_ request: ChatRequest, prefix: String = "", reasoningPrefix: String = "", segments: [HostedSegment]? = nil) throws -> AsyncThrowingStream<SessionUpdate, Error> {
         guard !request.apiKey.isEmpty else { throw ClientError.missingKey }
         guard !request.configuration.model.isEmpty else { throw ClientError.missingModel }
         _ = try request.configuration.chatEndpoint()
         guard prefix.utf8.count + reasoningPrefix.utf8.count <= 8_000_000 else { throw ClientError.tooLarge }
         stop()
-        let id = UUID(); chatID = id; text = prefix; reasoning = reasoningPrefix; sequence = 0; rawEvents = 0; emittedEvents = 0; allParsingOffMain = true
+        let id = UUID(); chatID = id; reply = HostedReplyStream(prefix: prefix, reasoning: reasoningPrefix, segments: segments); sequence = 0; rawEvents = 0; emittedEvents = 0; allParsingOffMain = true
         let (stream, continuation) = AsyncThrowingStream<SessionUpdate, Error>.makeStream(bufferingPolicy: .bufferingNewest(1))
         chatContinuation = continuation
         continuation.onTermination = { [weak self] _ in Task { await self?.terminate(id) } }
@@ -56,8 +56,9 @@ public actor SessionActor {
         chatID = nil; chatContinuation = nil
     }
     private func emit(_ next: SessionState) {
+        if [.interrupted, .stopped, .failed, .complete].contains(next) { reply.finishBatch() }
         state = next; sequence += 1; emittedEvents = rawEvents
-        chatContinuation?.yield(SessionUpdate(state: next, text: text, reasoning: reasoning, sequence: sequence, rawEvents: rawEvents, parserWasOffMainThread: allParsingOffMain))
+        chatContinuation?.yield(SessionUpdate(state: next, text: reply.text, reasoning: reply.reasoning, sequence: sequence, rawEvents: rawEvents, parserWasOffMainThread: allParsingOffMain, segments: reply.snapshot))
     }
     private func receiveChat(_ request: ChatRequest, id: UUID) async {
         do {
@@ -73,14 +74,13 @@ public actor SessionActor {
                 try Task.checkCancellation(); guard chatID == id else { return }
                 if let delta = try parser.byte(byte) {
                     allParsingOffMain = allParsingOffMain && pthread_main_np() == 0
-                    rawEvents += 1; text.append(delta.text); reasoning.append(delta.reasoning)
-                    guard text.utf8.count + reasoning.utf8.count <= 8_000_000 else { throw ClientError.tooLarge }
+                    rawEvents += 1; try reply.append(delta)
                     if delta.done { done = true; break }
 
                 }
             }
             guard chatID == id else { return }
-            if !done, let delta = try parser.finish() { text.append(delta.text); reasoning.append(delta.reasoning); done = delta.done }
+            if !done, let delta = try parser.finish() { try reply.append(delta); done = delta.done }
             guard done else { throw ClientError.interrupted }
             pacingTask?.cancel(); pacingTask = nil
             emit(.complete); chatContinuation?.finish(); chatContinuation = nil; chatID = nil; chatTask = nil

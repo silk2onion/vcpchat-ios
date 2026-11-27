@@ -151,7 +151,7 @@ private struct LocationPlaceEditor: View {
                 } label: { Text(saving ? "正在保存…" : "保存").fontWeight(.semibold).frame(maxWidth: .infinity,minHeight: 48).contentShape(Rectangle()) }.buttonStyle(.borderedProminent)
                     .disabled(reading || saving || place.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !place.configured)
             }.padding(20)
-        }.foregroundStyle(palette.ink).tint(palette.accent).frame(minWidth: 340,minHeight: 450).background(palette.surface)
+        }.foregroundStyle(palette.ink).tint(palette.accent).frame(minWidth: 340,minHeight: 450).workspacePageSurface()
         .confirmationDialog("删除这个常用地点？",isPresented: $deleting,titleVisibility: .visible) { Button("删除地点",role: .destructive) { Task { if await model.removeLocationPlace(place.id) { dismiss() } else { notice = model.error } } } }
     }
     private func field<Content: View>(_ title: String,@ViewBuilder content: () -> Content) -> some View {

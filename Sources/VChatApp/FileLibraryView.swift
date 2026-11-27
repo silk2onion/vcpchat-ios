@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 import UniformTypeIdentifiers
 import VChatCore
 import VChatRendering
@@ -7,6 +8,8 @@ struct FileLibraryView: View {
     let model: ChatViewModel
     @Binding var searching: Bool
     @State private var mode = 0
+    @State private var columnCount = 2
+    @State private var thumbnails = LibraryThumbnails()
     @State private var files: [LocalFile] = []
     @State private var importing = false
     @State private var removed = false
@@ -17,7 +20,9 @@ struct FileLibraryView: View {
     @State private var notice = ""
     init(model: ChatViewModel,searching: Binding<Bool> = .constant(false)) { self.model = model; _searching = searching }
     private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
-    private var visibleFiles: [LocalFile] { files.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) } }
+    private var visibleFiles: [LocalFile] {
+        query.isEmpty ? files : files.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.libraryTitle.localizedCaseInsensitiveContains(query) }
+    }
     var body: some View {
         VStack(spacing: 0) {
             WorkspaceSegments(titles: ["本机附件","连接文件夹","服务器文件"],selection: $mode,palette: palette).padding(.horizontal,20).padding(.vertical,12)
@@ -34,13 +39,25 @@ struct FileLibraryView: View {
                         Toggle("查看已移除文件",isOn: $removed).font(.system(size: 13)).toggleStyle(.switch).foregroundStyle(palette.muted)
                         if let error { Text(error).foregroundStyle(.red) }
                         if !notice.isEmpty { Text(notice).font(.system(size: 13)).foregroundStyle(palette.muted) }
-                        ForEach(visibleFiles) { file in
-                            Button { selected = file } label: { HStack(spacing: 12) { WorkspaceGlyph(file.mime.hasPrefix("image/") ? "image" : "notes",size: 25).foregroundStyle(palette.accent); VStack(alignment: .leading,spacing: 5) { Text(file.name).font(.system(size: 15,weight: .semibold)).foregroundStyle(palette.ink).lineLimit(2); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size),countStyle: .file) + " · " + file.source).font(.system(size: 12)).foregroundStyle(palette.muted) }; Spacer(); WorkspaceGlyph("chevron",size: 18).foregroundStyle(palette.muted) }.padding(15).frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }.workspaceGlass(palette)
+                        let matches = visibleFiles
+                        let photos = matches.filter(\.isLibraryImage)
+                        if !photos.isEmpty {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: columnCount), spacing: 14) {
+                                ForEach(photos) { file in
+                                    Button { selected = file } label: {
+                                        LibraryPhotoTile(file: file, palette: palette, store: model.store, thumbnails: thumbnails)
+                                    }
+                                }
+                            }
                         }
-                        if !query.isEmpty && visibleFiles.isEmpty { ContentUnavailableView("没有匹配的文件",systemImage: "magnifyingglass") }
+                        ForEach(matches.filter { !$0.isLibraryImage }) { file in
+                            Button { selected = file } label: { HStack(spacing: 12) { WorkspaceGlyph("notes",size: 25).foregroundStyle(palette.accent); VStack(alignment: .leading,spacing: 5) { Text(file.name).font(.system(size: 15,weight: .semibold)).foregroundStyle(palette.ink).lineLimit(2); Text(ByteCountFormatter.string(fromByteCount: Int64(file.size),countStyle: .file) + " · " + file.source).font(.system(size: 12)).foregroundStyle(palette.muted) }; Spacer(); WorkspaceGlyph("chevron",size: 18).foregroundStyle(palette.muted) }.padding(15).frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }.workspaceGlass(palette)
+                        }
+                        if !query.isEmpty && matches.isEmpty { ContentUnavailableView("没有匹配的文件",systemImage: "magnifyingglass") }
                         else if files.isEmpty { VStack(spacing: 12) { WorkspaceGlyph("folder",size: 36).foregroundStyle(palette.muted); Text(removed ? "没有已移除文件" : "把文件带在身边").font(.system(size: 19,weight: .semibold)); Text("导入文件或收集聊天附件；不会上传到服务器。").font(.system(size: 14)).foregroundStyle(palette.muted).multilineTextAlignment(.center) }.frame(maxWidth: .infinity).padding(.vertical,100) }
                     }.padding(.horizontal,20).padding(.bottom,28).frame(maxWidth: 760).frame(maxWidth: .infinity)
                 }.scrollDismissesKeyboard(.interactively)
+                .onGeometryChange(for: Int.self) { $0.size.width >= 430 ? 3 : 2 } action: { columnCount = $0 }
                 // Each file mode owns its importer; an outer importer masks child presenters.
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
                     if case .success(let urls) = result { work { let reader = LocalFileImporter(); for url in urls { let (name,mime,data) = try await reader.read(url); try await model.store?.addFile(name: name,mime: mime,bytes: data) }; await model.refreshAttachmentMetadata(); notice = "文件已保存在本机" } }
@@ -53,6 +70,67 @@ struct FileLibraryView: View {
     func refresh() async { do { files = try await model.store?.localFiles(removed: removed) ?? [] } catch { self.error = error.localizedDescription } }
     func work(_ action: @escaping @MainActor () async throws -> Void) { busy = true; error = nil; Task { defer { busy = false }; do { try await action(); await refresh() } catch { self.error = error.localizedDescription } } }
 }
+private extension LocalFile {
+    var isLibraryImage: Bool { mime.hasPrefix("image/") }
+    var libraryTitle: String {
+        // Old picker batches restarted at 照片1. Keep the stored filename searchable.
+        guard isLibraryImage, source == "聊天附件副本", name.hasPrefix("照片") else { return name }
+        let path = name as NSString, number = path.deletingPathExtension.dropFirst(2)
+        guard !number.isEmpty, number.allSatisfy(\.isNumber) else { return name }
+        return "照片-\(id.prefix(8)).\(path.pathExtension)"
+    }
+}
+
+private actor LibraryThumbnails {
+    private let cache = NSCache<NSString, CGImage>()
+    init() { cache.totalCostLimit = 24 * 1024 * 1024 }
+
+    func image(for id: String, store: ChatStore) async -> CGImage? {
+        if let hit = cache.object(forKey: id as NSString) { return hit }
+        guard !Task.isCancelled, let data = try? await store.fileBytes(id), !Task.isCancelled,
+              let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 512, kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { return nil }
+        cache.setObject(image, forKey: id as NSString, cost: image.bytesPerRow * image.height)
+        return image
+    }
+}
+
+private struct LibraryPhotoTile: View {
+    let file: LocalFile
+    let palette: WorkspacePalette
+    let store: ChatStore?
+    let thumbnails: LibraryThumbnails
+    @State private var thumbnail: CGImage?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle().fill(palette.input).aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let thumbnail { Image(decorative: thumbnail, scale: 1).resizable().scaledToFill() }
+                    else { Image(systemName: "photo").foregroundStyle(palette.muted) }
+                }.clipped()
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: file.libraryTitle).font(.caption.weight(.semibold)).foregroundStyle(palette.ink)
+                    .lineLimit(1).truncationMode(.middle)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+                    .font(.caption2).foregroundStyle(palette.muted)
+            }.padding(.horizontal, 8).padding(.vertical, 7)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .workspaceGlass(palette, radius: 12)
+        .contentShape(Rectangle())
+        .task(id: file.id) {
+            if let store {
+                let next = await thumbnails.image(for: file.id, store: store)
+                if !Task.isCancelled { thumbnail = next }
+            }
+        }
+    }
+}
+
 struct LocalFileDetail: View {
     let model: ChatViewModel; let file: LocalFile
     @State private var bytes: Data?
@@ -81,7 +159,7 @@ struct LocalFileDetail: View {
                     }
                 }.padding(.horizontal)
                 Button(file.removedAt == nil ? "移到已移除文件" : "恢复文件", systemImage: file.removedAt == nil ? "trash" : "arrow.uturn.backward") { Task { do { try await model.store?.setFileRemoved(file.id,removed: file.removedAt == nil); dismiss() } catch { self.error = error.localizedDescription } } }.padding(.bottom)
-            }.navigationTitle(file.name).toolbar { Button("完成") { dismiss() } }
+            }.workspacePageSurface().navigationTitle(file.libraryTitle).toolbar { Button("完成") { dismiss() } }
             .task {
                 do { let data = try await model.store?.fileBytes(file.id); bytes = data
                     if let data { preview = try await FilePreviewReader().prepare(data,mime: file.mime) }

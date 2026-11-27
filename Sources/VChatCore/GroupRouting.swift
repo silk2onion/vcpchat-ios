@@ -66,8 +66,8 @@ public actor ConversationBuilder {
             system.append(policy)
             system.append(try scopedLocation?.tray() ?? LocationRequestContext.omittedTray)
         }
-        var turns: [ChatTurn] = []
-        if !system.isEmpty { turns.append(ChatTurn(role: "system", content: system.joined(separator: "\n\n"))) }
+        var turns: [[ChatTurn]] = []
+        if !system.isEmpty { turns.append([ChatTurn(role: "system", content: system.joined(separator: "\n\n"))]) }
         // Keep a stable start by default. Only an explicitly enabled desktop-
         // compatible group window may discard older entries from a request.
         let window: [StoredMessage]
@@ -79,6 +79,18 @@ public actor ConversationBuilder {
         for message in window {
             let originalRole = message.originalRole ?? message.role
             let ordinary = ["user", "assistant"].contains(originalRole)
+            if originalRole == "assistant", let segments = message.assistantSegments,
+               segments.compactMap(\.content).joined() == message.content {
+                var projected = HostedHistory.replay(segments)
+                for i in projected.indices where projected[i].role == "assistant" {
+                    let value = try await RegexEngine.shared.apply(projected[i].content, rules: allRules, scope: "context", role: originalRole, depth: depths[message.id] ?? 0)
+                    let name = projected[i].role == "assistant" && group != nil && !value.isEmpty && !message.authorName.isEmpty ? "【" + message.authorName + "】\n" : ""
+                    var turn = ChatTurn(role: projected[i].role,content: name + value, attachments: i == 0 ? message.attachments : [])
+                    turn.toolCalls = projected[i].toolCalls; projected[i] = turn
+                }
+                if !projected.isEmpty { turns.append(projected) }
+                continue
+            }
             if message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.attachments.isEmpty { continue }
             let transformed = try await RegexEngine.shared.apply(message.content, rules: allRules, scope: "context", role: originalRole, depth: depths[message.id] ?? 0)
             // Imported tool/system rows lack native tool_call_id metadata. Keep
@@ -89,10 +101,10 @@ public actor ConversationBuilder {
             else if originalRole == "user" && transientUserPrompt == nil && message.id == currentUserMessageID {
                 content = injection.appendingToUser(transformed)
             } else { content = transformed }
-            turns.append(ChatTurn(role: ordinary ? originalRole : "user", content: content, attachments: message.attachments))
+            turns.append([ChatTurn(role: ordinary ? originalRole : "user", content: content, attachments: message.attachments)])
         }
-        if let transientUserPrompt { turns.append(ChatTurn(role: "user",content: injection.appendingToUser(transientUserPrompt))) }
+        if let transientUserPrompt { turns.append([ChatTurn(role: "user",content: injection.appendingToUser(transientUserPrompt))]) }
         injection.insertContext(into: &turns)
-        return ChatRequest(configuration: config, apiKey: apiKey, messages: turns, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil, contextTokenLimit: config.endpointMode == .vcpTools ? agent.contextTokenLimit : nil, maxOutputTokens: agent.maxOutputTokens.flatMap { $0 > 0 ? $0 : nil })
+        return ChatRequest(configuration: config, apiKey: apiKey, messages: turns.flatMap { $0 }, temperature: config.sendTemperature ? (agent.temperature ?? config.temperature) : nil, contextTokenLimit: config.endpointMode == .vcpTools ? agent.contextTokenLimit : nil, maxOutputTokens: agent.maxOutputTokens.flatMap { $0 > 0 ? $0 : nil })
     }
 }

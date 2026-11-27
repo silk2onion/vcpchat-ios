@@ -49,23 +49,28 @@ extension ChatStore {
             }
             let checkpoint = SyncCheckpoint(id: UUID().uuidString,profileID: profile.id,at: Date().timeIntervalSince1970,before: before,after: committed,previous: previous)
             try Self.replaceSync(db,profile: profile,before: current,after: committed)
-            try Self.putSync(db,checkpoint,kind: "sync-checkpoint",id: checkpoint.id)
+            try Self.putCheckpoint(db,checkpoint)
             try Self.putSync(db,profile,kind: "sync-profile",id: profile.id)
         }
     }
     public func restoreSync(_ checkpoint: SyncCheckpoint) async throws {
-        try await pool.write { db in
-            guard let raw = try Data.fetchOne(db,sql: "SELECT payload FROM library WHERE kind='sync-checkpoint' AND id=?",arguments: [checkpoint.id]) else { throw SyncWire.fail("恢复点不存在") }
-            let checkpoint = try JSONDecoder().decode(SyncCheckpoint.self,from: raw)
+        _ = try await restoreSync(id: checkpoint.id)
+    }
+    public func restoreSync(id: String) async throws -> String {
+        struct Recovery: Decodable { let profileID: String, before: SyncSnapshot, previous: SyncProfile }
+        return try await pool.write { db in
+            guard let raw = try Data.fetchOne(db,sql: "SELECT payload FROM library WHERE kind='sync-checkpoint' AND id=?",arguments: [id]) else { throw SyncWire.fail("恢复点不存在") }
+            let checkpoint = try JSONDecoder().decode(Recovery.self,from: raw)
             guard checkpoint.previous.id == checkpoint.profileID else { throw SyncWire.fail("恢复点来源身份不匹配") }
             guard let p = try Data.fetchOne(db,sql: "SELECT payload FROM library WHERE kind='sync-profile' AND id=?",arguments: [checkpoint.profileID]) else { throw SyncWire.fail("同步来源不存在") }
             let previous = try JSONDecoder().decode(SyncProfile.self,from: p),before = try Self.snapshot(db).managed(by: previous)
             let backup = SyncCheckpoint(id: UUID().uuidString,profileID: previous.id,at: Date().timeIntervalSince1970,before: before,after: checkpoint.before,previous: previous)
             try Self.replaceSync(db,profile: checkpoint.previous,before: before,after: checkpoint.before)
-            try Self.putSync(db,backup,kind: "sync-checkpoint",id: backup.id); try Self.putSync(db,checkpoint.previous,kind: "sync-profile",id: previous.id)
+            try Self.putCheckpoint(db,backup); try Self.putSync(db,checkpoint.previous,kind: "sync-profile",id: previous.id)
+            return previous.id
         }
     }
-    private static func putSync<T: Encodable>(_ db: Database,_ value: T,kind: String,id: String) throws {
+    static func putSync<T: Encodable>(_ db: Database,_ value: T,kind: String,id: String) throws {
         try db.execute(sql: "INSERT INTO library(kind,id,payload,updatedAt) VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload,updatedAt=excluded.updatedAt",arguments: [kind,id,try JSONEncoder().encode(value),Date().timeIntervalSince1970])
     }
     private static func replaceSync(_ db: Database,profile: SyncProfile,before: SyncSnapshot,after: SyncSnapshot) throws {

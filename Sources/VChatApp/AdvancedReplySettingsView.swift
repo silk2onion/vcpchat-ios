@@ -1,6 +1,7 @@
 #if os(iOS)
 import SwiftUI
 import VChatCore
+import VChatRendering
 
 struct AdvancedReplySettingsView: View {
     let model: ChatViewModel
@@ -15,18 +16,22 @@ struct AdvancedReplySettingsView: View {
     }
 
     var body: some View {
-        List {
+        WorkspaceList {
             Section {
-                Button { editing = AdvancedReplyRule() } label: {
-                    Label("新建注入规则",systemImage: "plus")
-                }
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("回复提示词").font(.title2.bold())
+                    Text("选择发送给模型的规则，保存后用于新的请求。")
+                        .font(.subheadline).foregroundStyle(palette.muted)
+                    Button { editing = AdvancedReplyRule() } label: {
+                        Label("新建规则", systemImage: "plus")
+                    }.workspaceAction(palette, primary: true)
+                }.padding(.vertical, 5)
                 NavigationLink {
-                    ReplyOwnerList(agents: model.agents,groups: model.groups,draft: $draft)
+                    ReplyOwnerList(agents: model.agents, groups: model.groups, draft: $draft)
                 } label: {
-                    Label("Agent／群组覆盖",systemImage: "slider.horizontal.3")
+                    Label("Agent／群组覆盖", systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.medium))
                 }
-            } footer: {
-                Text("规则只进入发给模型的请求。保存后生效，不修改旧消息或渲染设置。")
             }
 
             Section {
@@ -34,13 +39,14 @@ struct AdvancedReplySettingsView: View {
                     HStack(spacing: 12) {
                         Button { editing = rule } label: {
                             VStack(alignment: .leading,spacing: 4) {
-                                Text(rule.name).foregroundStyle(.primary)
+                                Text(verbatim: rule.name).font(.body.weight(.semibold)).foregroundStyle(palette.ink)
                                 Text([rule.isBuiltin ? "预置" : "自定义",rule.type.title,rule.scope.title].joined(separator: " · "))
                                     .font(.caption).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain)
                         Toggle("启用 \(rule.name)",isOn: enabled(rule.id)).labelsHidden()
                     }
+                    .padding(.vertical, 3)
                     .contextMenu {
                         if let index = draft.rules.firstIndex(where: { $0.id == rule.id }) {
                             Button("上移",systemImage: "arrow.up") { draft.rules.move(fromOffsets: IndexSet(integer: index),toOffset: index - 1) }.disabled(index == 0)
@@ -52,11 +58,17 @@ struct AdvancedReplySettingsView: View {
                     }
                 }.onMove { from,to in draft.rules.move(fromOffsets: from,toOffset: to) }
             } header: {
-                Text("全局规则")
+                HStack {
+                    Text("全局规则").font(.headline)
+                    Spacer()
+                    Text("\(draft.rules.filter(\.enabled).count) / \(draft.rules.count) 已启用")
+                        .font(.caption.monospacedDigit())
+                }.foregroundStyle(palette.ink).textCase(nil)
             } footer: {
-                Text("同一位置按列表顺序注入；历史规则先按深度安排，同深度再按列表顺序。工具预置只提示用法，不替代服务器或工具节点授权。")
+                Text("相同位置按列表顺序注入。上下文规则先按深度排列。")
             }
         }
+        .tint(palette.accent)
         .environment(\.editMode,$editMode)
         .disabled(saving)
         .navigationTitle("高级回复")
@@ -76,6 +88,8 @@ struct AdvancedReplySettingsView: View {
         }
     }
 
+    private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
+
     private func enabled(_ id: String) -> Binding<Bool> {
         Binding(get: { draft.rules.first { $0.id == id }?.enabled ?? false },set: { value in
             if let index = draft.rules.firstIndex(where: { $0.id == id }) { draft.rules[index].enabled = value }
@@ -93,14 +107,23 @@ struct AdvancedReplySettingsView: View {
 }
 private struct ReplyRuleEditor: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.workspaceTheme) private var theme
+    private var palette: WorkspacePalette { .init(theme: theme) }
     @State var rule: AdvancedReplyRule
     var onSave: (AdvancedReplyRule) -> Void
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("规则") {
-                    TextField("规则名称",text: $rule.name)
+            WorkspaceForm {
+                Section("规则名称") {
+                    TextField("规则名称",text: $rule.name).font(.title3.weight(.semibold))
+                }
+                Section("发送给模型的提示词") {
+                    TextEditor(text: $rule.content)
+                        .font(.callout.monospaced()).frame(minHeight: 136)
+                        .scrollContentBackground(.hidden).accessibilityLabel("提示词内容")
+                }
+                Section("启用范围") {
                     Toggle("全局启用",isOn: $rule.enabled)
                     Picker("作用范围",selection: $rule.scope) {
                         ForEach(ReplyRuleScope.allCases,id: \.self) { Text($0.title).tag($0) }
@@ -121,11 +144,9 @@ private struct ReplyRuleEditor: View {
                     }
                     Toggle("标明由客户端注入",isOn: $rule.wrap)
                 } header: { Text("请求位置") }
-                Section("提示词") {
-                    TextEditor(text: $rule.content).font(.body.monospaced()).frame(minHeight: 180)
-                        .accessibilityLabel("提示词内容")
-                }
             }
+            .tint(palette.accent)
+            .navigationBarTitleDisplayMode(.inline)
             .navigationTitle(rule.isBuiltin ? "编辑预置规则" : "编辑规则")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -144,11 +165,12 @@ private struct ReplyRuleEditor: View {
     }
 }
 private struct ReplyOwnerList: View {
+    @Environment(\.workspaceTheme) private var theme
     var agents: [VCPAgent]
     var groups: [VCPGroup]
     @Binding var draft: AdvancedReplyConfiguration
     var body: some View {
-        List {
+        WorkspaceList {
             if !agents.isEmpty {
                 Section("Agent") {
                     ForEach(agents) { agent in item(agent.name,owner: ReplyRuleOwner(.agent,id: agent.id)) }
@@ -160,7 +182,8 @@ private struct ReplyOwnerList: View {
                 }
             }
             if agents.isEmpty && groups.isEmpty { Text("创建 Agent 或群组后，可在这里设置覆盖。").foregroundStyle(.secondary) }
-        }.workspaceDetailNavigation().navigationTitle("Agent／群组覆盖")
+        }
+            .tint(theme.tint).workspaceDetailNavigation().navigationTitle("Agent／群组覆盖")
     }
     private func item(_ title: String,owner: ReplyRuleOwner) -> some View {
         NavigationLink {
@@ -184,11 +207,12 @@ private struct ReplyOwnerOverrides: View {
     }
 
     var title: String
+    @Environment(\.workspaceTheme) private var theme
     var owner: ReplyRuleOwner
     @Binding var draft: AdvancedReplyConfiguration
 
     var body: some View {
-        List {
+        WorkspaceList {
             Section {
                 ForEach(draft.rules.filter { $0.applies(to: owner) }) { rule in
                     Picker(selection: selection(rule.id)) {
@@ -203,7 +227,8 @@ private struct ReplyOwnerOverrides: View {
                     }.pickerStyle(.menu)
                 }
             } footer: { Text("返回「高级回复」并保存；覆盖只改变此对象的启停。") }
-        }.workspaceDetailNavigation().navigationTitle(title)
+        }
+            .tint(theme.tint).workspaceDetailNavigation().navigationTitle(title)
     }
     private func selection(_ id: String) -> Binding<Choice> {
         Binding(get: {

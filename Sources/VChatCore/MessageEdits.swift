@@ -7,6 +7,35 @@ public struct MessageBackup: Codable, Sendable, Identifiable {
     public var createdAt: Double
 }
 extension ChatStore {
+    /// Fork the persisted prefix in display order, including the selected row.
+    /// Copies are historical messages, never new outbox items or live reply jobs.
+    public func branchTopic(at anchor: StoredMessage) async throws -> ChatTopic {
+        try await pool.write { db in
+            guard let data = try Data.fetchOne(db, sql: "SELECT payload FROM library WHERE kind='topic' AND id=?", arguments: [anchor.topicID]),
+                  let end = try Row.fetchOne(db, sql: "SELECT createdAt, rowid AS sequence FROM messages WHERE topicID=? AND id=?", arguments: [anchor.topicID, anchor.id]) else {
+                throw ClientError.server("原话题或消息已不存在")
+            }
+            let original = try JSONDecoder().decode(ChatTopic.self, from: data)
+            var topic = ChatTopic(ownerType: original.ownerType, ownerId: original.ownerId, title: original.title + " · 分支")
+            let date: Double = end["createdAt"], sequence: Int64 = end["sequence"]
+            let prefix = try StoredMessage.fetchCursor(db, sql: """
+                SELECT * FROM messages WHERE topicID=? AND (createdAt, rowid) <= (?, ?) ORDER BY createdAt, rowid
+                """, arguments: [original.id, date, sequence])
+            while var copy = try prefix.next() {
+                if copy.id == anchor.id, ["connecting", "streaming"].contains(copy.status) {
+                    copy.content = anchor.content; copy.reasoning = anchor.reasoning; copy.assistantSegments = anchor.assistantSegments
+                }
+                copy.id = UUID().uuidString; copy.topicID = topic.id
+                if ["pending", "connecting", "streaming"].contains(copy.status) { copy.status = "interrupted" }
+                if topic.ownerType == "group", copy.role == "user" { topic.turnIndex += 1 }
+                try copy.insert(db)
+            }
+            try db.execute(sql: "INSERT INTO library(kind,id,payload,updatedAt) VALUES('topic',?,?,?)",
+                           arguments: [topic.id, try JSONEncoder().encode(topic), topic.updatedAt])
+            return topic
+        }
+    }
+
     /// Keep the previous value in the same transaction as the edit.
     public func reviseMessage(_ message: StoredMessage) async throws {
         try await pool.write { db in

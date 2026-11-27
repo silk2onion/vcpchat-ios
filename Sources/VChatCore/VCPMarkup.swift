@@ -8,6 +8,27 @@ public enum VCPMarkup {
         public var title: String; public var date: String; public var folder: String
         public var content: String; public var target: String; public var replacement: String; public var tag: String
     }
+    /// Recognize only the hosted VCP DailyNote schema; unrelated functions remain generic.
+    public static func hostedDiary(function: String, arguments: JSONValue?) -> Diary? {
+        guard function == "vcptools", case .object(let fields) = arguments else { return nil }
+        func text(_ keys: String...) -> String {
+            for key in keys {
+                if case .string(let raw) = fields[key], !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return raw }
+            }
+            return ""
+        }
+        func normalized(_ key: String) -> String { text(key).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        guard normalized("tool_name") == "dailynote" else { return nil }
+        let command = normalized("command"), target = text("target"), content = text("Content", "content")
+        let replacement: String? = if case .string(let raw) = fields["replace"] { raw } else { nil }
+        let update = command == "update" || (command.isEmpty && !target.isEmpty && replacement != nil)
+        if update { guard !target.isEmpty, replacement != nil else { return nil } }
+        else { guard (command == "create" || command.isEmpty), !content.isEmpty else { return nil } }
+        let valet = text("valet", "valetName"), label = valet.isEmpty ? "Maid" : "Valet", name = text("fileName")
+        return Diary(update: update, agent: valet.isEmpty ? text("maid", "maidName") : valet, label: label,
+                     title: name.isEmpty ? "\(label)'s Diary" : name, date: text("Date", "date"), folder: text("folder"),
+                     content: content, target: target, replacement: replacement ?? "", tag: text("Tag", "tag"))
+    }
     public struct Result: Sendable, Equatable {
         public var tool: String; public var status: String; public var ok: Bool?
         public var fields: [Field]; public var content: String
@@ -179,7 +200,15 @@ public enum VCPMarkup {
         case "<<<[TOOL_REQUEST]>>>":
             let name = field(body, "tool_name"), command = field(body, "command")
             if name.lowercased() == "dailynote", let diary = diary(body, command: command) { return (.diary(diary, closed), next) }
-            return (.tool(name.isEmpty ? "工具调用" : name, command, body, closed), next)
+            let jev = field(body, "JEV", streaming: !closed)
+            let label: String
+            if jev.isEmpty { label = name.isEmpty ? "工具调用" : name }
+            else {
+                let source = jev.replacingOccurrences(of: "&#0*39;", with: "'", options: .regularExpression)
+                let patterns = [#"'([^'\r\n]+)'"#, #"`([^`\r\n]+)`"#, #"‘([^’\r\n]+)’"#, #"“([^”\r\n]+)”"#, #"\{([^{}\r\n]+)\}"#]
+                label = patterns.lazy.compactMap { match($0, source)?[1].trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? (name.isEmpty ? "JEV 请求" : name)
+            }
+            return (.tool(label, command, body, closed), next)
         case "<<<DailyNoteStart>>>":
             let agent = field(body, "Maid"), date = field(body, "Date")
             let content = match("Content:\\s*([\\s\\S]*)", body)?[1] ?? body

@@ -50,10 +50,10 @@ struct AttachmentComposer: View {
                 do {
                     try AttachmentImporter.assertCount(model.rooms[topic]?.attachments.count ?? 0, adding: selection.count)
                     var items: [ChatAttachment] = []; let reader = AttachmentImporter()
-                    for (index, item) in selection.enumerated() {
+                    for item in selection {
                         guard let data = try await item.loadTransferable(type: Data.self) else { throw ClientError.server("无法读取照片") }
                         let type = item.supportedContentTypes.first ?? .image
-                        items.append(try await reader.prepare(data, name: "照片\(index + 1).\(type.preferredFilenameExtension ?? "jpg")", mime: type.preferredMIMEType ?? "image/jpeg"))
+                        items.append(try await reader.preparePickedPhoto(data, mime: type.preferredMIMEType ?? "image/jpeg"))
                     }
                     await model.attach(items, to: topic)
                 } catch { model.rooms[topic]?.error = error.localizedDescription }

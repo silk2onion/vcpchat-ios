@@ -69,7 +69,7 @@ public struct SyncProfile: Codable, Sendable, Equatable, Identifiable {
                         if let kept = old?.attachments.first(where: { $0.hash == a["hash"].text && $0.desktopOnly != true }) { return kept }
                         return ChatAttachment(id: a["hash"].text,name: a["name"].text,mime: a["type"].text,kind: a["type"].text.hasPrefix("image/") ? "image" : "text",text: a["extractedText"].text.isEmpty ? nil : a["extractedText"].text,hash: a["hash"].text,desktopOnly: true)
                     }
-                    out.messages.append(StoredMessage(id: mid,topicID: id,agentID: agents[m["agentId"].text] ?? "",authorName: m["name"].text,role: role == "user" ? "user" : "assistant",content: body,reasoning: reasoning,status: old?.content == body ? old!.status : "complete",createdAt: (m["timestamp"].number ?? 0)/1000,attachments: attachments,originalRole: ["user","assistant"].contains(role) ? nil : role,syncNotice: ["user","assistant"].contains(role) ? nil : "原消息类型：\(role)"))
+                    out.messages.append(StoredMessage(id: mid,topicID: id,agentID: agents[m["agentId"].text] ?? "",authorName: m["name"].text,role: role == "user" ? "user" : "assistant",content: body,reasoning: reasoning,status: old?.content == body ? old!.status : "complete",createdAt: (m["timestamp"].number ?? 0)/1000,attachments: attachments,originalRole: ["user","assistant"].contains(role) ? nil : role,syncNotice: ["user","assistant"].contains(role) ? nil : "原消息类型：\(role)",assistantSegments: role == "assistant" && old?.content == body ? old?.assistantSegments : nil))
                 }
             }
         }; return out

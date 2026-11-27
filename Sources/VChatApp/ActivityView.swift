@@ -134,10 +134,35 @@ private struct NativeRAGResult: View {
     @State private var expanded: Bool
     init(index: Int,result: JSONValue,options: RenderOptions) { self.index = index; self.result = result; self.options = options; _expanded = State(initialValue: index < 2) }
     private func first(_ keys: [String],fallback: String = "") -> String { keys.map { result[$0].text }.first(where: { !$0.isEmpty }) ?? fallback }
+    @Environment(\.colorScheme) private var scheme
+    private var matchedTags: [String] {
+        guard result["source"].text != "time" else { return [] }
+        var seen = Set<String>()
+        return result["matchedTags"].array.compactMap { value in
+            guard case .string(let raw) = value else { return nil }
+            let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !tag.isEmpty && tag.lowercased() != "time" && seen.insert(tag).inserted ? tag : nil
+        }
+    }
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             if let score = result["originalScore"].number { Text("原始分数 \(score.formatted(.number.precision(.fractionLength(3))))").font(.caption).foregroundStyle(.secondary) }
             RichMessageBody(first(["text","content","pageContent"]),options: options).padding(.top,6)
-        } label: { HStack { Text("\(index + 1). " + first(["source","fileName","title"],fallback: "知识片段")); Spacer(); if let score = result["score"].number { Text(score.formatted(.number.precision(.fractionLength(3)))).font(.caption.monospacedDigit()) } } }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack { Text("\(index + 1). " + first(["source","fileName","title"],fallback: "知识片段")); Spacer(); if let score = result["score"].number { Text(score.formatted(.number.precision(.fractionLength(3)))).font(.caption.monospacedDigit()) } }
+                let hits = matchedTags
+                if !hits.isEmpty {
+                    Label {
+                        Text(verbatim: hits.joined(separator: "  ·  "))
+                    } icon: { Image(systemName: "tag.fill") }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(scheme == .dark ? Color(rgb: 0xffce76) : Color(rgb: 0x774500))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityLabel("命中标签：" + hits.joined(separator: "、"))
+                }
+            }
+        }
     }
 }

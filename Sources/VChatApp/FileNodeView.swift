@@ -26,7 +26,7 @@ struct FileNodeView: View {
         var next: Self? { self == .name ? nil : Self(rawValue: rawValue + 1) }
     }
     var body: some View {
-        Form {
+        WorkspaceForm {
             Section("移动版 FileOperator") {
                 Text("向 VCP 发布本设备的文件操作能力。Agent 只能操作你在“连接文件夹”中单独授权的目录，默认不授权任何目录。").font(.callout).foregroundStyle(.secondary)
                 TextField("VCP 分布式服务地址",text: $model.services.fileNode.server)

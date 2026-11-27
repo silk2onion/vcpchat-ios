@@ -52,7 +52,113 @@ struct MessageImageLayout: Layout {
     }
 }
 
+private struct NotePhotoActionKey: EnvironmentKey {
+    static let defaultValue: (@MainActor (MessageMedia) -> Void)? = nil
+}
+extension EnvironmentValues {
+    var notePhotoAction: (@MainActor (MessageMedia) -> Void)? {
+        get { self[NotePhotoActionKey.self] } set { self[NotePhotoActionKey.self] = newValue }
+    }
+}
+
+struct NotePhotoGallery: Identifiable {
+    let id = UUID()
+    let items: [MessageMedia]
+    let index: Int
+    static func imageLink(_ url: URL) -> Bool {
+        let parts = url.pathComponents.map { $0.lowercased() }
+        let ext = url.pathExtension.lowercased()
+        if !ext.isEmpty { return ["png","jpg","jpeg","gif","webp","avif","heic","bmp","svg","ico"].contains(ext) }
+        return parts.contains("comfyuigen") || parts.contains("images") || parts.contains("attachments") || parts.contains("image")
+    }
+    init(blocks: [RenderBlock], selected: MessageMedia) {
+        var images: [MessageMedia] = [], seen = Set<String>()
+        func add(_ item: MessageMedia) {
+            if item.kind == "image", seen.insert(item.source).inserted { images.append(item) }
+        }
+        func runs(_ values: [InlineRun]) {
+            for value in values {
+                switch value {
+                case .media(let item): add(item)
+                case .text(let text):
+                    for run in text.runs {
+                        if let url = run.link, Self.imageLink(url), let item = MessageMedia(source: url.absoluteString, caption: String(text[run.range].characters)) { add(item) }
+                    }
+                default: break
+                }
+            }
+        }
+        func visit(_ blocks: [RenderBlock]) {
+            for block in blocks {
+                switch block {
+                case .paragraph(let r), .heading(_,let r): runs(r)
+                case .quote(let b): visit(b)
+                case .list(let list,_): list.forEach(visit)
+                case .table(let table): for row in table { row.forEach(runs) }
+                default: break
+                }
+            }
+        }
+        visit(blocks); add(selected)
+        items = images; index = images.firstIndex { $0.source == selected.source } ?? 0
+    }
+}
+
+private struct NotePhotoPage: View {
+    let item: MessageMedia
+    let title: String
+    let selected: Bool
+    let animations: Bool
+    @Environment(\.stickerContext) private var stickers
+    @Environment(\.dismiss) private var dismiss
+    @State private var raster: MediaRaster?
+    @State private var issue: String?
+    var body: some View {
+        Group {
+            if let raster {
+                RasterViewer(image: raster.image,title: title,animation: raster.animation,animations: animations && selected,original: raster.original)
+            } else {
+                NavigationStack {
+                    Group { if let issue { ContentUnavailableView("无法读取图片",systemImage: "photo",description: Text(issue)) } else { ProgressView() } }
+                        .navigationTitle(title).toolbar { Button("完成") { dismiss() } }
+                }
+            }
+        }.task(id: selected) {
+            guard selected else { raster = nil; return }
+            do {
+                issue = nil
+                let source: String
+                if item.source.lowercased().hasPrefix("data:") { source = item.source }
+                else if let url = await StickerResolver.shared.url(item.source,in: stickers) { source = url.absoluteString }
+                else { throw URLError(.badURL) }
+                let value = try await NativeMediaLoader.shared.image(source)
+                try Task.checkCancellation(); raster = value
+            } catch { if !Task.isCancelled { issue = error.localizedDescription } }
+        }
+    }
+}
+
+struct NotePhotoPager: View {
+    let gallery: NotePhotoGallery
+    let animations: Bool
+    @State private var selection: Int
+    init(gallery: NotePhotoGallery, animations: Bool) {
+        self.gallery = gallery; self.animations = animations; _selection = State(initialValue: gallery.index)
+    }
+    var body: some View {
+        TabView(selection: $selection) {
+            ForEach(gallery.items.indices, id: \.self) { i in
+                NotePhotoPage(item: gallery.items[i], title: "图片 \(i+1) / \(gallery.items.count)", selected: selection == i, animations: animations).tag(i)
+            }
+        }
+        #if os(iOS)
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        #endif
+    }
+}
+
 struct NativeMessageMedia: View {
+    @Environment(\.notePhotoAction) private var notePhotoAction
     let item: MessageMedia; var animations: Bool
     @State private var image: MediaRaster?
     @State private var issue: String?
@@ -75,7 +181,7 @@ struct NativeMessageMedia: View {
                 if let error = video.error { Text(error).font(.caption).foregroundStyle(.secondary) }
             } else if let image {
                 MessageImageLayout(pixels:CGSize(width:image.width,height:image.height),widthLimit:imageWidth) {
-                    Button { viewing = true } label: {
+                    Button { if let notePhotoAction { notePhotoAction(item) } else { viewing = true } } label: {
                         MediaImage(raster:image,animating:animations && !reduceMotion && visible && phase == .active)
                             .frame(maxWidth:.infinity,maxHeight:.infinity)
                             .clipShape(RoundedRectangle(cornerRadius:CGFloat(item.cornerRadius ?? 0)))

@@ -20,7 +20,7 @@ struct TopicsView: View {
         let next = (manual ? byActivity : !byActivity) ? "最近对话" : "创建时间"
 
         NavigationStack {
-            List {
+            WorkspaceList {
                 Section {
                     ForEach(topics) { topic in
                         let pinned = order.isPinned(topic.id, in: scope)

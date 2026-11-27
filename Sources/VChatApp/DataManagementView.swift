@@ -13,7 +13,7 @@ struct DataManagementView: View {
     @State private var notice = ""
     private var unavailable: Bool { working || model.synchronizing || model.savingConnection || model.unlockingCredentials || model.rooms.values.contains(where: \.busy) }
     var body: some View {
-        Form {
+        WorkspaceForm {
             if let error { Section { Text(error).foregroundStyle(.red) } }
             if !notice.isEmpty { Section { Text(notice).foregroundStyle(.secondary) } }
             Section("聊天记录") {
@@ -36,7 +36,7 @@ struct DataManagementView: View {
                 }
             }
             if working { ProgressView("正在处理本机数据…") }
-        }.formStyle(.grouped).scrollContentBackground(.hidden).background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea()).navigationTitle("数据与连接")
+        }.formStyle(.grouped).navigationTitle("数据与连接")
         .task { await refresh() }
         .confirmationDialog("先保留完整备份，再清空聊天记录？",isPresented: $clearing,titleVisibility: .visible) {
             Button("备份并清空",role: .destructive) { work { try await model.clearHistory(); notice = "已保存本机备份，聊天记录已清空" } }

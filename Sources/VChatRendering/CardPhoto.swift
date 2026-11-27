@@ -18,6 +18,25 @@ struct CardPhoto: Identifiable {
             const src = img.currentSrc || img.src;
             return src.length <= 28000000 ? [src, (img.alt || '图片').slice(0,80)] : null;
         }
+        // A caret alone snaps to nearby whitespace. Require an actual character rectangle.
+        const px = x * width, py = y * width, caret = document.caretRangeFromPoint(px, py);
+        if (typeof allowSelection !== 'undefined' && allowSelection && caret && caret.startContainer.nodeType === Node.TEXT_NODE) {
+            const text = caret.startContainer, at = caret.startOffset;
+            for (const i of [at - 1, at]) {
+                if (i < 0 || i >= text.length) continue;
+                const char = document.createRange(); char.setStart(text, i); char.setEnd(text, i + 1);
+                if ([...char.getClientRects()].some(r => r.left <= px && px <= r.right && r.top <= py && py <= r.bottom)) {
+                    const selection = window.getSelection();
+                    if (!selection) return null;
+                    if (selection.isCollapsed || !selection.containsNode(text, true)) {
+                        const word = new Intl.Segmenter(undefined, {granularity:'word'}).segment(text.data).containing(i);
+                        char.setStart(text, word.index); char.setEnd(text, word.index + word.segment.length);
+                        selection.removeAllRanges(); selection.addRange(char);
+                    }
+                    return {selected: selection.toString()};
+                }
+            }
+        }
         for (let el = node; el && el !== document.documentElement; el = el.parentElement) {
             const bg = getComputedStyle(el).backgroundImage.match(/^url\(["']?(.+?)["']?\)$/);
             if (bg && bg[1].length <= 28000000) return [bg[1], '背景图片'];

@@ -140,15 +140,19 @@ struct ReplyInjectionPlan {
         return ([text].filter { !$0.isEmpty } + user).joined(separator: "\n\n")
     }
     func insertContext(into turns: inout [ChatTurn]) {
+        var groups = turns.map { [$0] }
+        insertContext(into: &groups); turns = groups.flatMap { $0 }
+    }
+    func insertContext(into turns: inout [[ChatTurn]]) {
         guard !context.isEmpty else { return }
-        let firstConversation = turns.first?.role == "system" ? 1 : 0
-        var result: [ChatTurn] = []
+        let firstConversation = turns.first?.first?.role == "system" ? 1 : 0
+        var result: [[ChatTurn]] = []
         result.reserveCapacity(turns.count + context.count)
         var start = 0
         for rule in context {
             let position = max(firstConversation,turns.count - max(0,rule.depth ?? 0))
             result.append(contentsOf: turns[start..<position])
-            result.append(ChatTurn(role: (rule.role ?? .user).rawValue,content: rule.requestText))
+            result.append([ChatTurn(role: (rule.role ?? .user).rawValue,content: rule.requestText)])
             start = position
         }
         result.append(contentsOf: turns[start...])

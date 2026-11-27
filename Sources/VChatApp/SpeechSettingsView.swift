@@ -41,7 +41,7 @@ struct VoicePicker: View {
     @State private var query = ""
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        NavigationStack { List(voices.filter { query.isEmpty || ($0.id + $0.name).localizedCaseInsensitiveContains(query) }) { voice in Button { selection = voice.id; dismiss() } label: { HStack { VStack(alignment: .leading) { Text(voice.name); Text(voice.id).font(.caption).foregroundStyle(.secondary) }; Spacer(); if selection == voice.id { Image(systemName: "checkmark") } }.contentShape(Rectangle()) }.buttonStyle(.plain) }.searchable(text: $query,prompt: "搜索音色").navigationTitle("选择音色").toolbar { Button("取消") { dismiss() } } }.frame(minWidth: 340,minHeight: 450)
+        NavigationStack { WorkspaceList { ForEach(voices.filter { query.isEmpty || ($0.id + $0.name).localizedCaseInsensitiveContains(query) }) { voice in Button { selection = voice.id; dismiss() } label: { HStack { VStack(alignment: .leading) { Text(voice.name); Text(voice.id).font(.caption).foregroundStyle(.secondary) }; Spacer(); if selection == voice.id { Image(systemName: "checkmark") } }.contentShape(Rectangle()) }.buttonStyle(.plain) } }.searchable(text: $query,prompt: "搜索音色").navigationTitle("选择音色").toolbar { Button("取消") { dismiss() } } }.frame(minWidth: 340,minHeight: 450)
     }
 }
 struct MiniSpeechPlayer: View {

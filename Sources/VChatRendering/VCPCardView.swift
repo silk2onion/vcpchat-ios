@@ -15,7 +15,7 @@ struct VCPCardView: View {
                         switch row.part {
                         case .summary(let items, let done): ToolSummary(items:items, closed:done, options:options,
                             results: row.results)
-                        case .result(let result, let done): resultCard(result, closed:done, receipt:true)
+                        case .result(let result, let done): resultCard(result, closed:done)
                         case .note(let text):
                             FoldedCard(kind:"note",title:"工具结果",icon:"doc.text",subtitle:"",initiallyOpen:false,motion:options.motion) {
                                 RichMessageBody(receipt: text, options: options).font(.callout)
@@ -30,17 +30,9 @@ struct VCPCardView: View {
         case .tool(let name, let command, let body, let closed):
             FoldedCard(kind:"tool",title: name, icon: "wrench.and.screwdriver", subtitle: closed ? command : "输入中 · " + command, initiallyOpen: !closed,motion: options.motion) { Text(verbatim: body).font(.callout.monospaced()).modifier(MessageTextSelection()).frame(maxWidth: .infinity, alignment: .leading) }
         case .result(let result, let closed):
-            resultCard(result, closed:closed, receipt:false)
+            resultCard(result, closed:closed)
         case .diary(let entry, let closed):
-            VStack(alignment: .leading, spacing: 10) {
-                HStack { Label(entry.update ? "日记修改" : entry.title, systemImage: "book.closed").font(.headline); Spacer(); Text(closed ? entry.date : "写入中").font(.caption).foregroundStyle(.secondary) }
-                if !entry.agent.isEmpty || !entry.folder.isEmpty { Text([entry.agent.isEmpty ? "" : entry.label + "：" + entry.agent, entry.folder].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) }
-                if entry.update {
-                    Text("原文").font(.caption).foregroundStyle(.secondary); RichMessageBody(entry.target, options: options)
-                    Divider(); Text("改为").font(.caption).foregroundStyle(.mint); RichMessageBody(entry.replacement, options: options)
-                } else { RichMessageBody(entry.content, options: options) }
-                if !entry.tag.isEmpty { Text(entry.tag).font(.caption).foregroundStyle(.secondary) }
-            }.padding(14).background(.mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+            DiaryCard(entry: entry, closed: closed, options: options, hosted: false)
         case .summary(let items, let closed):
             ToolSummary(items:items, closed:closed, options:options)
         case .divider(let role, let end):
@@ -78,7 +70,7 @@ struct VCPCardView: View {
         }
         return rows + pending
     }
-    @ViewBuilder private func resultCard(_ result: VCPMarkup.Result, closed: Bool, receipt: Bool) -> some View {
+    @ViewBuilder private func resultCard(_ result: VCPMarkup.Result, closed: Bool) -> some View {
         let title = result.tool.isEmpty ? "工具结果" : "工具结果 · " + result.tool
         let icon = result.ok == false ? "exclamationmark.triangle" : "doc.text"
         FoldedCard(kind:"result",title:title,icon:icon,subtitle:closed ? result.status : "接收中",
@@ -87,13 +79,11 @@ struct VCPCardView: View {
                 ForEach(Array(result.fields.enumerated()), id: \.offset) { _, field in
                     VStack(alignment:.leading,spacing:3) {
                         Text(field.key).font(.caption).foregroundStyle(.secondary)
-                        if receipt { RichMessageBody(receipt: field.value, options: options) }
-                        else { Text(verbatim:field.value).modifier(MessageTextSelection()) }
+                        RichMessageBody(receipt: field.value, options: options)
                     }
                 }
                 if !result.content.isEmpty {
-                    if receipt { RichMessageBody(receipt: result.content, options: options) }
-                    else { RichMessageBody(result.content, options:options) }
+                    RichMessageBody(receipt: result.content, options: options)
                 } else if result.fields.isEmpty {
                     Text(closed ? "服务端没有返回结果正文。" : "正在接收结果…").font(.callout).foregroundStyle(.secondary)
                 }
@@ -125,6 +115,45 @@ private struct ToolSummary: View {
                 if closed && results.isEmpty {
                     Text("这条摘要没有附带结果正文。连接 VCP 时可在「服务器与模型」选择「VCP 工具模式」，对新请求生效。").font(.caption).foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+}
+
+private struct DiaryCard: View {
+    let entry: VCPMarkup.Diary
+    let closed: Bool
+    let options: RenderOptions
+    let hosted: Bool
+    private func bodyText(_ text: String) -> RichMessageBody {
+        hosted ? RichMessageBody(receipt: text, options: options) : RichMessageBody(text, options: options)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack { Label(entry.update ? "日记修改" : entry.title, systemImage: "book.closed").font(.headline); Spacer(); Text(closed ? entry.date : "写入中").font(.caption).foregroundStyle(.secondary) }
+            if !entry.agent.isEmpty || !entry.folder.isEmpty { Text([entry.agent.isEmpty ? "" : entry.label + "：" + entry.agent, entry.folder].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) }
+            if entry.update {
+                Text("原文").font(.caption).foregroundStyle(.secondary); bodyText(entry.target)
+                Divider(); Text("改为").font(.caption).foregroundStyle(.mint); if hosted && entry.replacement.isEmpty { Text("删除原文").font(.callout).foregroundStyle(.secondary) } else { bodyText(entry.replacement) }
+            } else { bodyText(entry.content) }
+            if !entry.tag.isEmpty { Text(entry.tag).font(.caption).foregroundStyle(.secondary) }
+        }.padding(14).background(.mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+struct HostedCallCard: View, Equatable {
+    let call: HostedCall
+    let options: RenderOptions
+    var body: some View {
+        let args = try? JSONDecoder().decode(JSONValue.self, from: Data(call.function.arguments.utf8))
+        if let diary = VCPMarkup.hostedDiary(function: call.function.name, arguments: args) {
+            DiaryCard(entry: diary, closed: true, options: options, hosted: true)
+        } else {
+            let name = args?["tool_name"].text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = "函数调用 · " + (name.isEmpty ? call.function.name : name)
+            FoldedCard(kind: "function", title: title, icon: "function", subtitle: "", initiallyOpen: false, motion: options.motion) {
+                MessageProse(AttributedString(args?.pretty ?? call.function.arguments), style: .code)
+                    .font(.callout.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

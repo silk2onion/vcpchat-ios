@@ -24,13 +24,16 @@ public actor MessageRenderer {
         try Task.checkCancellation()
         let filtered = rules.isEmpty ? source : try await RegexEngine.shared.apply(source, rules: rules, scope: "frontend", role: role, depth: depth)
         guard options.enabled else { return [.literal(filtered)] }
-        let source = options.media ? LooseImageTags.normalize(filtered) : filtered
+        if role == "user", let title = Self.buttonReceiptTitle(filtered) {
+            return [.buttonReceipt(title)]
+        }
+        let source = filtered
         self.streaming = streaming
         var output: [RenderBlock] = []
         for segment in VCPMarkup.parse(source, protectingHTMLLiterals: source.localizedCaseInsensitiveContains("<div"), streaming: streaming) {
             switch segment {
             case .text(let prose):
-                for section in HTMLIslandPolicy.extractSections(from: prose) {
+                for section in HTMLIslandPolicy.extractSections(from: options.media ? LooseImageTags.normalize(prose) : prose) {
                     switch section {
                     case .island(let html):
                         output.append(options.html ? .html(html) : .literal(html))
@@ -45,6 +48,14 @@ public actor MessageRenderer {
         }
         return output
     }
+    private static func buttonReceiptTitle(_ text: String) -> String? {
+        let prefix = "[[点击按钮:"
+        guard text.hasPrefix(prefix), text.hasSuffix("]]") else { return nil }
+        let title = text.dropFirst(prefix.count).dropLast(2)
+        guard !title.contains("]]") else { return nil }
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func markdown(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
         self.dark = dark
         mathTokens = []
@@ -67,11 +78,14 @@ public actor MessageRenderer {
         protected = MarkdownStrongCompatibility.prepare(protected,marker: emphasisMarker,escapedStar: escapedStarMarker)
         return try blocks(Document(parsing: protected), options: options)
     }
-    private func blocks(_ container: any Markup, options: RenderOptions) throws -> [RenderBlock] {
-        try container.children.map { node in
+    private func blocks(_ container: any Markup, options: RenderOptions, receipt: Bool = false) throws -> [RenderBlock] {
+        func runs(_ node: any Markup) -> [InlineRun] {
+            receipt ? receiptInline(node, media: options.media) : inline(node, options: options)
+        }
+        return try container.children.map { node in
             try Task.checkCancellation()
             switch node {
-            case let node as Heading: return .heading(node.level, inline(node, options: options))
+            case let node as Heading: return .heading(node.level, runs(node))
             case let node as CodeBlock:
                 let language = node.language ?? ""
                 if options.mermaid,!streaming,["mermaid","flowchart","graph"].contains(language.lowercased()) {
@@ -80,19 +94,21 @@ public actor MessageRenderer {
                     return .diagram(text,diagrams.render(text,dark: dark))
                 }
                 return .code(language, restore(node.code), options.code && !streaming ? highlighted(restore(node.code), language: language) : [])
-            case let node as BlockQuote: return .quote(try blocks(node, options: options))
-            case let node as OrderedList: return .list(try node.children.map { try blocks($0, options: options) }, Int(node.startIndex))
-            case let node as UnorderedList: return .list(try node.children.map { try blocks($0, options: options) }, nil)
+            case let node as BlockQuote: return .quote(try blocks(node, options: options, receipt: receipt))
+            case let node as OrderedList: return .list(try node.children.map { try blocks($0, options: options, receipt: receipt) }, Int(node.startIndex))
+            case let node as UnorderedList: return .list(try node.children.map { try blocks($0, options: options, receipt: receipt) }, nil)
             case let node as Table:
-                let head = node.head.cells.map { self.inline($0, options: options) }
-                let rows = node.body.rows.map { row in row.cells.map { self.inline($0, options: options) } }
+                let head = node.head.cells.map { runs($0) }
+                let rows = node.body.rows.map { row in row.cells.map { runs($0) } }
                 return .table([Array(head)] + rows.map(Array.init))
             case is ThematicBreak: return .rule
             case let node as HTMLBlock:
+                if receipt { return .literal(node.rawHTML) }
                 let raw = restore(node.rawHTML)
                 if options.media,let media = MessageMedia.html(raw) { return .paragraph([.media(media)]) }
                 return .literal(raw)
             default:
+                if receipt { return .paragraph(runs(node)) }
                 let content = node.children.map { $0.detachedFromParent.format() }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
                 if let math = mathTokens.first(where: { $0.token == content && $0.block }) { return options.math ? .math(math.latex) : .literal(math.original) }
                 return .paragraph(inline(node, options: options))
@@ -107,7 +123,11 @@ public actor MessageRenderer {
         return mathTokens.reduce(restored) { $0.replacingOccurrences(of: $1.token, with: $1.original) }
     }
     private func inline(_ node: any Markup, options: RenderOptions) -> [InlineRun] {
-        if node.childCount == 0 { return inlineSource(node.detachedFromParent.format(),options: options) }
+        if node.childCount == 0 {
+            // swift-markdown only formats table cells as part of the parent table.
+            if node is Table.Cell { return [] }
+            return inlineSource(node.detachedFromParent.format(), options: options)
+        }
         var result: [InlineRun] = [],buffer = ""
         func flush() { if !buffer.isEmpty { result += inlineSource(buffer,options: options); buffer = "" } }
         for child in node.children {
@@ -190,43 +210,38 @@ public actor MessageRenderer {
 }
 
 extension MessageRenderer {
-    /// Tool receipts are data: promote image nodes only, preserving all other source verbatim.
-    func receiptBlocks(_ source: String, media: Bool) throws -> [RenderBlock] {
-        guard media, source.contains("![") || source.localizedCaseInsensitiveContains("<img") else { return [.literal(source)] }
-        let bytes = Array(source.utf8)
-        var starts = [0]
-        for i in bytes.indices where bytes[i] == 10 || (bytes[i] == 13 && (i + 1 == bytes.count || bytes[i + 1] != 10)) {
-            starts.append(i + 1)
+    /// Parse the receipt once as Markdown data. Never dispatch to an island or VCP card.
+    func receiptBlocks(_ source: String, options: RenderOptions, dark: Bool) throws -> [RenderBlock] {
+        guard options.enabled else { return [.literal(source)] }
+        var options = options
+        options.mermaid = false
+        self.dark = dark; streaming = false
+        emphasisMarker = ""; escapedStarMarker = ""; mathTokens = []
+        return try blocks(Document(parsing: source), options: options, receipt: true)
+    }
+
+    private func receiptInline(_ node: any Markup, media: Bool) -> [InlineRun] {
+        switch node {
+        case let n as Markdown.Text: return [.text(AttributedString(n.string))]
+        case let n as InlineHTML: return [.text(AttributedString(n.rawHTML))]
+        case let n as InlineCode:
+            var value = AttributedString(n.code); value.inlinePresentationIntent = .code
+            return [.text(value)]
+        case is SoftBreak, is LineBreak: return [.text(AttributedString("\n"))]
+        case let n as Markdown.Image:
+            if media, let item = MessageMedia(source: n.source ?? "", caption: n.plainText), item.kind == "image" { return [.media(item)] }
+            return [.text(AttributedString(n.plainText.isEmpty ? n.source ?? "" : n.plainText))]
+        default: break
         }
-        func offset(_ location: SourceLocation) -> Int? {
-            guard location.column > 0, starts.indices.contains(location.line - 1) else { return nil }
-            let value = starts[location.line - 1] + location.column - 1
-            return value <= bytes.count ? value : nil
+        let children = node.children.flatMap { receiptInline($0, media: media) }
+        let intent: InlinePresentationIntent? = node is Strong ? .stronglyEmphasized : node is Emphasis ? .emphasized : node is Strikethrough ? .strikethrough : nil
+        let url = (node as? Markdown.Link)?.destination.flatMap(URL.init(string:))
+        guard intent != nil || url != nil else { return children }
+        return children.map { run in
+            guard case .text(var value) = run else { return run }
+            if let intent { value.inlinePresentationIntent = (value.inlinePresentationIntent ?? []).union(intent) }
+            if let url, ["http","https","mailto"].contains(url.scheme?.lowercased()) { value.link = url }
+            return .text(value)
         }
-        var cursor = 0, blocks: [RenderBlock] = []
-        func appendText(until end: Int) {
-            if cursor < end { blocks.append(.literal(String(decoding: bytes[cursor..<end], as: UTF8.self))) }
-        }
-        func visit(_ node: any Markup) throws {
-            try Task.checkCancellation()
-            let image: MessageMedia?
-            switch node {
-            case let n as Markdown.Image: image = MessageMedia(source: n.source ?? "", caption: n.plainText)
-            case let n as InlineHTML: image = MessageMedia.html(n.rawHTML)
-            case let n as HTMLBlock: image = MessageMedia.html(n.rawHTML)
-            default:
-                for child in node.children { try visit(child) }
-                return
-            }
-            guard let image, image.kind == "image", let range = node.range,
-                  let start = offset(range.lowerBound), let end = offset(range.upperBound),
-                  start >= cursor, end > start else { return }
-            appendText(until: start)
-            blocks.append(.paragraph([.media(image)]))
-            cursor = end
-        }
-        try visit(Document(parsing: source))
-        appendText(until: bytes.count)
-        return blocks
     }
 }

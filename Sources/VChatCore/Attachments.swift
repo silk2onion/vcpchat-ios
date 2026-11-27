@@ -36,6 +36,15 @@ public actor AttachmentImporter {
         guard size <= (image ? AttachmentBudget.sourceImage : AttachmentBudget.text) else { throw ClientError.server(image ? "图片原文件不能超过 20 MB" : "文本附件不能超过 200 KB") }
         return try prepare(Data(contentsOf: url), name: url.lastPathComponent, mime: type?.preferredMIMEType ?? "application/octet-stream")
     }
+    /// The photo picker supplies bytes rather than a filename. Name the final encoded image.
+    public func preparePickedPhoto(_ data: Data, mime: String) throws -> ChatAttachment {
+        var item = try prepare(data, name: "照片", mime: mime)
+        if let hash = item.hash, let ext = UTType(mimeType: item.mime)?.preferredFilenameExtension {
+            item.name = "照片-\(hash.prefix(8)).\(ext)"
+        }
+        return item
+    }
+
     public func prepare(_ data: Data, name: String, mime: String) throws -> ChatAttachment {
         let mime = mime.lowercased(), ext = (name as NSString).pathExtension.lowercased()
         guard mime != "image/svg+xml", ext != "svg" else { throw ClientError.server("不接受 SVG 附件") }

@@ -34,6 +34,8 @@ import UIKit
     var body: some Scene {
         WindowGroup {
             WorkspaceView(model: model)
+                .environment(\.workspaceAppearance, model.appearance)
+                .environment(\.workspaceMotion, model.renderOptions.motion)
                 #if os(iOS)
                 .onOpenURL { if let topic = ReplyActivityAttributes.topic(in: $0) { model.requestedReplyTopic = topic } }
                 #endif

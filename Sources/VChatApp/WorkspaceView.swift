@@ -37,11 +37,21 @@ struct WorkspaceView: View {
         ZStack {
             // Only the page participates in tab transitions. Chrome and wallpaper
             // keep their identity and backdrop while the outgoing page disappears.
-            ZStack {
-                activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
-            }
+            VStack(spacing: 0) {
+                ZStack {
+                    activeRoot.id(tab).transition(.opacity.combined(with: .offset(y: 5)))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(motion ? .easeInOut(duration: 0.14) : nil,value: tab)
-                .safeAreaInset(edge: .bottom,spacing: 0) { VStack(spacing: 0) { MiniSpeechPlayer(player: model.speech); if showTabBar { bottomTabs } }.animation(motion ? .easeOut(duration: 0.18) : nil,value: model.speech.phase == "idle") }
+
+                // Give pushed pages a real viewport above the player and tab bar.
+                VStack(spacing: 0) {
+                    MiniSpeechPlayer(player: model.speech)
+                    if showTabBar { bottomTabs }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .animation(motion ? .easeOut(duration: 0.18) : nil,value: model.speech.phase == "idle")
+            }
                 .background(ThemeWallpaper(model.appearance,animations: motion).ignoresSafeArea())
                 .blur(radius: activityOpen ? 8 : 0).allowsHitTesting(!activityOpen).accessibilityHidden(activityOpen)
             if activityOpen {
@@ -52,7 +62,7 @@ struct WorkspaceView: View {
             }
         }
         .preferredColorScheme(model.appearance.theme == .paper ? .light : .dark)
-        .environment(\.workspaceMotion,motion).environment(\.workspaceTheme,model.appearance.theme)
+        .environment(\.workspaceMotion,motion)
         .environment(\.messageEmphasisColor,model.appearance.theme.tint)
         .environment(\.stickerContext,model.stickers)
         .task(id: model.stickerDeployment) {

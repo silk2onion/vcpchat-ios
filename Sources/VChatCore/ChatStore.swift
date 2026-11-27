@@ -14,16 +14,18 @@ public struct StoredMessage: Codable, Sendable, Equatable, FetchableRecord, Pers
     public var createdAt: Double
     public var attachments: [ChatAttachment]
     public var originalRole: String?
+    public var assistantSegments: [HostedSegment]?
     public var syncNotice: String?
-    public init(id: String = UUID().uuidString, topicID: String = "legacy", agentID: String = "", authorName: String = "助手", role: String, content: String, reasoning: String = "", status: String = "complete", createdAt: Double = Date().timeIntervalSince1970, attachments: [ChatAttachment] = [], originalRole: String? = nil, syncNotice: String? = nil) {
+    public init(id: String = UUID().uuidString, topicID: String = "legacy", agentID: String = "", authorName: String = "助手", role: String, content: String, reasoning: String = "", status: String = "complete", createdAt: Double = Date().timeIntervalSince1970, attachments: [ChatAttachment] = [], originalRole: String? = nil, syncNotice: String? = nil, assistantSegments: [HostedSegment]? = nil) {
+        self.assistantSegments = assistantSegments
         self.attachments = attachments; self.originalRole = originalRole; self.syncNotice = syncNotice
         self.topicID = topicID; self.agentID = agentID; self.authorName = authorName
         self.id = id; self.role = role; self.content = content; self.reasoning = reasoning; self.status = status; self.createdAt = createdAt
     }
-    enum CodingKeys: String, CodingKey { case id, topicID, agentID, authorName, role, content, reasoning, status, createdAt, attachments, originalRole, syncNotice }
+    enum CodingKeys: String, CodingKey { case id, topicID, agentID, authorName, role, content, reasoning, status, createdAt, attachments, originalRole, syncNotice, assistantSegments }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(id: try c.decode(String.self, forKey: .id), topicID: try c.decodeIfPresent(String.self, forKey: .topicID) ?? "legacy", agentID: try c.decodeIfPresent(String.self, forKey: .agentID) ?? "", authorName: try c.decodeIfPresent(String.self, forKey: .authorName) ?? "助手", role: try c.decode(String.self, forKey: .role), content: try c.decode(String.self, forKey: .content), reasoning: try c.decodeIfPresent(String.self, forKey: .reasoning) ?? "", status: try c.decodeIfPresent(String.self, forKey: .status) ?? "complete", createdAt: try c.decode(Double.self, forKey: .createdAt), attachments: try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? [], originalRole: try c.decodeIfPresent(String.self, forKey: .originalRole), syncNotice: try c.decodeIfPresent(String.self, forKey: .syncNotice))
+        self.init(id: try c.decode(String.self, forKey: .id), topicID: try c.decodeIfPresent(String.self, forKey: .topicID) ?? "legacy", agentID: try c.decodeIfPresent(String.self, forKey: .agentID) ?? "", authorName: try c.decodeIfPresent(String.self, forKey: .authorName) ?? "助手", role: try c.decode(String.self, forKey: .role), content: try c.decode(String.self, forKey: .content), reasoning: try c.decodeIfPresent(String.self, forKey: .reasoning) ?? "", status: try c.decodeIfPresent(String.self, forKey: .status) ?? "complete", createdAt: try c.decode(Double.self, forKey: .createdAt), attachments: try c.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? [], originalRole: try c.decodeIfPresent(String.self, forKey: .originalRole), syncNotice: try c.decodeIfPresent(String.self, forKey: .syncNotice), assistantSegments: try c.decodeIfPresent([HostedSegment].self, forKey: .assistantSegments))
     }
 
 }
@@ -92,6 +94,19 @@ public actor ChatStore {
                 t.column("topicID", .text).notNull()
                 t.column("userID", .text)
             }
+        }
+        migrations.registerMigration("native-v9-hosted-calls") { db in
+            try db.alter(table: "messages") { $0.add(column: "assistantSegments", .text) }
+        }
+        migrations.registerMigration("native-v10-checkpoint-index") { db in
+            try db.execute(sql: """
+                CREATE TABLE syncCheckpointIndex(id TEXT PRIMARY KEY NOT NULL, profileID TEXT NOT NULL,
+                    at REAL NOT NULL, beforeTopics INTEGER NOT NULL, afterTopics INTEGER NOT NULL);
+                CREATE TRIGGER checkpoint_index_delete AFTER DELETE ON library WHEN OLD.kind='sync-checkpoint'
+                    BEGIN DELETE FROM syncCheckpointIndex WHERE id=OLD.id; END;
+                CREATE TRIGGER checkpoint_index_replace AFTER UPDATE OF payload ON library WHEN OLD.kind='sync-checkpoint'
+                    BEGIN DELETE FROM syncCheckpointIndex WHERE id=OLD.id; END;
+                """)
         }
         try migrations.migrate(pool)
     }
