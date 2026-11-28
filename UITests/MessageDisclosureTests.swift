@@ -42,7 +42,7 @@ final class MessageDisclosureTests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 20)); send.tap()
         XCTAssertTrue(card.waitForExistence(timeout: 20))
         XCTAssertTrue(prose("青岛今天晴。", in: app).waitForExistence(timeout: 8))
-        XCTAssertEqual(card.value as? String, "已收起"); card.tap()
+        openDisclosure(card, in: app)
         XCTAssertTrue(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", "<em>原文</em>")).firstMatch.waitForExistence(timeout: 4))
         XCTAssertFalse(app.webViews.firstMatch.exists)
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Hosted function detail"; shot.lifetime = .keepAlways; add(shot)
@@ -101,18 +101,15 @@ final class MessageDisclosureTests: XCTestCase {
                                            file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
         XCTAssertEqual(header.value as? String, "已收起", file: file, line: line)
-        if header.isHittable {
-            header.tap()
-        } else {
-            // XCTest can report no activation point for an on-screen SwiftUI
-            // List button. Exercise the same physical tap a reader would make.
-            let frame = header.frame
-            let center = CGPoint(x: frame.midX, y: frame.midY)
-            let list = app.collectionViews.firstMatch
-            XCTAssertTrue(list.frame.contains(center), app.debugDescription, file: file, line: line)
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            origin.withOffset(CGVector(dx: center.x - app.frame.minX, dy: center.y - app.frame.minY)).tap()
+        // XCTest 26 sometimes reports (-1, -1) for a visible List button.
+        // Hit the actual header and check that it, not a neighbouring card, opened.
+        let frame = header.frame, window = app.frame
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        guard !frame.isEmpty, app.collectionViews.firstMatch.frame.intersection(window).contains(center) else {
+            return XCTFail("Card header outside the transcript: \(frame)\n\(app.debugDescription)", file: file, line: line)
         }
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: center.x - window.minX, dy: center.y - window.minY)).tap()
         XCTAssertEqual(header.value as? String, "已展开", app.debugDescription, file: file, line: line)
     }
 
