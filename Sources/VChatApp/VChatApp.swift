@@ -34,6 +34,8 @@ import UIKit
     var body: some Scene {
         WindowGroup {
             WorkspaceView(model: model)
+                .environment(\.workspaceAppearance, model.appearance)
+                .environment(\.workspaceMotion, model.renderOptions.motion)
                 #if os(iOS)
                 .onOpenURL { if let topic = ReplyActivityAttributes.topic(in: $0) { model.requestedReplyTopic = topic } }
                 #endif
@@ -42,8 +44,8 @@ import UIKit
                     if next != .inactive { model.locationForeground(next == .active) }
                     lifetime.transition(next,model: model)
                 }
-                .frame(minWidth: 340, minHeight: 520)
                 #if os(macOS)
+                .frame(minWidth: 340, minHeight: 520)
                 .onAppear { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
                 #endif
         }

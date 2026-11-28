@@ -269,17 +269,14 @@ private actor ReplyStreamReader {
     private var offset: UInt64 = 0
     private var parser = SSEByteDecoder()
     private var json: Bool?
-    private var text = "", reasoning = ""
-    private var byteCount = 0
+    private var reply = HostedReplyStream()
     private var done = false
     private var invalid = false
     init(_ directory: URL) { file = directory.appendingPathComponent("response") }
-    var snapshot: FinishedReply? { byteCount > 0 || done ? .init(text: text, reasoning: reasoning) : nil }
+    var snapshot: FinishedReply? { reply.byteCount > 0 || done ? .init(text: reply.text, reasoning: reply.reasoning, segments: reply.snapshot) : nil }
+    func finishedSnapshot() -> FinishedReply? { reply.finishBatch(); return snapshot }
     private func append(_ delta: TokenDelta) throws {
-        let size = delta.text.utf8.count + delta.reasoning.utf8.count
-        guard size <= 8_000_000 - byteCount else { throw ClientError.tooLarge }
-        byteCount += size
-        text += delta.text; reasoning += delta.reasoning; done = delta.done
+        try reply.append(delta); done = delta.done
     }
     func read(final: Bool) throws -> FinishedReply? {
         guard !invalid else { throw ClientError.invalidResponse }
@@ -345,7 +342,7 @@ extension ChatViewModel {
         }
         let reader = ReplyStreamReader(ticket.directory)
         let message = room.messages.first { $0.id == job.messageID }
-        let prefix = message?.text ?? "", reasoningPrefix = message?.reasoning ?? ""
+        let prefix = message?.text ?? "", reasoningPrefix = message?.reasoning ?? "", segmentPrefix = message?.assistantSegments
         var nextBackgroundUpdate: ContinuousClock.Instant?
         for await event in ticket.events {
             switch event {
@@ -353,6 +350,7 @@ extension ChatViewModel {
                 guard !room.cancelled else { continue }
                 if let live = try? await reader.read(final: false), !room.cancelled {
                     message?.text = prefix + live.text; message?.reasoning = reasoningPrefix + live.reasoning
+                    message?.assistantSegments = HostedHistory.joining(segmentPrefix, text: prefix, tail: live.segments, suffix: live.text)
                     message?.status = "streaming"; room.connection = "正在回复"; room.frames += 1
                     let bytes = live.text.utf8.count + live.reasoning.utf8.count
                     room.receivedReplyBytes = bytes
@@ -369,9 +367,9 @@ extension ChatViewModel {
                 var reply: FinishedReply?
                 do { reply = try await reader.read(final: !receipt.stopped && issue == nil) }
                 catch {
-                    reply = await reader.snapshot
                     if issue == nil { issue = error is ClientError ? "回复传输未完整结束" : "未收到完整的 AI 回复" }
                 }
+                if receipt.stopped || issue != nil, let partial = await reader.finishedSnapshot() { reply = partial }
                 let stopped = receipt.stopped || room.cancellation == .stopped
                 do {
                     let record: StoredMessage?
@@ -384,7 +382,7 @@ extension ChatViewModel {
                     committed = true
                     guard let record else { return }
                     if let message = room.messages.first(where: { $0.id == record.id }) {
-                        message.text = record.content; message.reasoning = record.reasoning; message.status = record.status
+                        message.text = record.content; message.reasoning = record.reasoning; message.status = record.status; message.assistantSegments = record.assistantSegments
                     }
                     if record.status == "complete" {
                         if let id = job.userID { room.messages.first { $0.id == id }?.status = "complete" }

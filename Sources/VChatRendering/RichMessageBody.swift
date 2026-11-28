@@ -28,7 +28,7 @@ import AppKit
     }
     private func render(_ input: Input) async throws -> [RenderBlock] {
         if input.receipt {
-            return try await MessageRenderer.shared.receiptBlocks(input.source, media: input.options.enabled && input.options.media)
+            return try await MessageRenderer.shared.receiptBlocks(input.source, options: input.options, dark: input.dark)
         }
         if let tail=projection(input) {
             let prefix: [RenderBlock]
@@ -74,12 +74,19 @@ public struct RichMessageBody: View {
     public var role: String
     public var depth: Int
     public var expandsToFill: Bool
+    private var assistantSegments: [HostedSegment]?
     private var receipt = false
+    private var noteGallery = false
+    @State private var selectedGallery: NotePhotoGallery?
     @State private var rendering = RenderState()
     @State private var visible = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
-    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0, expandsToFill: Bool = true) { self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth; self.expandsToFill = expandsToFill }
+    public init(_ source: String, options: RenderOptions = RenderOptions(), streaming: Bool = false, rules: [RegexRule] = [], role: String = "assistant", depth: Int = 0, expandsToFill: Bool = true, assistantSegments: [HostedSegment]? = nil) { self.assistantSegments = assistantSegments; self.source = source; self.options = options; self.streaming = streaming; self.rules = rules; self.role = role; self.depth = depth; self.expandsToFill = expandsToFill }
+    public init(note source: String, options: RenderOptions = RenderOptions()) {
+        self.init(source, options: options)
+        noteGallery = true
+    }
     init(receipt source: String, options: RenderOptions) {
         self.init(source, options: options)
         receipt = true
@@ -88,10 +95,33 @@ public struct RichMessageBody: View {
         .init(source:source, options:options, dark:scheme == .dark, streaming:streaming,
               rules:rules, role:role, depth:depth, receipt:receipt)
     }
-    private var plain: Bool { rules.isEmpty && (!options.enabled || (!source.contains("http://") && !source.contains("https://") && !(source.contains("@") && source.contains(".")) && (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })))) }
+    private var plain: Bool { (!receipt || !options.enabled) && rules.isEmpty && (!options.enabled || (!source.contains("http://") && !source.contains("https://") && !(source.contains("@") && source.contains(".")) && (!source.hasPrefix("- ") && !source.contains("\n- ") && !source.contains("\n1. ") && !source.hasPrefix("1. ") && !source.contains(where: { "`~*#_[]<>$|\\".contains($0) })))) }
+    private var openPhoto: @MainActor (MessageMedia) -> Void {
+        { item in selectedGallery = NotePhotoGallery(blocks: rendering.blocks, selected: item) }
+    }
     public var body: some View {
+        if role == "assistant", let segments = assistantSegments {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                    switch segment {
+                    case .text(let text), .receipt(let text):
+                        if !text.isEmpty {
+                            RichMessageBody(text, options: options, streaming: streaming && index == segments.count - 1,
+                                            rules: rules, role: role, depth: depth, expandsToFill: expandsToFill)
+                        }
+                    case .calls(let calls):
+                        ForEach(calls, id: \.id) { call in HostedCallCard(call: call, options: options).equatable() }
+                    }
+                }
+            }
+        } else if noteGallery && options.enabled && options.media {
+            content.environment(\.notePhotoAction, openPhoto)
+                .sheet(item: $selectedGallery) { NotePhotoPager(gallery: $0, animations: options.motion) }
+        } else { content }
+    }
+    private var content: some View {
         Group {
-            if plain { Text(verbatim: source).modifier(MessageTextSelection()) }
+            if plain { MessageProse(AttributedString(source)) }
             else if !rendering.hasRendered && rendering.blocks.isEmpty { Text("正在排版…").font(.caption).foregroundStyle(.secondary).frame(minHeight: 44) }
             else { NativeBlocks(blocks: rendering.blocks, options: options,streaming: rendering.streaming).equatable() }
         }
@@ -105,26 +135,57 @@ public struct RichMessageBody: View {
             if next == .background { rendering.cancel() }
             else if visible && !plain { rendering.update(input) }
         }
-        .environment(\.openURL, OpenURLAction { url in ["http", "https", "mailto"].contains(url.scheme) ? .systemAction : .discarded })
+        .environment(\.openURL, OpenURLAction { url in
+            if noteGallery, options.enabled, options.media, NotePhotoGallery.imageLink(url), let item = MessageMedia(source: url.absoluteString), item.kind == "image" {
+                selectedGallery = NotePhotoGallery(blocks: rendering.blocks, selected: item); return .handled
+            }
+            return ["http", "https", "mailto"].contains(url.scheme) ? .systemAction : .discarded
+        })
     }
 }
+private struct ButtonReceiptLabel: View {
+    let title: String
+    @Environment(\.messageEmphasisColor) private var accent
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 27
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "hand.tap.fill")
+                .font(.system(size: iconSize * 0.56, weight: .medium))
+                .foregroundStyle(accent)
+                .frame(width: iconSize, height: iconSize)
+                .background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: iconSize * 0.30))
+            Text(verbatim: title.isEmpty ? "已点击" : title)
+                .font(.body.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: title.isEmpty ? "已点击按钮" : "已点击按钮：" + title))
+    }
+}
+
 private struct NativeBlocks: View, Equatable {
     var blocks: [RenderBlock]
     var options: RenderOptions
     var streaming = false
+    private var contentWidth: CGFloat? {
+        if blocks.count == 1, case .buttonReceipt = blocks[0] { return nil }
+        return .infinity
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in blockView(block) }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: contentWidth, alignment: .leading)
     }
     @ViewBuilder func blockView(_ block: RenderBlock) -> some View {
         switch block {
         case .html(let source): HTMLIsland(source: source, options: options,streaming: streaming)
+        case .buttonReceipt(let title): ButtonReceiptLabel(title: title)
         case .diagram(let source,let raster): VStack(alignment: .leading,spacing: 8) { NativeDiagram(source: source,raster: raster); MessageDisclosure(kind:"diagram",title:"图表源码") { Text("图表源码") } content: { NativeCode(language: "mermaid",source: source,spans: []) } }
         case .vcp(let segment): VCPCardView(segment: segment, options: options)
-        case .literal(let text): Text(verbatim: text).modifier(MessageTextSelection())
+        case .literal(let text): MessageProse(AttributedString(text))
         case .paragraph(let runs): InlineBody(runs: runs,animations: options.motion)
-        case .heading(let level, let text): InlineBody(runs: text,animations: options.motion).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
+        case .heading(let level, let text): InlineBody(runs: text,animations: options.motion, style: .heading(level)).font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
         case .quote(let blocks): HStack(alignment: .top, spacing: 10) { RoundedRectangle(cornerRadius: 2).fill(.secondary.opacity(0.35)).frame(width: 3); NativeBlocks(blocks: blocks, options: options,streaming: streaming).foregroundStyle(.secondary) }.fixedSize(horizontal: false, vertical: true)
         case .list(let items, let start):
             VStack(alignment: .leading, spacing: 8) { ForEach(Array(items.enumerated()), id: \.offset) { index, blocks in HStack(alignment: .top, spacing: 8) { Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary); NativeBlocks(blocks: blocks, options: options,streaming: streaming) } } }
@@ -135,7 +196,7 @@ private struct NativeBlocks: View, Equatable {
             ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                        GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, cell in InlineBody(runs: cell,animations: options.motion).fontWeight(index == 0 ? .semibold : .regular).frame(minWidth: 70, alignment: .leading) } }
+                        GridRow { ForEach(Array(row.enumerated()), id: \.offset) { _, cell in InlineBody(runs: cell,animations: options.motion, style: index == 0 ? .tableHeader : .body).fontWeight(index == 0 ? .semibold : .regular).frame(minWidth: 70, alignment: .leading) } }
                         if index == 0 { Divider().gridCellUnsizedAxes(.horizontal) }
                     }
                 }.padding(12)
@@ -161,7 +222,7 @@ private struct NativeCode: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack { Text(language.isEmpty ? "代码" : language).font(.caption); Spacer(); CopyCode(source: source) }.foregroundStyle(.secondary).padding(11)
             Divider()
-            ScrollView(.horizontal) { Text(text).font(.system(.callout, design: .monospaced)).modifier(MessageTextSelection()).fixedSize(horizontal: true, vertical: false).padding(12) }
+            ScrollView(.horizontal) { MessageProse(text, style: .code).font(.system(.callout, design: .monospaced)).fixedSize(horizontal: true, vertical: false).padding(12) }
         }.background(.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(.secondary.opacity(0.12)))
     }
 }
@@ -180,10 +241,12 @@ private struct CopyCode: View {
     }
 }
 private struct InlineBody: View {
+    @Environment(\.askAboutSelection) private var ask
     @Environment(\.messageEmphasisColor) private var emphasisColor
     private func emphasized(_ value: AttributedString) -> AttributedString { MarkdownTextStyle.emphasized(value,color: emphasisColor) }
     var runs: [InlineRun]
     var animations = true
+    var style: MessageProse.Style = .body
     var text: AttributedString {
         runs.reduce(into: AttributedString()) { result, run in if case .text(let text) = run { result.append(emphasized(text)) } }
     }
@@ -204,13 +267,14 @@ private struct InlineBody: View {
     var body: some View {
         if runs.contains(where: { if case .media = $0 { true } else { false } }) {
             VStack(alignment: .leading,spacing: 10) { ForEach(Array(runs.enumerated()),id: \.offset) { _,run in
-                switch run { case .text(let value): Text(emphasized(value)).modifier(MessageTextSelection()).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+                switch run { case .text(let value): MessageProse(emphasized(value), style: style).lineSpacing(4); case .math(let value): NativeMath(value); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
             } }
-        } else if !hasMath { Text(text).modifier(MessageTextSelection()).lineSpacing(4) }
+        } else if !hasMath { MessageProse(text, style: style).lineSpacing(4) }
         else {
             InlineFlow {
-                ForEach(Array(pieces.enumerated()), id: \.offset) { _, part in
-                    switch part { case .text(let value): Text(emphasized(value)).modifier(MessageTextSelection()); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
+                // Keep each stretch of prose selectable on either side of a formula.
+                ForEach(Array((ask == nil ? pieces : runs).enumerated()), id: \.offset) { _, part in
+                    switch part { case .text(let value): MessageProse(emphasized(value), style: style); case .math(let value): NativeMath(value, size: 17).fixedSize(); case .media(let item): NativeMessageMedia(item: item,animations: animations) }
                 }
             }
         }

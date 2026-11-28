@@ -119,7 +119,7 @@ public actor MobileFileNode {
         }
         if tool.hasPrefix("MobileTopicMemo_") {
             guard policy.memo else { throw ClientError.server("TopicMemo未启用") }; if command.isEmpty { command = "ListTopics" }
-            guard ["ListTopics","GetTopicContent"].contains(command) else { throw ClientError.server("TopicMemo只支持只读查询") }
+            guard MobileTopicTool.memoCommands.contains(command) else { throw ClientError.server("TopicMemo只支持只读查询") }
         } else {
             guard policy.sponsor,MobileTopicTool.sponsorCommands.contains(command) else { throw ClientError.server("TopicSponsor指令未启用或不支持") }
         }

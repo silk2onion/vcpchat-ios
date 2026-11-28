@@ -95,12 +95,19 @@ jobs:
           xcodebuild test-without-building -project VChat.xcodeproj -scheme VChat -configuration Debug \
             -destination "platform=iOS Simulator,id=$VCHAT_SIMULATOR" \
             -parallel-testing-enabled NO -derivedDataPath "$VCHAT_ARTIFACTS/tmp/DerivedData" \
+            -resultBundlePath "$VCHAT_ARTIFACTS/tmp/phone-tests.xcresult" \
             -clonedSourcePackagesDirPath "$VCHAT_ARTIFACTS/tmp/SourcePackages" \
             ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual 2>&1 | tee "$VCHAT_ARTIFACTS/results/phone-tests.log"
           for scenario in testSaveMarkdownAndHTMLPhotosFromChat testSystemTransferStreamsBeforeCompletionAndCatchesUp testHomeDuringStreamThenReturnBeforeFinish testServerReplySurvivesProcessLossWithoutSecondGeneration testServerReplyUsesDownloadedArchiveWhenLiveReaderIsUnavailable; do
             grep -E "${scenario}.*passed" "$VCHAT_ARTIFACTS/results/phone-tests.log"
           done
+      - name: Export failing iPhone test attachments
+        if: failure() && steps.launch.outcome == 'success'
+        run: |
+          if test -d "$VCHAT_ARTIFACTS/tmp/phone-tests.xcresult"; then
+            xcrun xcresulttool export attachments --only-failures --path "$VCHAT_ARTIFACTS/tmp/phone-tests.xcresult" --output-path "$VCHAT_ARTIFACTS/results/ui-failures"
+          fi
       - name: Inspect synthetic reply checkpoints on failure
         if: failure() && steps.launch.outcome == 'success'
         run: |

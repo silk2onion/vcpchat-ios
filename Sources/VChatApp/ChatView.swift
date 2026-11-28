@@ -3,6 +3,11 @@ import VChatCore
 import VChatRendering
 import UniformTypeIdentifiers
 
+private struct MessageJump: Identifiable {
+    let id = UUID()
+    let message: StoredMessage
+}
+
 struct ChatView: View {
     @Bindable var model: ChatViewModel
     var activity: (() -> Void)?
@@ -11,6 +16,7 @@ struct ChatView: View {
     @State private var showGroup = false
     @State private var showSettings = false
     @State private var showSearch = false
+    @State private var searchTarget: MessageJump?
     @State private var showLog = false
     @State private var showDeleted = false
     @State private var exporting = false
@@ -33,7 +39,7 @@ struct ChatView: View {
                 if let error = model.room?.error ?? model.error {
                     HStack { Text(error).font(.callout); Spacer(); Button { model.room?.error = nil; model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }.padding(14).background(.red.opacity(0.09)).foregroundStyle(.red)
                 }
-                ChatTimeline(model: model)
+                ChatTimeline(model: model, target: $searchTarget)
                 if model.locationEnabledInChat { LocationSharingChip(model: model) }
                 if model.pendingCount > 0 { Text("\(model.pendingCount) 条本机待确认消息；不会自动重复发送").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
                 if let room = model.room, !room.attachments.isEmpty { AttachmentStrip(attachments: room.attachments) { id in Task { await model.detach(id) } }.padding(.horizontal, 16).padding(.bottom, 6) }
@@ -70,9 +76,37 @@ struct ChatView: View {
             .sheet(isPresented: $showAgent) { if let agent = model.activeAgent { AgentEditor(model: model, agent: agent) } }
             .sheet(isPresented: $showSettings) { ConnectionView(model: model) }
             .sheet(isPresented: $showSearch) {
-                NavigationStack { List { TextField("搜索本机消息（至少 3 个字）", text: $model.search).onChange(of: model.search) { _, _ in Task { await model.searchLocal() } }; ForEach(model.results) { Text($0.content).lineLimit(5) } }.navigationTitle("本机搜索").toolbar { Button("完成") { showSearch = false } } }.frame(minWidth: 340, minHeight: 420)
+                NavigationStack {
+                    WorkspaceList {
+                        ForEach(model.results) { hit in
+                            Button { openSearchResult(hit) } label: {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(model.topics.first { $0.id == hit.topicID }?.title ?? "已移除的会话").font(.caption).foregroundStyle(.secondary)
+                                    Text(verbatim: hit.content).lineLimit(5)
+                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    #if os(iOS)
+                    .searchable(text: $model.search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索本机消息（至少 3 个字）")
+                    #else
+                    .searchable(text: $model.search, prompt: "搜索本机消息（至少 3 个字）")
+                    #endif
+                    .task(id: model.search) { await model.searchLocal() }
+                    .navigationTitle("本机搜索")
+                    .toolbar { Button("完成") { showSearch = false } }
+                }.frame(minWidth: 340, minHeight: 420)
             }
             .sheet(isPresented: $showLog) { NavigationStack { ActivityView(model: model).toolbar { Button("完成") { showLog = false } } }.frame(minWidth: 360,minHeight: 530) }
+        }
+    }
+    private func openSearchResult(_ hit: StoredMessage) {
+        guard let topic = model.topics.first(where: { $0.id == hit.topicID }) else { showSearch = false; model.error = "这段会话已移除"; return }
+        Task {
+            if model.activeTopicID != topic.id { await model.openTopic(topic) }
+            showSearch = false
+            guard model.activeTopicID == topic.id, model.messages.contains(where: { $0.id == hit.id }) else { model.error = "原消息已不存在"; return }
+            searchTarget = MessageJump(message: hit)
         }
     }
     private var titleButton: some View {
@@ -129,6 +163,11 @@ private struct ChatTimeline: View {
         var following: Bool
     }
     let model: ChatViewModel
+    @Binding var target: MessageJump?
+    private struct Quote: Identifiable { let id = UUID(); var message: MessageViewModel; var text: String }
+    @State private var quote: Quote?
+    @State private var pausedAt: ScrollRequest?
+    @State private var highlighted: String?
     @State private var following = TranscriptFollowing()
     @State private var openSettings = false
     @State private var viewport = CGRect.zero
@@ -147,7 +186,7 @@ private struct ChatTimeline: View {
                                 NativeMessageRow(message: message,model: model)
                                     .id(message.id)
                                     .listRowInsets(EdgeInsets(top: 12,leading: 20,bottom: 12,trailing: 20))
-                                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                                    .listRowBackground(highlighted == message.id ? model.appearance.theme.tint.opacity(0.23) : Color.clear).listRowSeparator(.hidden)
                             }
                             Color.clear.frame(height: 1).id("latest")
                                 .listRowInsets(EdgeInsets())
@@ -202,10 +241,20 @@ private struct ChatTimeline: View {
                         guard following.canScrollToLatest,!model.messages.isEmpty else { return }
                         // Coalesce automatic requests outside the layout transaction.
                         await Task.yield()
-                        guard !Task.isCancelled,following.canScrollToLatest else { return }
+                        guard !Task.isCancelled,following.canScrollToLatest,target == nil else { return }
                         scrollToLatest(proxy)
                     }
-                    .onChange(of: model.activeTopicID) { _, _ in following.reset() }
+                    .onChange(of: model.activeTopicID) { _, _ in if target?.message.topicID != model.activeTopicID { following.reset(); highlighted = nil; target = nil } }
+                    .task(id: target?.id) {
+                        guard let target, target.message.topicID == model.activeTopicID else { return }
+                        following.pause()
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
+                        proxy.scrollTo(target.message.id, anchor: .center)
+                        highlighted = target.message.id
+                        do { try await Task.sleep(for: .seconds(2.5)) } catch { return }
+                        highlighted = nil; self.target = nil
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         Button {
                             if following.mode == .following { following.pause() }
@@ -214,6 +263,16 @@ private struct ChatTimeline: View {
                             .buttonStyle(.plain).foregroundStyle(.secondary).padding(16).accessibilityLabel(following.mode == .following ? "暂停跟随回复" : "回到最新")
                     }
                 }
+            .environment(\.openSideQuestion, { message, text in
+                if following.canScrollToLatest {
+                    pausedAt = ScrollRequest(topicID: model.activeTopicID, messageCount: model.messages.count, frame: model.frames, layoutVersion: layoutVersion, following: true)
+                }
+                following.pause(); quote = Quote(message: message, text: text)
+            })
+            .sheet(item: $quote, onDismiss: {
+                if let pausedAt, pausedAt.topicID == model.activeTopicID, pausedAt.frame == model.frames, pausedAt.messageCount == model.messages.count { following.resume() }
+                pausedAt = nil
+            }) { item in SideQuestionView(model: model, source: item.message, quote: item.text) }
             .sheet(isPresented: $openSettings) { ConnectionView(model: model) }
     }
     private var emptyState: some View {
@@ -229,6 +288,16 @@ private struct ChatTimeline: View {
         // A fixed-height sentinel avoids resolving the bottom of a message whose
         // Markdown/HTML height is still changing during lazy layout.
         withTransaction(transaction) { proxy.scrollTo("latest",anchor: .bottom) }
+    }
+}
+
+private struct BubblePressTarget: View {
+    let fill: Color
+    let user: Bool
+    @Environment(\.messageLongPressAction) private var showActions
+    var body: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: user ? 20 : 5, bottomLeadingRadius: 20, bottomTrailingRadius: user ? 6 : 20, topTrailingRadius: 20)
+        shape.fill(fill).contentShape(shape).onLongPressGesture { showActions?() }
     }
 }
 
@@ -254,12 +323,12 @@ private struct NativeMessageRow: View {
                     VStack(alignment: .leading,spacing: 12) {
                         if !message.attachments.isEmpty { AttachmentStrip(attachments: message.attachments) }
                         if let notice = message.syncNotice { Label(notice,systemImage: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(palette.muted) }
-                        if !message.reasoning.isEmpty { MessageDisclosure(kind:"reasoning",title:"思考过程",motion:motion) { Label("思考过程",systemImage:"sparkles").font(.callout.weight(.semibold)) } content: { Text(verbatim:message.reasoning).font(.callout).foregroundStyle(palette.muted).lineLimit(nil).fixedSize(horizontal:false,vertical:true).textSelection(.disabled) } }
-                        RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user").font(.system(size: 16)).lineSpacing(5)
-                    }.environment(\.messageTextSelectionEnabled,false)
+                        if !message.reasoning.isEmpty { MessageDisclosure(kind:"reasoning",title:"思考过程",motion:motion) { Label("思考过程",systemImage:"sparkles").font(.callout.weight(.semibold)) } content: { MessageProse(AttributedString(message.reasoning), style: .note).font(.callout).foregroundStyle(palette.muted).lineLimit(nil).fixedSize(horizontal:false,vertical:true) } }
+                        RichMessageBody(message.text.isEmpty && message.status == "connecting" ? "正在连接…" : message.text,options: model.renderOptions,streaming: streaming,rules: model.displayRules(for: message),role: message.role,depth: model.rooms[message.topicID]?.depths[message.id] ?? 0,expandsToFill: message.role != "user",assistantSegments: message.assistantSegments).font(.system(size: 16)).lineSpacing(5)
+                    }.environment(\.messageTextSelectionEnabled, message.role == "assistant")
                     .padding(.horizontal,message.role == "user" ? 16 : 17).padding(.vertical,message.role == "user" ? 10 : 15)
-                    .background(message.role == "user" ? palette.glass : palette.soft,in: UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20))
-                    .overlay(UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20).stroke(glowing ? palette.accent.opacity(0.45) : palette.line,lineWidth: 0.7))
+                    .background { BubblePressTarget(fill: message.role == "user" ? palette.glass : palette.soft, user: message.role == "user") }
+                    .overlay(UnevenRoundedRectangle(topLeadingRadius: message.role == "user" ? 20 : 5,bottomLeadingRadius: 20,bottomTrailingRadius: message.role == "user" ? 6 : 20,topTrailingRadius: 20).stroke(glowing ? palette.accent.opacity(0.45) : palette.line,lineWidth: 0.7).allowsHitTesting(false))
                 }
             }
         }.frame(maxWidth: .infinity,alignment: message.role == "user" ? .trailing : .leading)

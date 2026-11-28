@@ -41,6 +41,7 @@ struct NotesView: View {
 private struct NoteEditor: View {
     let model: ChatViewModel
     @State var note: LocalNote
+    @State private var preview = false
     var removed: Bool
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
@@ -49,7 +50,9 @@ private struct NoteEditor: View {
         WorkspacePanel(title: removed ? "已删除笔记" : "本机笔记",palette: palette,close: { dismiss() }) {
             VStack(alignment: .leading,spacing: 20) {
                 WorkspaceField(title: "标题",palette: palette) { TextField("标题",text: $note.title).disabled(removed) }
-                WorkspaceField(title: "正文",palette: palette) { TextEditor(text: $note.body).scrollContentBackground(.hidden).frame(minHeight: 300).disabled(removed).accessibilityLabel("笔记正文") }
+                Toggle("渲染预览",isOn: $preview)
+                if preview { RichMessageBody(note: note.body, options: model.renderOptions) }
+                else { WorkspaceField(title: "正文",palette: palette) { TextEditor(text: $note.body).scrollContentBackground(.hidden).frame(minHeight: 300).disabled(removed).accessibilityLabel("笔记正文") } }
                 if let error { Text(error).foregroundStyle(.red) }
                 Button(removed ? "恢复笔记" : "移到已删除笔记",systemImage: removed ? "arrow.uturn.backward" : "trash") { Task { do { try await model.store?.trashNote(note,restoring: removed); dismiss() } catch { self.error = error.localizedDescription } } }.foregroundStyle(removed ? palette.accent : .red)
             }
@@ -70,13 +73,14 @@ struct RemoteNotesView: View {
     @State private var query = ""
     @State private var file = ""
     @State private var bodyText = ""
+    @State private var preview = false
     @State private var editing = false
     @State private var busy = false
     @State private var error: String?
     @State private var notice = ""
     var password: String { model.serviceSecrets[.adminPassword] ?? "" }
     var body: some View {
-        List {
+        WorkspaceList(embedded: embedded) {
             if let error { Text(error).foregroundStyle(.red) }
             if !notice.isEmpty { Text(notice).foregroundStyle(.secondary) }
             DisclosureGroup("日记管理员连接") {
@@ -99,9 +103,11 @@ struct RemoteNotesView: View {
                     }.frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain).disabled(busy)
             }
-        }.scrollContentBackground(.hidden).background { if !embedded { ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea() } }.navigationTitle("服务器日记").overlay { if busy { ProgressView().padding(20).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 12)) } }
+        }.navigationTitle("服务器日记").overlay { if busy { ProgressView().padding(20).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 12)) } }
         .sheet(isPresented: $editing) {
-            NavigationStack { VStack { TextField("文件名",text: $file).padding(); TextEditor(text: $bodyText).padding(.horizontal); if let error { Text(error).foregroundStyle(.red) } }.navigationTitle(folder).toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false } }; ToolbarItem(placement: .confirmationAction) { Button("保存到服务器") { work {
+            NavigationStack { VStack { TextField("文件名",text: $file).padding(); Toggle("渲染预览",isOn: $preview).padding(.horizontal)
+                if preview { ScrollView { RichMessageBody(note: bodyText, options: model.renderOptions).padding() } }
+                else { TextEditor(text: $bodyText).scrollContentBackground(.hidden).padding(.horizontal) }; if let error { Text(error).foregroundStyle(.red) } }.workspacePageSurface().navigationTitle(folder).toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false } }; ToolbarItem(placement: .confirmationAction) { Button("保存到服务器") { work {
                         // Retain the remote pre-edit body locally before replacing it.
                         let filename = try NotePath.filename(file)
                         do { let before = try await client.read(model.configuration,username: model.services.adminUsername,password: password,folder: folder,file: filename); var backup = LocalNote(); backup.title = "日记备份 · \(folder)/\(filename)"; backup.body = before; try await model.store?.saveNote(backup) } catch ClientError.http(404) { /* New file; nothing to back up. */ }

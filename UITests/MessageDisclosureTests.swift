@@ -2,6 +2,261 @@ import XCTest
 import UIKit
 
 final class MessageDisclosureTests: XCTestCase {
+    @MainActor func testGroupParallelDiaryAndCalculatorAfterRelaunch() throws {
+        continueAfterFailure = false
+        let base = try XCTUnwrap(ProcessInfo.processInfo.environment["VCHAT_STREAM_FIXTURE"])
+        let app = XCUIApplication()
+        app.launchEnvironment["VCHAT_TEST_LIVE_ENDPOINT"] = base + "/group-fc"
+        app.launchEnvironment["VCHAT_TEST_SYNC_SESSION"] = UUID().uuidString
+        app.launchArguments = ["-native.background-replies", "NO", "-native.server-reply-sync", "NO"]
+        app.launch()
+        let send = app.buttons["发送消息"], card = app.staticTexts["海边手记"]
+        XCTAssertTrue(send.waitForExistence(timeout: 20)); send.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(app.buttons["函数调用 · Calculator"].exists)
+        XCTAssertTrue(prose("已收到两份回执。", in: app).waitForExistence(timeout: 8))
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Group DailyNote"; shot.lifetime = .keepAlways; add(shot)
+        app.terminate(); app.launch()
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        // Reopening follows the newest reply. Scroll back to A's card on compact
+        // phones; its Markdown body is mounted and rendered after its heading.
+        let diary = app.descendants(matching: .any).matching(
+            NSPredicate(format: "value == %@ OR label == %@", "今天在海边记录了潮位。", "今天在海边记录了潮位。")
+        ).firstMatch
+        if !diary.waitForExistence(timeout: 3) { app.collectionViews.firstMatch.swipeDown() }
+        XCTAssertTrue(diary.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(send.waitForExistence(timeout: 10)); send.tap()
+        XCTAssertTrue(prose("日记编号 note-407，计算结果 323。", in: app).waitForExistence(timeout: 15), app.debugDescription)
+    }
+    @MainActor func testHostedCallReloadAndReplay() throws { try hostedRound(background: false) }
+    @MainActor func testHostedCallDurableTransferAndReplay() throws { try hostedRound(background: true) }
+    @MainActor private func hostedRound(background: Bool) throws {
+        continueAfterFailure = false
+        guard let base = ProcessInfo.processInfo.environment["VCHAT_STREAM_FIXTURE"] else { throw XCTSkip("Requires slow-reply.py on loopback") }
+        let app = XCUIApplication()
+        app.launchEnvironment["VCHAT_TEST_LIVE_ENDPOINT"] = base + "/fc"
+        app.launchEnvironment["VCHAT_TEST_SYNC_SESSION"] = UUID().uuidString
+        app.launchArguments = ["-native.background-replies", background ? "YES" : "NO", "-native.server-reply-sync", "NO"]
+        app.launch()
+        let send = app.buttons["发送消息"], card = app.buttons["函数调用 · 天气"]
+        XCTAssertTrue(send.waitForExistence(timeout: 20)); send.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 20))
+        XCTAssertTrue(prose("青岛今天晴。", in: app).waitForExistence(timeout: 8))
+        openDisclosure(card, in: app)
+        XCTAssertTrue(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", "<em>原文</em>")).firstMatch.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.webViews.firstMatch.exists)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Hosted function detail"; shot.lifetime = .keepAlways; add(shot)
+        app.terminate(); app.launch()
+        XCTAssertTrue(card.waitForExistence(timeout: 15)); XCTAssertEqual(card.value as? String, "已收起")
+        XCTAssertTrue(send.waitForExistence(timeout: 8)); send.tap()
+        XCTAssertTrue(prose("历史配对成功", in: app).waitForExistence(timeout: 15))
+    }
+    @MainActor func testSelectWordAndAskWithoutLeavingTranscript() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        let sample = "Orbit velocity describes a route."
+        app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = sample
+        app.launchEnvironment["VCHAT_TEST_LATER_MESSAGE"] = "Later route"
+        app.launch()
+        let body = app.descendants(matching: .any).matching(NSPredicate(format: "value == %@ OR label == %@", sample, sample)).firstMatch
+        XCTAssertTrue(body.waitForExistence(timeout: 15))
+        let word = body.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 16, dy: 10))
+        word.press(forDuration: 0.9)
+        let ask = app.menuItems["单独追问"].firstMatch
+        XCTAssertTrue(ask.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.menuItems.matching(NSPredicate(format: "label IN %@", ["复制","Copy"])).firstMatch.exists)
+        let originalY = body.frame.minY
+        ask.tap()
+        XCTAssertTrue(app.navigationBars["单独追问"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Orbit"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot()); screenshot.name = "Selected quote"; screenshot.lifetime = .keepAlways; add(screenshot)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(body.waitForExistence(timeout: 4))
+        XCTAssertEqual(body.frame.minY, originalY, accuracy: 1)
+        XCTAssertTrue(app.staticTexts["Later route"].exists)
+        body.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: -8, dy: 8)).press(forDuration: 0.8)
+        let branch = app.buttons["从这里另开话题"].firstMatch
+        XCTAssertTrue(branch.waitForExistence(timeout: 5)); branch.tap()
+        XCTAssertTrue(app.staticTexts["新对话 · 分支"].waitForExistence(timeout: 5))
+        XCTAssertTrue(body.exists); XCTAssertFalse(app.staticTexts["Later route"].exists)
+    }
+    @MainActor func testIslandTextHasSelectionInsteadOfMessageMenu() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = "<div id='vcp-root'><p>Orbit velocity describes a route.</p></div>"
+        app.launch()
+        let text = app.webViews.staticTexts["Orbit velocity describes a route."].firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 15))
+        text.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 14,dy: 9)).press(forDuration: 1)
+        let ask = app.menuItems["单独追问"].firstMatch
+        XCTAssertTrue(ask.waitForExistence(timeout: 4), app.debugDescription); ask.tap()
+        XCTAssertTrue(app.navigationBars["单独追问"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Orbit"].exists)
+    }
+    @MainActor private func prose(_ value: String, in app: XCUIApplication) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "value == %@", value)).firstMatch
+    }
+
+    @MainActor private func openDisclosure(_ header: XCUIElement, in app: XCUIApplication,
+                                           file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        XCTAssertEqual(header.value as? String, "已收起", file: file, line: line)
+        // XCTest 26 sometimes reports (-1, -1) for a visible List button.
+        // Hit the actual header and check that it, not a neighbouring card, opened.
+        let frame = header.frame, window = app.frame
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        guard !frame.isEmpty, app.collectionViews.firstMatch.frame.intersection(window).contains(center) else {
+            return XCTFail("Card header outside the transcript: \(frame)\n\(app.debugDescription)", file: file, line: line)
+        }
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: center.x - window.minX, dy: center.y - window.minY)).tap()
+        XCTAssertEqual(header.value as? String, "已展开", app.debugDescription, file: file, line: line)
+    }
+
+    @MainActor func testReceiptTableAndLiteralHTMLShareOneDisclosure() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = """
+        <<<[VCP_TOOL_BATCH_START:table]>>>
+        [[VCP调用结果信息汇总:
+        工具名称: 路线比较
+        返回内容:
+        | 方案 | 时间 |
+        | --- | --- |
+        | 步行 | 12 分钟 |
+
+        - [路线详情](https://example.org/map)
+
+        <div id="vcp-root">原文</div>
+        VCP调用结果结束]]
+        [本轮工具调用摘要:]
+        查询完成
+        [本轮工具调用摘要结束]
+        <<<[VCP_TOOL_BATCH_END:table]>>>
+        """
+        app.launch()
+        let summary = app.buttons["本轮工具调用摘要"].firstMatch
+        openDisclosure(summary, in: app)
+        XCTAssertTrue(prose("12 分钟", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(prose("方案", in: app).exists)
+        XCTAssertTrue(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", #"<div id="vcp-root">"#)).firstMatch.exists)
+        XCTAssertFalse(app.webViews.firstMatch.exists)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Rich tool receipt"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    @MainActor func testSendQuotedFollowUpInItsOwnRoom() throws {
+        continueAfterFailure = false
+        guard let base = ProcessInfo.processInfo.environment["VCHAT_STREAM_FIXTURE"] else { throw XCTSkip("Requires slow-reply.py on loopback") }
+        let app = XCUIApplication(), sample = "Orbit velocity describes a route."
+        app.launchEnvironment["VCHAT_TEST_LIVE_ENDPOINT"] = base + "/quote"
+        app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = sample
+        app.launchArguments = ["-native.background-replies", "NO"]
+        app.launch()
+        let body = prose(sample, in: app)
+        XCTAssertTrue(body.waitForExistence(timeout: 12))
+        body.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 16,dy: 10)).press(forDuration: 0.85)
+        app.menuItems["单独追问"].tap()
+        let input = app.descendants(matching: .any)["side-question-input"].firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText("Explain.")
+        app.buttons["发送追问"].tap()
+        // The fixture responds only to the selected word plus the question, with no parent history.
+        XCTAssertTrue(app.staticTexts["Quote received"].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(body.exists); XCTAssertFalse(app.staticTexts["Quote received"].exists)
+        XCTAssertEqual(app.textViews["发消息"].value as? String, "本机测试")
+    }
+    // The fixture provides an isolated, paired desktop and legacy checkpoints in the simulator.
+    @MainActor func testScrollAfterBidirectionalSyncWithExistingCheckpoints() throws {
+        guard let n = ProcessInfo.processInfo.environment["VCHAT_SYNC_CHECKPOINT_COUNT"].flatMap(Int.init) else {
+            throw XCTSkip("Requires seeded MobileSync simulator and loopback peer")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["我"].tap()
+        app.staticTexts["桌面同步"].firstMatch.tap()
+        let list = app.scrollViews.firstMatch, rows = app.buttons.matching(identifier: "恢复此前状态")
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let indexed = NSPredicate { _,_ in rows.count == n }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate:indexed,object:nil)], timeout:120), .completed)
+        let token = app.secureTextFields["桌面同步 Token"]
+        if (token.value as? String ?? "").isEmpty || token.value as? String == "桌面同步 Token" {
+            token.tap(); token.typeText("index-fixture\n")
+        }
+        let sync = app.buttons["双向同步"]
+        if !sync.isHittable { list.swipeUp() }
+        sync.tap(); app.buttons["开始双向同步"].tap()
+        let done = app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@", "同步完成，恢复点已保存")).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout:90), app.debugDescription)
+        XCTAssertEqual(rows.count,n + 1)
+        for _ in 0..<3 { list.swipeUp(velocity:.fast); list.swipeDown(velocity:.fast) }
+        list.swipeUp()
+        XCTAssertEqual(app.state,.runningForeground)
+        XCTAssertEqual(rows.count,n + 1)
+        let shot = XCTAttachment(screenshot:app.screenshot()); shot.name = "滚动后的恢复点列表"; shot.lifetime = .keepAlways; add(shot)
+        let newest = rows.element(boundBy:0)
+        if !newest.isHittable { list.swipeDown() }
+        newest.tap()
+        let restore = app.buttons["保留当前副本并恢复"]
+        XCTAssertTrue(restore.waitForExistence(timeout:5))
+        restore.tap()
+        let restored = app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@", "已恢复；恢复前内容仍在恢复点中")).firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout:30),app.debugDescription)
+        XCTAssertEqual(rows.count,n + 2)
+    }
+    @MainActor func testSettingsLastRowClearsBottomTabs() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["我"].tap()
+        app.staticTexts["设置"].firstMatch.tap()
+        let list = app.scrollViews.firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+        let last = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "关于 VCPChat")).firstMatch
+        list.swipeUp(velocity: .fast)
+        XCTAssertTrue(last.isHittable)
+        let tabTop = app.buttons["我"].frame.minY
+        XCTAssertLessThanOrEqual(list.frame.maxY, tabTop)
+        XCTAssertLessThanOrEqual(last.frame.maxY, tabTop)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Settings bottom"; screenshot.lifetime = .keepAlways; add(screenshot)
+        last.tap()
+        XCTAssertTrue(app.navigationBars["关于 VChat"].waitForExistence(timeout: 5))
+
+        app.navigationBars.buttons.firstMatch.tap()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let rotated = NSPredicate { _, _ in list.frame.width > list.frame.height }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: rotated, object: nil)], timeout: 10), .completed)
+        for _ in 0..<4 {
+            if last.isHittable && last.frame.maxY <= app.buttons["我"].frame.minY { break }
+            list.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(last.isHittable)
+        XCTAssertLessThanOrEqual(list.frame.maxY, app.buttons["我"].frame.minY)
+        XCTAssertLessThanOrEqual(last.frame.maxY, app.buttons["我"].frame.minY)
+        XCTAssertLessThanOrEqual(app.buttons["我"].frame.maxY, app.frame.maxY)
+    }
+
+    @MainActor func testJEVDisclosureKeepsOriginalRequest() {
+        let app = XCUIApplication()
+        app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = "<<<[TOOL_REQUEST]>>>\nJEV:「始」用 {联网搜索} 查询天气「末」\n<<<[END_TOOL_REQUEST]>>>"
+        app.launch()
+        let tool = app.buttons["联网搜索"].firstMatch
+        openDisclosure(tool, in: app)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "用 {联网搜索} 查询天气")).firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor func testHistoricalButtonReceipt() {
+        let app = XCUIApplication()
+        let token = "[[点击按钮:继续探索]]"
+        app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = token
+        app.launchEnvironment["VCHAT_TEST_MESSAGE_ROLE"] = "user"
+        app.launch()
+        let receipt = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "已点击按钮：继续探索")).firstMatch
+        XCTAssertTrue(receipt.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.staticTexts[token].exists)
+    }
+
     @MainActor func testTappingOneHeaderChangesOnlyThatSection() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -63,10 +318,10 @@ final class MessageDisclosureTests: XCTestCase {
         XCTAssertFalse(app.buttons["工具结果 · 天气"].exists)
         XCTAssertFalse(app.buttons["工具结果 · 时钟"].exists)
         tap(3); check([3]); XCTAssertTrue(app.staticTexts["两次调用成功"].exists)
-        for value in ["小雨", "九点"] { XCTAssertEqual(app.staticTexts.matching(identifier: value).count, 1) }
-        XCTAssertFalse(app.staticTexts["单独的结果"].exists)
-        tap(3); tap(4); check([4]); XCTAssertTrue(app.staticTexts["单独的结果"].exists)
-        XCTAssertFalse(app.staticTexts["小雨"].exists)
+        for value in ["小雨", "九点"] { XCTAssertTrue(prose(value, in: app).exists) }
+        XCTAssertFalse(prose("单独的结果", in: app).exists)
+        tap(3); tap(4); check([4]); XCTAssertTrue(prose("单独的结果", in: app).exists)
+        XCTAssertFalse(prose("小雨", in: app).exists)
     }
     @MainActor func testSaveMarkdownAndHTMLPhotosFromChat() throws {
         continueAfterFailure = false
@@ -114,7 +369,7 @@ final class MessageDisclosureTests: XCTestCase {
         let send = app.buttons["发送消息"]
         guard send.waitForExistence(timeout:20) else { XCTFail("Chat did not open"); return }
         send.tap()
-        guard app.staticTexts["首段"].waitForExistence(timeout:20) else { XCTFail("First chunk was not visible before completion"); return }
+        guard prose("首段", in: app).waitForExistence(timeout:20) else { XCTFail("First chunk was not visible before completion"); return }
         XCUIDevice.shared.press(.home)
         func hasLeftChat() -> Bool { app.state == .runningBackground || app.state == .runningBackgroundSuspended }
         if !hasLeftChat() && !app.wait(for:.runningBackground,timeout:5) && !hasLeftChat() {
@@ -130,7 +385,7 @@ final class MessageDisclosureTests: XCTestCase {
         _ = try await URLSession.shared.data(from:url.appendingPathComponent("next"))
         try await Task.sleep(for:.seconds(2))
         app.activate()
-        guard app.staticTexts["首段补齐"].waitForExistence(timeout:20) else { XCTFail("Missing background chunk before completion"); return }
+        guard prose("首段补齐", in: app).waitForExistence(timeout:20) else { XCTFail("Missing background chunk before completion"); return }
         XCTAssertTrue(app.buttons["停止生成"].exists)
         let (body,_) = try await URLSession.shared.data(from:url.appendingPathComponent("finish"))
         XCTAssertEqual(String(decoding:body,as:UTF8.self),"1")
@@ -149,7 +404,7 @@ final class MessageDisclosureTests: XCTestCase {
         let send=app.buttons["发送消息"]
         guard send.waitForExistence(timeout:20) else { XCTFail("Missing composer"); return }
         send.tap()
-        guard app.staticTexts["首段"].waitForExistence(timeout:20) else { XCTFail("Missing live server prefix"); return }
+        guard prose("首段", in: app).waitForExistence(timeout:20) else { XCTFail("Missing live server prefix"); return }
         let authors = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "assistant-author-"))
         let original = authors.firstMatch.identifier
         XCTAssertFalse(original.isEmpty)
@@ -160,16 +415,16 @@ final class MessageDisclosureTests: XCTestCase {
         let (body,_)=try await URLSession.shared.data(from:url.appendingPathComponent("release").appendingPathComponent(id))
         XCTAssertEqual(String(decoding:body,as:UTF8.self),"1")
         app.launch()
-        guard app.staticTexts["首段后台完成"].waitForExistence(timeout:25) else {
+        guard prose("首段后台完成", in: app).waitForExistence(timeout:25) else {
             XCTFail("Recovery failed: author=\(app.staticTexts[original].exists), composer=\(send.exists), busy=\(app.buttons["停止生成"].exists), prefix=\(app.staticTexts["首段"].exists), interrupted=\(app.staticTexts["已中断 · 内容已保留"].exists)")
             return
         }
         XCTAssertTrue(send.waitForExistence(timeout:15))
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format:"label == %@", "首段后台完成")).count,1)
+        XCTAssertEqual(app.textViews.matching(NSPredicate(format:"value == %@", "首段后台完成")).count,1)
         XCTAssertEqual(authors.count, 1)
         XCTAssertEqual(authors.firstMatch.identifier, original)
         app.terminate(); app.launchEnvironment["VCHAT_TEST_END_SYNC_SESSION"] = id; app.launch()
-        XCTAssertTrue(app.staticTexts["首段后台完成"].waitForExistence(timeout: 20), "The restored reply must also be committed to disk")
+        XCTAssertTrue(prose("首段后台完成", in: app).waitForExistence(timeout: 20), "The restored reply must also be committed to disk")
         XCTAssertEqual(authors.firstMatch.identifier, original)
         let (count,_)=try await URLSession.shared.data(from:url.appendingPathComponent("count").appendingPathComponent(id))
         XCTAssertEqual(String(decoding:count,as:UTF8.self),"1")

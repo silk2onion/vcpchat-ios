@@ -100,7 +100,7 @@ final class PhoneInteractionTests: XCTestCase {
                        [.island(root), .markdown("\n正文<style>.other{}</style>")])
     }
 
-    func testReceiptPromotesOnlyRealImageNodesAndKeepsOtherBytes() async throws {
+    func testReceiptRendersMarkdownButKeepsHTMLAndProtocolMarkersInert() async throws {
         let png = "https://fixture.invalid/image(2).png"
         let example = "`![示例](https://fixture.invalid/not-an-image.png)`"
         let prefix = "🌿 生成完毕：", suffix = "\n" + example + "\n\n<script>sample()</script>\n<<<[ROLE_DIVIDE_USER]>>>"
@@ -110,9 +110,14 @@ final class PhoneInteractionTests: XCTestCase {
         guard case .vcp(.batch(let parts, true)) = rendered.first, case .result(let result, true) = parts.first else {
             return XCTFail("batch lost its tool receipt")
         }
-        let blocks = try await MessageRenderer.shared.receiptBlocks(result.content, media: true)
-        XCTAssertEqual(blocks, [.literal(prefix), .paragraph([.media(try XCTUnwrap(MessageMedia(source: png, caption: "成品")))]), .literal(suffix)])
-        let disabled = try await MessageRenderer.shared.receiptBlocks(result.content, media: false)
+        let blocks = try await MessageRenderer.shared.receiptBlocks(result.content, options: .init(), dark: false)
+        guard case .paragraph(let runs) = blocks.first else { return XCTFail("Missing receipt paragraph") }
+        XCTAssertTrue(runs.contains(.media(try XCTUnwrap(MessageMedia(source: png, caption: "成品")))))
+        XCTAssertTrue(runs.contains { if case .text(let v) = $0 { return v.inlinePresentationIntent == .code && String(v.characters).contains("not-an-image") }; return false })
+        XCTAssertTrue(blocks.contains { if case .literal(let raw) = $0 { return raw.contains("<script>sample()</script>") }; return false })
+        XCTAssertFalse(blocks.contains { if case .vcp = $0 { return true }; if case .html = $0 { return true }; return false })
+        var options = RenderOptions(); options.enabled = false
+        let disabled = try await MessageRenderer.shared.receiptBlocks(result.content, options: options, dark: false)
         XCTAssertEqual(disabled, [.literal(content)])
     }
 

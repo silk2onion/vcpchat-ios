@@ -15,13 +15,13 @@ struct ConnectedFoldersView: View {
     @State private var selecting = false
     @State private var error: String?
     var body: some View {
-        List {
+        WorkspaceList(embedded: embedded) {
             if let error { Text(error).foregroundStyle(.red) }
             Section { NavigationLink(value: ConnectedFolderRoute.node) { Label("移动版 FileOperator",systemImage: "point.3.connected.trianglepath.dotted") } }
             Section { Button("连接文件夹…",systemImage: "folder.badge.plus") { selecting = true }; Text("通过系统选择器连接一个工作文件夹。App 可直接读写，修改前保留备份；Agent 默认没有权限。").font(.caption).foregroundStyle(.secondary) }
             ForEach(folders) { folder in NavigationLink(value: ConnectedFolderRoute.folder(id: folder.id,name: folder.name,path: "")) { Label(folder.name,systemImage: "folder") } }
             if folders.isEmpty { ContentUnavailableView("尚未连接文件夹",systemImage: "folder.badge.plus") }
-        }.scrollContentBackground(.hidden).background { if !embedded { ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea() } }.navigationTitle("连接文件夹").task { await refresh() }
+        }.navigationTitle("连接文件夹").task { await refresh() }
         .navigationDestination(for: ConnectedFolderRoute.self) { route in
             Group {
                 switch route {
@@ -58,7 +58,7 @@ struct ConnectedFolderBrowser: View {
     @Environment(\.dismiss) private var dismiss
     var engine: ConnectedFolders? { model.connectedFolders }
     var body: some View {
-        List {
+        WorkspaceList {
             if let error { Text(error).foregroundStyle(.red) }
             if path.isEmpty { Section {
                 Menu("Agent 权限：" + (currentAccess == "write" ? "可读写" : currentAccess == "read" ? "只读" : "未授权")) { Button("不授权") { grant("off") }; Button("只读") { permission = "read"; granting = true }; Button("可读写（保留备份）") { permission = "write"; granting = true } }
@@ -77,7 +77,7 @@ struct ConnectedFolderBrowser: View {
         .toolbar { Menu { Button("新文本文件") { operation = "WriteFile"; destination = ""; prompt = true }; Button("新文件夹") { operation = "CreateDirectory"; destination = ""; prompt = true }; Button("刷新") { Task { await refresh() } } } label: { Image(systemName: "plus") } }
         .task { await refresh() }
         .sheet(item: $document,onDismiss: { Task { await refresh() } }) { ConnectedDocumentEditor(model: model,folderID: folderID,document: $0.document) }
-        .sheet(isPresented: $prompt) { NavigationStack { Form { TextField(operation == "WriteFile" || operation == "CreateDirectory" ? "名称" : "目标相对路径",text: $destination); if let error { Text(error).foregroundStyle(.red) } }.navigationTitle(operation == "WriteFile" ? "新文本文件" : operation == "CreateDirectory" ? "新文件夹" : "目标位置").toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { prompt = false } }; ToolbarItem(placement: .confirmationAction) { Button("确认") { Task { await apply() } }.disabled(destination.isEmpty) } } }.frame(minWidth: 350,minHeight: 250) }
+        .sheet(isPresented: $prompt) { NavigationStack { WorkspaceForm { TextField(operation == "WriteFile" || operation == "CreateDirectory" ? "名称" : "目标相对路径",text: $destination); if let error { Text(error).foregroundStyle(.red) } }.navigationTitle(operation == "WriteFile" ? "新文本文件" : operation == "CreateDirectory" ? "新文件夹" : "目标位置").toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { prompt = false } }; ToolbarItem(placement: .confirmationAction) { Button("确认") { Task { await apply() } }.disabled(destination.isEmpty) } } }.frame(minWidth: 350,minHeight: 250) }
         .confirmationDialog("授权 Agent \(permission == "write" ? "读写" : "读取")“\(name)”？只有此文件夹内的相对路径可用，修改前保留备份。",isPresented: $granting,titleVisibility: .visible) { Button("确认授权") { grant(permission) } }
         .confirmationDialog("删除“\(deleting?.name ?? "")”？删除前会保留可恢复的备份。",isPresented: Binding(get: { deleting != nil },set: { if !$0 { deleting = nil } }),titleVisibility: .visible) { Button("删除并保留备份",role: .destructive) { if let item = deleting { Task { do { let info = try await engine?.execute(folderID: folderID,args: ["command": .string("FileInfo"),"filePath": .string(item.id)]); _ = try await engine?.execute(folderID: folderID,args: ["command": .string("DeleteFile"),"filePath": .string(item.id),"expectedVersion": info?["version"] ?? .null]); await refresh() } catch { self.error = error.localizedDescription }; deleting = nil } } } }
     }
@@ -105,12 +105,12 @@ struct ConnectedDocumentEditor: View {
     var mime: String { UTType(filenameExtension: (document.path as NSString).pathExtension)?.preferredMIMEType ?? "application/octet-stream" }
     var body: some View {
         NavigationStack { VStack {
-            if document.text != nil { TextEditor(text: $text).font(.body).padding() }
+            if document.text != nil { TextEditor(text: $text).scrollContentBackground(.hidden).font(.body).padding() }
             else if !image.isEmpty { NativeRaster(image,fill: false) }
             else { ContentUnavailableView("可导出原文件查看",systemImage: "doc") }
             if let error { Text(error).foregroundStyle(.red).padding(.horizontal) }
             Button("保存副本到文件库",systemImage: "folder.badge.plus") { Task { do { try await model.store?.addFile(name: (document.path as NSString).lastPathComponent,mime: mime,bytes: document.bytes,source: "连接文件夹副本"); error = "已保存原文件副本到文件库" } catch { self.error = error.localizedDescription } } }.padding(.bottom)
-        }.navigationTitle((document.path as NSString).lastPathComponent).toolbar {
+        }.workspacePageSurface().navigationTitle((document.path as NSString).lastPathComponent).toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) { HStack { Button("导出") { exporting = true }; if document.text != nil { Button("保存修改") { Task { do { _ = try await model.connectedFolders?.execute(folderID: folderID,args: ["command": .string("WriteFile"),"filePath": .string(document.path),"content": .string(text),"overwrite": .bool(true),"expectedVersion": .string(document.version)]); dismiss() } catch { self.error = error.localizedDescription } } } } } }
         }.task { text = document.text ?? ""; if mime.hasPrefix("image/") { image = (try? await EmbeddedImages.shared.prepareWallpaper(document.bytes)) ?? "" } }
@@ -124,7 +124,7 @@ struct ConnectedBackupsView: View {
     @State private var error: String?
     @State private var restoring: FolderItem?
     var body: some View {
-        List { if let error { Text(error).foregroundStyle(.red) }; ForEach(backups) { backup in Button { restoring = backup } label: { VStack(alignment: .leading,spacing: 5) { Text(backup.value["path"].text); Text(backup.value["operation"].text + " · " + Date(timeIntervalSince1970: (backup.value["createdAt"].number ?? 0) / 1000).formatted()).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }.buttonStyle(.plain) } }.navigationTitle("修改备份").task { await refresh() }
+        WorkspaceList { if let error { Text(error).foregroundStyle(.red) }; ForEach(backups) { backup in Button { restoring = backup } label: { VStack(alignment: .leading,spacing: 5) { Text(backup.value["path"].text); Text(backup.value["operation"].text + " · " + Date(timeIntervalSince1970: (backup.value["createdAt"].number ?? 0) / 1000).formatted()).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle()) }.buttonStyle(.plain) } }.navigationTitle("修改备份").task { await refresh() }
         .confirmationDialog("恢复备份到原位置？当前文件也会先保留一份备份。",isPresented: Binding(get: { restoring != nil },set: { if !$0 { restoring = nil } }),titleVisibility: .visible) { Button("恢复备份") { guard let backup = restoring else { return }; Task { do { let engine = model.connectedFolders; let current = try await engine?.execute(folderID: folderID,args: ["command": .string("FileInfo"),"filePath": backup.value["path"]]); _ = try await engine?.request(.object(["action": .string("restore"),"folderId": .string(folderID),"backupId": .string(backup.id),"expectedVersion": current?["version"] ?? .null])); await refresh() } catch { self.error = error.localizedDescription }; restoring = nil } } }
     }
     func refresh() async { do { backups = try await model.connectedFolders?.request(.object(["action": .string("backups"),"folderId": .string(folderID)])).array.map { FolderItem(value: $0) } ?? [] } catch { self.error = error.localizedDescription } }

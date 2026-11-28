@@ -141,7 +141,7 @@ struct MemoryCenterView: View {
     init(model: ChatViewModel) { app = model; _center = State(initialValue: MemoryCenterModel(model)) }
     private var palette: WorkspacePalette { .init(theme: app.appearance.theme) }
     var body: some View {
-        List {
+        WorkspaceList {
             if app.credentialsLocked {
                 NavigationLink("解锁已有连接") { ConnectionView(model: app) }.workspaceRowAction()
             }
@@ -187,8 +187,12 @@ struct MemoryCenterView: View {
                 Button("修改前备份与恢复") { recovery = true }.workspaceRowAction()
                 Button("记忆服务连接") { connecting = true }.workspaceRowAction()
             } footer: { Text("浏览、编辑和图谱使用服务器日记接口；语义检索使用原版 LightMemo。工作台整理先生成可编辑的新记忆，保留来源原文。") }
-        }.listStyle(.inset).scrollContentBackground(.hidden).navigationTitle("记忆中心")
-        .background(ThemeWallpaper(app.appearance,animations: app.renderOptions.motion).ignoresSafeArea())
+        }.navigationTitle("记忆中心")
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { editor = MemoryDraft(folder: center.folder) } label: { Label("新记忆",systemImage: "square.and.pencil").frame(minHeight: 44).contentShape(Rectangle()) } } }
         .disabled(center.working)
         .overlay(alignment: .top) { if center.loading || center.working { ProgressView().padding(12).background(.regularMaterial,in: Capsule()) } }
@@ -220,7 +224,7 @@ private struct MemoryConnectionView: View {
     @Bindable var center: MemoryCenterModel
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        Form {
+        WorkspaceForm {
             if center.app.credentialsLocked { NavigationLink("解锁连接密钥") { ConnectionView(model: center.app) }.workspaceRowAction() }
             LabeledContent("服务器",value: center.app.configuration.server)
             TextField("日记管理员用户名",text: Binding(get: { center.app.services.adminUsername },set: { center.app.services.adminUsername = $0 }))
@@ -256,8 +260,8 @@ private struct MemoryEditor: View {
                     WorkspaceField(title: "标签（可选）",palette: palette) { TextField("沿用 DailyNote 的标签格式",text: $draft.tags) }
                 }
                 Toggle("渲染预览",isOn: $preview)
-                if preview { RichMessageBody(draft.content,options: center.app.renderOptions).frame(maxWidth: .infinity,alignment: .leading) }
-                else { TextEditor(text: $draft.content).scrollContentBackground(.hidden).frame(minHeight: 320).accessibilityLabel("记忆原文") }
+                if preview { RichMessageBody(note: draft.content,options: center.app.renderOptions).frame(maxWidth: .infinity,alignment: .leading) }
+                else { TextEditor(text: $draft.content).scrollContentBackground(.hidden).padding(10).frame(minHeight: 320).background(palette.input, in: RoundedRectangle(cornerRadius: 12)).accessibilityLabel("记忆原文") }
                 if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
                 if let original = draft.original {
                     Button("加入整理工作台") { center.add(original.note) }.workspaceAction(palette)
@@ -293,7 +297,7 @@ private struct MemoryWorkbench: View {
     @State private var moving = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        List {
+        WorkspaceList {
             Section("来源记忆 · \(center.workbench.count) 篇") {
                 ForEach(center.workbench) { note in
                     Button { center.perform { editor = try await center.draft(note) } } label: { MemoryNoteLabel(note: note) }.buttonStyle(.plain)
@@ -329,7 +333,7 @@ private struct MemoryFoldersView: View {
     @Environment(\.dismiss) private var dismiss
     private var ordered: [String] { center.preferences.order.filter { center.folders.contains($0) } + center.folders.filter { !center.preferences.order.contains($0) }.sorted() }
     var body: some View {
-        List {
+        WorkspaceList {
             Section {
                 ForEach(ordered,id: \.self) { folder in
                     HStack {
@@ -355,12 +359,12 @@ private struct MemoryRecoveryView: View {
     @State private var restoring: MemoryRecoveryPoint?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        List {
+        WorkspaceList {
             Section { Text("备份保存在本机。恢复只补回缺失文件；已存在且内容不同的文件不会覆盖。移动后的目标文件也不会被删除。").font(.callout).foregroundStyle(.secondary) }
             ForEach(center.recovery) { point in
                 Section {
                     ForEach(point.documents) { document in
-                        NavigationLink(document.note.id) { NativeFileText(text: document.content).navigationTitle(document.note.file).toolbar { ShareLink(item: document.content) { Label("导出原文",systemImage: "square.and.arrow.up").frame(minHeight: 44).contentShape(Rectangle()) } } }.workspaceRowAction()
+                        NavigationLink(document.note.id) { NativeFileText(text: document.content).workspacePageSurface().navigationTitle(document.note.file).toolbar { ShareLink(item: document.content) { Label("导出原文",systemImage: "square.and.arrow.up").frame(minHeight: 44).contentShape(Rectangle()) } } }.workspaceRowAction()
                     }
                     Button("恢复缺失文件（不覆盖）") { restoring = point }.workspaceRowAction()
                 } header: { Text("\(point.operation) · \(Date(timeIntervalSince1970: point.createdAt).formatted())") }
@@ -439,7 +443,7 @@ private struct MemoryGraphView: View {
             }
             if busy { ProgressView("正在读取联想关系").padding(8) }
             if let error { Text(error).font(.callout).foregroundStyle(.red).padding() }
-        }.navigationTitle("记忆联想图谱").toolbar {
+        }.workspacePageSurface().navigationTitle("记忆联想图谱").toolbar {
             ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Text("关闭").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) } }
             ToolbarItem(placement: .primaryAction) { Button { zoom = 1; pan = .zero } label: { Text("复位视图").frame(minWidth: 44,minHeight: 44).contentShape(Rectangle()) } }
         }.task { nodes = [root]; selected = root; expand(root) }

@@ -20,6 +20,7 @@ public struct CodeSpan: Sendable, Equatable {
 public enum InlineRun: Sendable, Equatable { case text(AttributedString); case math(String); case media(MessageMedia) }
 public enum RenderBlock: Sendable, Equatable {
     case html(String)
+    case buttonReceipt(String)
     case diagram(String, DiagramRaster)
     case vcp(VCPMarkup.Segment)
     case literal(String)

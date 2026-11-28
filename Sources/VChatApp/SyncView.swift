@@ -4,12 +4,12 @@ import VChatRendering
 struct SyncView: View {
     @Bindable var model: ChatViewModel
     @State private var profiles: [SyncProfile] = []
-    @State private var checkpoints: [SyncCheckpoint] = []
+    @State private var checkpoints: [SyncCheckpointSummary] = []
     @State private var progress = ""
     @State private var error: String?
     @State private var task: Task<Void,Never>?
     @State private var confirmWrite = false
-    @State private var restoring: SyncCheckpoint?
+    @State private var restoring: SyncCheckpointSummary?
     @Environment(\.scenePhase) private var phase
     private let engine = MobileSync()
     private var selected: SyncProfile? { guard let endpoint = try? MobileSyncSettings.endpoint(model.services.sync.httpURL).absoluteString else { return nil }; return profiles.first { $0.endpoint == endpoint } }
@@ -36,7 +36,7 @@ struct SyncView: View {
                 VStack(alignment: .leading,spacing: 16) {
                     Text("本机恢复点").font(.system(size: 16,weight: .semibold))
                     if matching.isEmpty { Text("首次同步完成后会保存原状与结果；恢复仅影响此同步来源。").font(.system(size: 13)).foregroundStyle(palette.muted) }
-                    ForEach(matching) { point in HStack { VStack(alignment: .leading,spacing: 4) { Text(Date(timeIntervalSince1970: point.at),format: .dateTime.month().day().hour().minute().second()); Text("同步前 \(point.before.topics.count) 个话题 · 同步后 \(point.after.topics.count) 个话题").font(.caption).foregroundStyle(palette.muted) }; Spacer(); Button("恢复此前状态") { restoring = point }.disabled(model.synchronizing) } }
+                    ForEach(matching) { point in HStack { VStack(alignment: .leading,spacing: 4) { Text(Date(timeIntervalSince1970: point.at),format: .dateTime.month().day().hour().minute().second()); Text("同步前 \(point.beforeTopics) 个话题 · 同步后 \(point.afterTopics) 个话题").font(.caption).foregroundStyle(palette.muted) }; Spacer(); Button("恢复此前状态") { restoring = point }.disabled(model.synchronizing) } }
                 }.padding(18).workspaceGlass(palette)
             }.padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
         }.buttonStyle(WorkspacePress()).navigationTitle("桌面同步").background(ThemeWallpaper(model.appearance,animations: model.renderOptions.motion).ignoresSafeArea())
@@ -44,11 +44,11 @@ struct SyncView: View {
             .onDisappear { task?.cancel() }
             .onChange(of: phase) { _,p in if p == .background { task?.cancel() } }
             .confirmationDialog("将此来源在本机的修改与删除写回桌面？原有非同步会话不上传。",isPresented: $confirmWrite,titleVisibility: .visible) { Button("开始双向同步") { start(.both) } }
-            .confirmationDialog("恢复该来源同步前的状态？当前内容会另存恢复点，不改变桌面。",isPresented: Binding(get: { restoring != nil },set: { if !$0 { restoring = nil } }),titleVisibility: .visible) { Button("保留当前副本并恢复") { if let p = restoring { restore(p) }; restoring = nil } }
+            .confirmationDialog("恢复该来源同步前的状态？当前内容会另存恢复点，不改变桌面。",isPresented: Binding(get: { restoring != nil },set: { if !$0 { restoring = nil } }),titleVisibility: .visible, presenting: restoring) { point in Button("保留当前副本并恢复") { restore(point) } }
     }
-    private var matching: [SyncCheckpoint] { checkpoints.filter { $0.profileID == selected?.id }.sorted { $0.at > $1.at } }
+    private var matching: [SyncCheckpointSummary] { checkpoints.filter { $0.profileID == selected?.id } }
     private var unavailable: Bool { model.synchronizing || model.credentialsLocked || model.rooms.values.contains(where: \.busy) || (model.serviceSecrets[.syncToken] ?? "").isEmpty }
-    @MainActor private func refresh() async { do { profiles = try await model.store?.records(SyncProfile.self,kind: "sync-profile") ?? []; checkpoints = try await model.store?.records(SyncCheckpoint.self,kind: "sync-checkpoint") ?? [] } catch { self.error = error.localizedDescription } }
+    @MainActor private func refresh() async { do { profiles = try await model.store?.records(SyncProfile.self,kind: "sync-profile") ?? []; checkpoints = try await model.store?.checkpointSummaries() ?? [] } catch { self.error = error.localizedDescription } }
     private func start(_ mode: MobileSyncMode) {
         guard !unavailable,let store = model.store else { return }; error = nil; progress = "准备同步…"; model.synchronizing = true
         let settings = model.services.sync,token = model.serviceSecrets[.syncToken] ?? ""
@@ -67,16 +67,17 @@ struct SyncView: View {
             catch { progress = ""; self.error = error.localizedDescription }
         }
     }
-    private func restore(_ point: SyncCheckpoint) {
+    private func restore(_ point: SyncCheckpointSummary) {
         guard !model.synchronizing,!model.rooms.values.contains(where: \.busy),let store = model.store else { return }; model.synchronizing = true; error = nil
-        task = Task { @MainActor in defer { model.synchronizing = false; task = nil }; do { try await store.restoreSync(point); await model.reloadSyncSource(point.previous); await refresh(); progress = "已恢复；恢复前内容仍在恢复点中" } catch { self.error = error.localizedDescription } }
+        task = Task { @MainActor in defer { model.synchronizing = false; task = nil }; do { let id = try await store.restoreSync(id:point.id); await model.reloadSyncSource(id:id); await refresh(); progress = "已恢复；恢复前内容仍在恢复点中" } catch { self.error = error.localizedDescription } }
     }
 }
 extension ChatViewModel {
-    func reloadSyncSource(_ p: SyncProfile) async {
+    func reloadSyncSource(_ p: SyncProfile) async { await reloadSyncSource(id:p.id) }
+    func reloadSyncSource(id: String) async {
         do {
             guard let store else { return }
-            let prefix = "sync:\(p.id):"
+            let prefix = "sync:\(id):"
             let oldIDs = Set(topics.filter { $0.ownerId.hasPrefix(prefix) }.map(\.id))
             agents = try await store.records(VCPAgent.self, kind: "agent")
             groups = try await store.records(VCPGroup.self, kind: "group")

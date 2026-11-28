@@ -13,7 +13,12 @@ struct SettingsView: View {
     @State private var regex = false
     @State private var mainAgent = false
     private var palette: WorkspacePalette { .init(theme: model.appearance.theme) }
-    var body: some View { Group { if embedded { content } else { NavigationStack { content } } }.frame(minWidth: 350,minHeight: 540) }
+    var body: some View {
+        Group { if embedded { content } else { NavigationStack { content } } }
+            #if os(macOS)
+            .frame(minWidth: 350, minHeight: 540)
+            #endif
+    }
     private var content: some View {
         VStack(spacing: 0) {
             #if os(macOS)
@@ -27,8 +32,7 @@ struct SettingsView: View {
                         NavigationLink { ConnectionView(model: model,embedded: true) } label: { row("服务器与模型","server",model.configuration.model.isEmpty ? "连接你的 VCPToolBox" : model.configuration.model) }
                         WorkspaceSeparator(palette: palette)
                         NavigationLink { ConnectionView(model: model,embedded: true,focusLogs: true) } label: { row("日志通道","logs","VCPLog 与 VCPInfo",blue: true) }
-                        WorkspaceSeparator(palette: palette)
-                        NavigationLink { ActivityView(model: model).workspaceDetailNavigation() } label: { row("查看实时日志","history",model.activity.statuses[.log] ?? "未连接",blue: true) }
+
                     }.workspaceGlass(palette)
                     label("个性化")
                     VStack(spacing: 0) {
@@ -76,7 +80,7 @@ struct SettingsView: View {
 private struct AboutVChat: View {
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.0" }
     var body: some View {
-        Form {
+        WorkspaceForm {
             Section {
                 VStack(alignment: .leading,spacing: 10) { Image(systemName: "sparkle").font(.largeTitle).foregroundStyle(.mint); Text("VChat").font(.title.bold()); Text("\(version) · 随身的 Agent 工作空间").foregroundStyle(.secondary); Text("SwiftUI 原生界面，连接你自己的 VCP 服务。聊天、笔记与文件保存在这台设备上。") }.padding(.vertical,12)
                 Link("使用说明",destination: URL(string: "https://github.com/silk2onion/vcpchat-ios/blob/feat/swiftui-phase1/README.md")!)
@@ -184,7 +188,7 @@ private struct BackgroundReplySettings: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Form {
+        WorkspaceForm {
             Section {
                 Toggle("后台收回复", isOn: $enabled)
                 if enabled { Toggle("使用 VCP 回复续传插件",isOn:$serverSync) }

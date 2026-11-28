@@ -13,10 +13,9 @@ struct RegexRulesView: View {
     @State private var document = TextExportDocument()
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.workspaceTheme) private var theme
     var body: some View {
         NavigationStack {
-            List {
+            WorkspaceList {
                 Section { Button { editing = RegexRule() } label: { Label("添加规则", systemImage: "plus.circle.fill").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) } }
                 if let error { Text(error).foregroundStyle(.red) }
                 if rules.isEmpty { ContentUnavailableView("还没有正则规则", systemImage: "text.magnifyingglass", description: Text("添加规则，或导入 VChat / SillyTavern JSON。")) }
@@ -31,7 +30,7 @@ struct RegexRulesView: View {
                         } label: { Image(systemName: "ellipsis").frame(width: 32, height: 36) }.menuStyle(.borderlessButton).fixedSize()
                     }.padding(.vertical, 4)
                 }.onMove { from, to in rules.move(fromOffsets: from, toOffset: to); Task { await save() } }
-            }.scrollContentBackground(.hidden).background(WorkspacePalette(theme: theme).solid).navigationTitle(title)
+            }.navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -59,7 +58,7 @@ private struct RegexRuleEditor: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            Form {
+            WorkspaceForm {
                 if let error { Section { Text(error).foregroundStyle(.red) } }
                 Section("替换规则") {
                     TextField("名称", text: $rule.title)

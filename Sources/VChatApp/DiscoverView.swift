@@ -26,8 +26,7 @@ struct DiscoverView: View {
                             row("记忆检索动态",icon: "logs",color: Color(rgb: 0xad93db),subtitle: "实时查看记忆事件",section: 2,filter: .memory)
                             WorkspaceSeparator(palette: palette)
                             row("RAG 监视器",icon: "database",color: Color(rgb: 0x71a8d5),subtitle: "知识库、元思考与 Agent 事件",section: 2)
-                        }.workspaceGlass(palette)
-                        VStack(spacing: 0) {
+                            WorkspaceSeparator(palette: palette)
                             row("通知与审批",icon: "bell",color: Color(rgb: 0xad93db),subtitle: "需要你决定的工具调用",section: 0)
                             WorkspaceSeparator(palette: palette)
                             row("VCPLog",icon: "logs",color: palette.accent,subtitle: "实时日志与连接状态",section: 1)

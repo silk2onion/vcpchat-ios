@@ -255,7 +255,11 @@ extension EnvironmentValues { public var messageViewport: CGRect? { get { self[V
             #if os(iOS)
             config.allowsInlineMediaPlayback = true; config.mediaTypesRequiringUserActionForPlayback = .all
             #endif
+            #if os(iOS)
+            view = IslandWebView(frame: .zero, configuration: config)
+            #else
             view = WKWebView(frame: .zero, configuration: config)
+            #endif
             #if os(iOS)
             view.isOpaque = false; view.backgroundColor = .clear; view.scrollView.isScrollEnabled = false
             view.scrollView.showsVerticalScrollIndicator = false
@@ -373,6 +377,7 @@ struct HTMLIsland: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.stickerContext) private var stickers
     @Environment(\.messageLongPressAction) private var showMessageActions
+    @Environment(\.askAboutSelection) private var askSelection
     private var visible: Bool { appeared && phase == .active && (viewport?.intersects(bounds) ?? true) }
     private var document: String {
         let color = emphasisColor.resolve(in: environment)
@@ -388,7 +393,7 @@ struct HTMLIsland: View {
     @ViewBuilder private var surface: some View {
         if let view = controller.view {
             #if os(iOS)
-            IslandNativeView(view: view, showActions: showMessageActions, selectPhoto: selectCardPhoto)
+            IslandNativeView(view: view, showActions: showMessageActions, selectPhoto: selectCardPhoto, ask: askSelection)
                 .id(ObjectIdentifier(view)).frame(height: controller.height)
             #else
             IslandNativeView(view: view, showActions: showMessageActions)
@@ -426,32 +431,80 @@ struct HTMLIsland: View {
 // WebKit consumes SwiftUI ancestor gestures. Keep the recognizer native and
 // remove only this host's recognizer when the pooled view is released.
 #if os(iOS)
+private final class IslandWebView: WKWebView {
+    var ask: (@MainActor @Sendable (String) -> Void)?
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard ask != nil, builder.system !== UIMenuSystem.main else { return }
+        let item = UIAction(title: "单独追问", image: UIImage(systemName: "text.bubble")) { [weak self] _ in
+            self?.evaluateJavaScript("window.getSelection().toString()", in: nil, in: .defaultClient) { [weak self] result in
+                if case .success(let value) = result, let quote = value as? String, !quote.isEmpty { self?.ask?(quote) }
+            }
+        }
+        builder.insertChild(UIMenu(options: .displayInline, children: [item]), atStartOfMenu: .root)
+    }
+}
 private struct IslandNativeView: UIViewRepresentable {
     var view: WKWebView
     var showActions: (@MainActor @Sendable () -> Void)?
     var selectPhoto: (@MainActor (CardPhoto) -> Void)?
+    var ask: (@MainActor @Sendable (String) -> Void)?
     func makeCoordinator() -> IslandPressHandler { IslandPressHandler() }
     func makeUIView(context: Context) -> WKWebView { context.coordinator.attach(to: view); return view }
-    func updateUIView(_ uiView: WKWebView, context: Context) { context.coordinator.showActions = showActions; context.coordinator.selectPhoto = selectPhoto; context.coordinator.gesture?.isEnabled = showActions != nil || selectPhoto != nil }
-    static func dismantleUIView(_ uiView: WKWebView, coordinator: IslandPressHandler) { coordinator.detach(from: uiView) }
+    func updateUIView(_ uiView: WKWebView, context: Context) { (uiView as? IslandWebView)?.ask = ask; context.coordinator.showActions = showActions; context.coordinator.selectPhoto = selectPhoto; context.coordinator.gesture?.isEnabled = showActions != nil || selectPhoto != nil }
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: IslandPressHandler) { (uiView as? IslandWebView)?.ask = nil; coordinator.detach(from: uiView) }
 }
-@MainActor private final class IslandPressHandler: NSObject, UIGestureRecognizerDelegate {
+@MainActor private final class IslandPressHandler: NSObject, UIGestureRecognizerDelegate, @preconcurrency UIEditMenuInteractionDelegate {
+    private var editMenu: UIEditMenuInteraction?
+    private var heldText: (quote: String, point: CGPoint)?
+    private var released = false
+    private func presentSelection() {
+        guard released, let selected = heldText else { return }
+        editMenu?.presentEditMenu(with: .init(identifier: nil, sourcePoint: selected.point))
+    }
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let web = interaction.view as? IslandWebView, let heldText else { return nil }
+        func action(_ title: String, _ symbol: String, perform: @escaping @MainActor (String) -> Void) -> UIAction {
+            UIAction(title: title, image: UIImage(systemName: symbol)) { [weak web] _ in
+                web?.evaluateJavaScript("window.getSelection().toString()", in: nil, in: .defaultClient) { result in
+                    let latest = (try? result.get()) as? String
+                    perform(latest.flatMap { $0.isEmpty ? nil : $0 } ?? heldText.quote)
+                }
+            }
+        }
+        return UIMenu(children: [action("复制", "doc.on.doc") { UIPasteboard.general.string = $0 },
+                                 action("单独追问", "text.bubble") { [weak web] in web?.ask?($0) }])
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === gesture && other is UILongPressGestureRecognizer && (gesture?.view as? IslandWebView)?.ask != nil
+    }
     var showActions: (@MainActor @Sendable () -> Void)?
     var selectPhoto: (@MainActor (CardPhoto) -> Void)?
     var gesture: UILongPressGestureRecognizer?
     func attach(to view: WKWebView) {
         let press = UILongPressGestureRecognizer(target: self,action: #selector(pressed(_:)))
+        let menu = UIEditMenuInteraction(delegate: self); view.addInteraction(menu); editMenu = menu
+        press.cancelsTouchesInView = false
         press.minimumPressDuration = 0.5; press.allowableMovement = 10; press.delegate = self
         gesture = press; view.addGestureRecognizer(press)
     }
-    func detach(from view: WKWebView) { if let gesture { view.removeGestureRecognizer(gesture) }; gesture = nil; showActions = nil; selectPhoto = nil }
+    func detach(from view: WKWebView) {
+        if let gesture { view.removeGestureRecognizer(gesture) }
+        if let editMenu { view.removeInteraction(editMenu) }
+        gesture = nil; editMenu = nil; heldText = nil; showActions = nil; selectPhoto = nil
+    }
     @objc private func pressed(_ press: UILongPressGestureRecognizer) {
+        if press.state == .ended { released = true; presentSelection(); return }
         guard press.state == .began, let web = press.view as? WKWebView else { return }
-        guard selectPhoto != nil, web.bounds.width > 0 else { showActions?(); return }
+        released = false; heldText = nil
+        guard web.bounds.width > 0 else { return }
         let location = press.location(in: web), width = web.bounds.width
-        web.__callAsyncJavaScript(CardPhoto.hitTest, arguments: ["x": location.x / width, "y": location.y / width],
+        web.__callAsyncJavaScript(CardPhoto.hitTest, arguments: ["x": location.x / width, "y": location.y / width, "allowSelection": (web as? IslandWebView)?.ask != nil],
                                   inFrame: nil, in: .defaultClient) { [weak self, weak press] value, _ in
             guard let self, let press, self.gesture === press else { return }
+            if let quote = (value as? [String: String])?["selected"], !quote.isEmpty {
+                self.heldText = (quote, location); self.presentSelection(); return
+            }
             if let hit = value as? [String], let photo = CardPhoto(hit: hit) { self.selectPhoto?(photo) }
             else { self.showActions?() }
         }

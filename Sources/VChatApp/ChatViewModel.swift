@@ -42,6 +42,7 @@ struct SimulatorReplyFixture: Codable {
     let createdAt: Double
     var text: String
     var reasoning: String
+    var assistantSegments: [HostedSegment]?
     var status: String
     var attachments: [ChatAttachment]
     let originalRole: String?
@@ -49,10 +50,10 @@ struct SimulatorReplyFixture: Codable {
     init(_ message: StoredMessage) {
         attachments = message.attachments; originalRole = message.originalRole; syncNotice = message.syncNotice
         id = message.id; topicID = message.topicID; agentID = message.agentID; authorName = message.authorName
-        role = message.role; text = message.content; reasoning = message.reasoning
+        role = message.role; text = message.content; reasoning = message.reasoning; assistantSegments = message.assistantSegments
         status = message.status; createdAt = message.createdAt
     }
-    var record: StoredMessage { StoredMessage(id: id, topicID: topicID, agentID: agentID, authorName: authorName, role: role, content: text, reasoning: reasoning, status: status, createdAt: createdAt, attachments: attachments, originalRole: originalRole, syncNotice: syncNotice) }
+    var record: StoredMessage { StoredMessage(id: id, topicID: topicID, agentID: agentID, authorName: authorName, role: role, content: text, reasoning: reasoning, status: status, createdAt: createdAt, attachments: attachments, originalRole: originalRole, syncNotice: syncNotice, assistantSegments: assistantSegments) }
 }
 @MainActor @Observable final class ChatRoom: Identifiable {
     let id: String
@@ -227,10 +228,19 @@ struct TopicDraft: Codable, Sendable {
                 let root = container.appendingPathComponent("ReplySyncFixtures").appendingPathComponent((testID ?? UUID()).uuidString)
                 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
                 let database = try await ChatStore.open(path:root.appendingPathComponent("chat.sqlite").path)
-                let agent = VCPAgent(id:"fixture",name:"测试"), topic = ChatTopic(id:"fixture-topic",ownerId:"fixture",title:"流式接收测试")
+                let groupFixture = URL(string: endpoint)?.lastPathComponent == "group-fc"
+                let agent = VCPAgent(id:"fixture",name:groupFixture ? "A" : "测试")
+                let group = VCPGroup(id:"fixture-group",name:"双工具群聊",memberIds:[agent.id,"fixture-b"],mode:.rotate)
+                let topic = try await database.records(ChatTopic.self,kind:"topic").first ?? ChatTopic(id:"fixture-topic",
+                    ownerType:groupFixture ? "group" : "agent",ownerId:groupFixture ? group.id : agent.id,title:"流式接收测试")
                 try await database.put(topic,kind:"topic",id:topic.id)
-                store = database; agents = [agent]; topics = [topic]
+                store = database; agents = groupFixture ? [agent,VCPAgent(id:"fixture-b",name:"B")] : [agent]
+                if groupFixture { groups = [group] }
+                topics = [topic]
                 apiKey = "fixture"; configuration = .init(server:endpoint,model:testID?.uuidString ?? "fixture")
+                if let sample = ProcessInfo.processInfo.environment["VCHAT_TEST_DISCLOSURE_MESSAGE"] {
+                    try await database.save(StoredMessage(topicID: topic.id, agentID: agent.id, authorName: agent.name, role: "assistant", content: sample))
+                }
                 let room = ChatRoom(id:topic.id,messages:try await database.messages(topicID:topic.id))
                 room.draft = "本机测试"; rooms[room.id] = room; activeTopicID = room.id
                 try await restoreBackgroundReplies(store:database,root:root)
@@ -240,9 +250,21 @@ struct TopicDraft: Codable, Sendable {
         }
         if let sample = ProcessInfo.processInfo.environment["VCHAT_TEST_DISCLOSURE_MESSAGE"] {
             let topic = ChatTopic(id:"test-disclosures",ownerId:"assistant")
-            let message = StoredMessage(topicID:topic.id,role:"assistant",content:sample,reasoning:"这段单独的推理")
+            let isUser = ProcessInfo.processInfo.environment["VCHAT_TEST_MESSAGE_ROLE"] == "user"
+            let message = StoredMessage(topicID:topic.id,role:isUser ? "user" : "assistant",content:sample,reasoning:isUser ? "" : "这段单独的推理")
             agents = [VCPAgent(id:"assistant",name:"助手")]; topics = [topic]
-            rooms[topic.id] = ChatRoom(id:topic.id,messages:[message]); activeTopicID = topic.id
+            var history = [message]
+            if let suffix = ProcessInfo.processInfo.environment["VCHAT_TEST_LATER_MESSAGE"] {
+                history.append(StoredMessage(topicID: topic.id, role: "user", content: suffix))
+                do {
+                    let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+                    let db = try await ChatStore.open(path: path)
+                    try await db.put(topic, kind: "topic", id: topic.id)
+                    for item in history { try await db.save(item) }
+                    store = db
+                } catch { self.error = error.localizedDescription }
+            }
+            rooms[topic.id] = ChatRoom(id:topic.id,messages:history); activeTopicID = topic.id
             renderOptions.motion = false; requestedReplyTopic = topic.id; loading = false
             return
         }
@@ -414,6 +436,25 @@ struct TopicDraft: Codable, Sendable {
         do { try await store?.removeRecord(kind: "group", id: id); groups.removeAll { $0.id == id } }
         catch { self.error = error.localizedDescription }
     }
+    func branch(from message: MessageViewModel) async {
+        guard !synchronizing, let store else { error = "请等待本机数据库就绪并完成同步"; return }
+        do {
+            let topic = try await store.branchTopic(at: message.record)
+            topics.insert(topic, at: 0)
+            if activeTopicID == message.topicID { await openTopic(topic) }
+        } catch { self.error = error.localizedDescription }
+    }
+
+    /// Keep the presenting room active. Side replies use the ordinary send pipeline
+    /// with their own draft, history, speaker routing and cancellation.
+    func questionTopic(sourceID: String, quote: String) async throws -> ChatTopic {
+        guard !synchronizing, let store, let source = topics.first(where: { $0.id == sourceID }) else { throw ClientError.server("原话题不可用或正在同步") }
+        let topic = ChatTopic(ownerType: source.ownerType, ownerId: source.ownerId,
+                              title: "追问 · " + String(quote.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(20)))
+        try await store.put(topic, kind: "topic", id: topic.id)
+        topics.insert(topic, at: 0); rooms[topic.id] = ChatRoom(id: topic.id, messages: [])
+        return topic
+    }
     func createTopic(ownerID: String, ownerType: String = "agent") async {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
         let topic = ChatTopic(ownerType: ownerType, ownerId: ownerID)
@@ -534,13 +575,15 @@ struct TopicDraft: Codable, Sendable {
         }
         #endif
     }
-    func send(onDraftCleared: @escaping @MainActor () -> Void = {}) {
+    func send(in topicID: String? = nil, routingText: String? = nil, onDraftCleared: @escaping @MainActor () -> Void = {}) {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return }
-        guard let room, let topic = activeTopic, !room.busy, (!room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !room.attachments.isEmpty), let store else { return }
+        let id = topicID ?? activeTopicID
+        guard let room = rooms[id], let topic = topics.first(where: { $0.id == id }), !room.busy, (!room.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !room.attachments.isEmpty), let store else { return }
         let content = room.draft
-        let group = activeGroup
-        let speakers = group.map { GroupRouting.speakers(group: $0, agents: agents, text: content, turn: topic.turnIndex) } ?? activeAgent.map { [$0] } ?? []
-        guard !apiKey.isEmpty else { error = "请先设置聊天 API Key"; return }
+        let group = topic.ownerType == "group" ? groups.first { $0.id == topic.ownerId } : nil
+        let agent = topic.ownerType == "agent" ? agents.first { $0.id == topic.ownerId } : nil
+        let speakers = group.map { GroupRouting.speakers(group: $0, agents: agents, text: routingText ?? content, turn: topic.turnIndex) } ?? agent.map { [$0] } ?? []
+        guard !apiKey.isEmpty else { room.error = "请先设置聊天 API Key"; return }
         let user = StoredMessage(topicID: room.id, authorName: profile.name.isEmpty ? "我" : profile.name, role: "user", content: content, status: "pending", attachments: room.attachments)
         let config = configuration, key = apiKey, profile = profile, rules = regexRules, replies = replySettings
         room.busy = true; room.receivesInBackground = prefersBackgroundReplies; room.serverOwnsReply = room.receivesInBackground && prefersServerReplies; room.cancellation = nil; room.error = nil
@@ -554,7 +597,7 @@ struct TopicDraft: Codable, Sendable {
                 if room.draft == content && room.attachments == user.attachments {
                     room.draftSave?.cancel()
                     room.draft = ""; room.attachments = []
-                    if self.room === room { onDraftCleared() }
+                    if topicID != nil || self.room === room { onDraftCleared() }
                     try await store.put(TopicDraft(id: room.id, text: ""), kind: "draft", id: room.id)
                 }
                 if topic.title == "新对话" { await renameTopic(topic, title: String(content.prefix(24))) }
@@ -609,8 +652,8 @@ struct TopicDraft: Codable, Sendable {
         }
         #endif
         var lastSaved = ContinuousClock.now, accepted = false
-        for try await update in try await room.session.stream(request, prefix: prefix, reasoningPrefix: reasoningPrefix) {
-            assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue
+        for try await update in try await room.session.stream(request, prefix: prefix, reasoningPrefix: reasoningPrefix, segments: assistant.assistantSegments) {
+            assistant.text = update.text; assistant.reasoning = update.reasoning; assistant.status = update.state.rawValue; assistant.assistantSegments = update.segments
             room.frames += 1
             let next: String = switch update.state {
             case .connecting: "正在连接"; case .streaming: "\(assistant.authorName) 正在回复"; case .complete: "回复完成"
@@ -642,8 +685,9 @@ struct TopicDraft: Codable, Sendable {
                 let request = try await ConversationBuilder().request(configuration: config, apiKey: key, profile: profile, agent: agent, group: group, messages: history, rules: rules, output: replies.legacy, location: locationContext, locationPolicy: locationSettings.shares(with: agent.id) ? LocationRequestContext.policy(settings: locationSettings,agentID: agent.id) : nil, advancedReplies: replies.advanced, currentUserMessageID: history.last { ($0.originalRole ?? $0.role) == "user" }?.id, transientUserPrompt: prompt)
                 guard !room.cancelled else { return }
                 var record = message.record; record.content = prefix; record.reasoning = reasoning; record.status = "connecting"
+                if !continuing { record.assistantSegments = nil }
                 try await store.reviseMessage(record)
-                message.text = prefix; message.reasoning = reasoning; message.status = "connecting"
+                message.text = prefix; message.assistantSegments = record.assistantSegments; message.reasoning = reasoning; message.status = "connecting"
                 let pending = room.messages.last { $0.role == "user" && $0.status == "pending" }?.id
                 try await receive(request, into: message, room: room, store: store, prefix: prefix, reasoningPrefix: reasoning, acceptedUser: pending)
             } catch {
@@ -655,7 +699,8 @@ struct TopicDraft: Codable, Sendable {
     func editMessage(_ message: MessageViewModel, text: String) async -> Bool {
         guard !synchronizing else { error = "请等待同步完成或取消后再修改会话"; return false }
         guard let room = rooms[message.topicID], !room.busy, let store else { return false }
-        do { var record = message.record; record.content = text; try await store.reviseMessage(record); message.text = text; return true }
+        do { var record = message.record; record.assistantSegments = HostedHistory.edited(record.assistantSegments, from: record.content, to: text); record.content = text
+            try await store.reviseMessage(record); message.text = text; message.assistantSegments = record.assistantSegments; return true }
         catch { room.error = error.localizedDescription; return false }
     }
     func trashMessage(_ message: MessageViewModel) async {
@@ -676,8 +721,8 @@ struct TopicDraft: Codable, Sendable {
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
-    func stop(background: Bool = false) async {
-        guard let room else { return }
+    func stop(background: Bool = false, in topicID: String? = nil) async {
+        guard let room = rooms[topicID ?? activeTopicID] else { return }
         room.cancellation = background ? .interrupted : .stopped
         await stopGeneration(in: room)
     }
