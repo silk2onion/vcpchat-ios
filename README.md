@@ -76,7 +76,9 @@ SwiftUI 原生客户端，为 iPhone 上的日常聊天与多 Agent 协作而设
 
 ### 1. 安装到 iPhone
 
-前往 [Releases](https://github.com/silk2onion/vcpchat-ios/releases/latest) 下载 IPA，使用 AltStore 等侧载工具签名安装。需要 **iOS 17 或更新版本**。
+下载[最新稳定版](https://github.com/silk2onion/vcpchat-ios/releases/latest)；预发布版在[全部版本](https://github.com/silk2onion/vcpchat-ios/releases)中标为 **Pre-release**。使用 AltStore 等侧载工具签名安装 IPA，需要 **iOS 17 或更新版本**。
+
+[0.3.6 beta 4 更新说明](docs/releases/0.3.6-beta.4.md)（build 22）
 
 更新时沿用原签名账号与应用标识，直接覆盖安装，保留已有数据。
 
