@@ -18,7 +18,13 @@ final class MessageDisclosureTests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Group DailyNote"; shot.lifetime = .keepAlways; add(shot)
         app.terminate(); app.launch()
         XCTAssertTrue(card.waitForExistence(timeout: 15))
-        XCTAssertTrue(prose("今天在海边记录了潮位。", in: app).exists)
+        // Reopening follows the newest reply. Scroll back to A's card on compact
+        // phones; its Markdown body is mounted and rendered after its heading.
+        let diary = app.descendants(matching: .any).matching(
+            NSPredicate(format: "value == %@ OR label == %@", "今天在海边记录了潮位。", "今天在海边记录了潮位。")
+        ).firstMatch
+        if !diary.waitForExistence(timeout: 3) { app.collectionViews.firstMatch.swipeDown() }
+        XCTAssertTrue(diary.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(send.waitForExistence(timeout: 10)); send.tap()
         XCTAssertTrue(prose("日记编号 note-407，计算结果 323。", in: app).waitForExistence(timeout: 15), app.debugDescription)
     }
@@ -91,6 +97,25 @@ final class MessageDisclosureTests: XCTestCase {
         app.textViews.matching(NSPredicate(format: "value == %@", value)).firstMatch
     }
 
+    @MainActor private func openDisclosure(_ header: XCUIElement, in app: XCUIApplication,
+                                           file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(header.waitForExistence(timeout: 10), app.debugDescription, file: file, line: line)
+        XCTAssertEqual(header.value as? String, "已收起", file: file, line: line)
+        if header.isHittable {
+            header.tap()
+        } else {
+            // XCTest can report no activation point for an on-screen SwiftUI
+            // List button. Exercise the same physical tap a reader would make.
+            let frame = header.frame
+            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let list = app.collectionViews.firstMatch
+            XCTAssertTrue(list.frame.contains(center), app.debugDescription, file: file, line: line)
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: center.x - app.frame.minX, dy: center.y - app.frame.minY)).tap()
+        }
+        XCTAssertEqual(header.value as? String, "已展开", app.debugDescription, file: file, line: line)
+    }
+
     @MainActor func testReceiptTableAndLiteralHTMLShareOneDisclosure() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -114,7 +139,7 @@ final class MessageDisclosureTests: XCTestCase {
         """
         app.launch()
         let summary = app.buttons["本轮工具调用摘要"].firstMatch
-        XCTAssertTrue(summary.waitForExistence(timeout: 10)); summary.tap()
+        openDisclosure(summary, in: app)
         XCTAssertTrue(prose("12 分钟", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(prose("方案", in: app).exists)
         XCTAssertTrue(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", #"<div id="vcp-root">"#)).firstMatch.exists)
@@ -203,6 +228,8 @@ final class MessageDisclosureTests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
+        let rotated = NSPredicate { _, _ in list.frame.width > list.frame.height }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: rotated, object: nil)], timeout: 10), .completed)
         for _ in 0..<4 {
             if last.isHittable && last.frame.maxY <= app.buttons["我"].frame.minY { break }
             list.swipeUp(velocity: .fast)
@@ -210,6 +237,7 @@ final class MessageDisclosureTests: XCTestCase {
         XCTAssertTrue(last.isHittable)
         XCTAssertLessThanOrEqual(list.frame.maxY, app.buttons["我"].frame.minY)
         XCTAssertLessThanOrEqual(last.frame.maxY, app.buttons["我"].frame.minY)
+        XCTAssertLessThanOrEqual(app.buttons["我"].frame.maxY, app.frame.maxY)
     }
 
     @MainActor func testJEVDisclosureKeepsOriginalRequest() {
@@ -217,9 +245,8 @@ final class MessageDisclosureTests: XCTestCase {
         app.launchEnvironment["VCHAT_TEST_DISCLOSURE_MESSAGE"] = "<<<[TOOL_REQUEST]>>>\nJEV:「始」用 {联网搜索} 查询天气「末」\n<<<[END_TOOL_REQUEST]>>>"
         app.launch()
         let tool = app.buttons["联网搜索"].firstMatch
-        XCTAssertTrue(tool.waitForExistence(timeout: 10))
-        tool.tap()
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "查询天气")).firstMatch.exists)
+        openDisclosure(tool, in: app)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "用 {联网搜索} 查询天气")).firstMatch.waitForExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor func testHistoricalButtonReceipt() {
